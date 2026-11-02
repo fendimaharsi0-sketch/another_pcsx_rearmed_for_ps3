@@ -43,6 +43,7 @@ typedef struct {
     int gpu_scale;      /* 0 = software renderer, 2..4 = RSX renderer at that scale, 5 = 4x wide, 4.5x tall */
     int filter;         /* FILTER_* */
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
+    int sprite_texfilter; /* RSX sprite filter (textured GP0 sprites, do_rect only): same 0/1/2 values as texfilter, default nearest; polygons keep texfilter */
     int aspect;         /* ASPECT_* */
     int frameskip;      /* 0 off, 1 auto */
     int dithering;

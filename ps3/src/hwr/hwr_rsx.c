@@ -87,7 +87,7 @@ static struct {
        only; flat/copy/self entries alias the nearest program), filter 2 =
        Bilinear (Performance): mode 3 uses a hardware-LINEAR program, CLUT
        modes alias the manual bilinear program, the rest alias nearest.
-       Filter is only chosen for the upscaled pass (see use_prog): the native
+       Filter is only chosen for the upscaled pass (see op_filt): the native
        pass, which writes the VRAM later textures are read from, always stays
        nearest. */
     rsxFragmentProgram *fps[2][3][HWR_NPROG]; u32 fps_off[2][3][HWR_NPROG];
@@ -494,22 +494,28 @@ static void nat_format(int one)
     rsxSetSurface(rsx_ctx, &sf);
 }
 
-/* loads fragment program variant p of the current set and makes sure its texture
-   units hold the views it samples. Bilinear only when the user turned it on,
-   the renderer is actually running (R.on is still 0 during the start-up
-   self-test, so the test always measures the nearest programs), this is the
-   upscaled pass (the native pass writes the VRAM textures are read from, so
-   blurring it would double-blur and break exactness), and p is a textured
-   mode (base 1..3, windowed 5..7); flat/copy/self alias nearest anyway.
+/* loads fragment program variant p at filter index filt (see op_filt) and makes
+   sure its texture units hold the views it samples.
    Performance (filt 2) is the same selection, except its fast mode-3
    programs need the vram16 unit on LINEAR: bind_view always sets NEAREST,
    so the filter is fixed up after it, tracked per unit in boundf (-1
    unknown) so a switch back to a nearest/manual program restores NEAREST. */
-static void use_prog(int p, signed char *bound, signed char *boundf)
+/* filter index for one op in the current pass: 0 nearest, 1 bilinear,
+   2 bilinear (performance). Only the upscaled pass of a running renderer
+   filters at all, and only textured programs; sprites use sprite_texfilter,
+   everything else uses texfilter. Flat/copy/self alias nearest anyway. */
+static int op_filt(const hwr_op *o)
 {
-    int f = R.fast, base = p & 7, filt = 0, a, b, lin = 0;
-    if (cfg.texfilter && R.on && !R.draw_native && (base == 1 || base == 2 || base == 3 || base == 5 || base == 6 || base == 7))
-        filt = cfg.texfilter == 2 ? 2 : 1;
+    int base = o->prog & 7, cfgf;
+    if (!R.on || R.draw_native) return 0;
+    if (!(base == 1 || base == 2 || base == 3 || base == 5 || base == 6 || base == 7)) return 0;
+    cfgf = o->sprite ? cfg.sprite_texfilter : cfg.texfilter;
+    return cfgf == 2 ? 2 : cfgf ? 1 : 0;
+}
+
+static void use_prog(int p, int filt, signed char *bound, signed char *boundf)
+{
+    int f = R.fast, base = p & 7, a, b, lin = 0;
     a = R.ua[f][filt][p]; b = R.ub[f][filt][p];
     rsxLoadFragmentProgramLocation(rsx_ctx, R.fps[f][filt][p], R.fps_off[f][filt][p], GCM_LOCATION_RSX);
     if (a >= 0 && a < 16 && bound[a] != (f ? 1 : 0)) { bound[a] = (signed char)(f ? 1 : 0); bind_view((u32)a, bound[a]); boundf[a] = 0; }
@@ -540,7 +546,7 @@ static int op_bit15(const hwr_op *o)
 
 /* the stencil-only draws for the STP bits of opaque textured ops (see draw_ops) */
 static int pend[4096], npend;
-static void flush_stp(const hwr_op *ops, int native, int *prog, signed char *bound, signed char *boundf, int *sc0, int *sc1, int *sc2, int *sc3)
+static void flush_stp(const hwr_op *ops, int native, int *prog, int *filt, signed char *bound, signed char *boundf, int *sc0, int *sc1, int *sc2, int *sc3)
 {
     int k, SX = native ? 1 : R.SX;
     float SY = native ? 1.f : R.SY;
@@ -553,7 +559,8 @@ static void flush_stp(const hwr_op *ops, int native, int *prog, signed char *bou
     for (k = 0; k < npend; k++) {
         const hwr_op *o = &ops[pend[k]];
         int p = o->prog >= HWR_PROG_MCHK && o->prog < HWR_PROG_SELF ? HWR_PROG_BASE(o->prog) : o->prog;
-        if (p != *prog) { *prog = p; use_prog(p, bound, boundf); }
+        int f = op_filt(o);
+        if (p != *prog || f != *filt) { *prog = p; *filt = f; use_prog(p, f, bound, boundf); }
         if (o->sx0 != *sc0 || o->sy0 != *sc1 || o->sx1 != *sc2 || o->sy1 != *sc3) {
             int y0 = (int)ceilf(o->sy0 * SY - 0.5f), y1 = (int)ceilf(o->sy1 * SY - 0.5f);
             *sc0 = o->sx0; *sc1 = o->sy0; *sc2 = o->sx1; *sc3 = o->sy1;
@@ -570,8 +577,8 @@ static void flush_stp(const hwr_op *ops, int native, int *prog, signed char *bou
 
 static void draw_ops(const hwr_op *ops, int nops, int native)
 {
-    int i, prog = -1, blend = -1, SX = native ? 1 : R.SX, fix = 0, skey = -1;
-    R.draw_native = native;   /* use_prog reads this: bilinear only when native == 0 */
+    int i, prog = -1, filt = -1, blend = -1, SX = native ? 1 : R.SX, fix = 0, skey = -1;
+    R.draw_native = native;   /* op_filt reads this: filtering only when native == 0 */
     float SY = native ? 1.f : R.SY;
     int sc0 = -1, sc1 = -1, sc2 = -1, sc3 = -1;
     signed char bound[16];                  /* view bound on each texture unit (-1 unknown) */
@@ -628,11 +635,11 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
         if (um && chk) {
             p = HWR_PROG_BASE(p);       /* the stencil does the check: */
             if (npend) {                /* the stencil bits of the draws before it first */
-                flush_stp(ops, native, &prog, bound, boundf, &sc0, &sc1, &sc2, &sc3);
+                flush_stp(ops, native, &prog, &filt, bound, boundf, &sc0, &sc1, &sc2, &sc3);
                 skey = -1;
             }
         }
-        if (p != prog) { prog = p; use_prog(prog, bound, boundf); }
+        { int f = op_filt(o); if (p != prog || f != filt) { prog = p; filt = f; use_prog(prog, f, bound, boundf); } }
         if (o->blend != blend) { blend = o->blend; set_blend(blend); }
         if (o->sx0 != sc0 || o->sy0 != sc1 || o->sx1 != sc2 || o->sy1 != sc3) {
             sc0 = o->sx0; sc1 = o->sy0; sc2 = o->sx1; sc3 = o->sy1;
@@ -661,7 +668,7 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
         if (um && !v && o->pass == 0 && HWR_PROG_BASE(p) != 0 && op_stp[i]) pend[npend++] = i;
         if (native && R.bit15) fix |= op_bit15(o);
     }
-    if (npend) { flush_stp(ops, native, &prog, bound, boundf, &sc0, &sc1, &sc2, &sc3); blend = -1; }
+    if (npend) { flush_stp(ops, native, &prog, &filt, bound, boundf, &sc0, &sc1, &sc2, &sc3); blend = -1; }
     if (um) {
         rsxSetStencilTestEnable(rsx_ctx, GCM_FALSE);
         if (!native) {
@@ -686,7 +693,7 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
             const hwr_op *o = &ops[i];
             int fp = um && o->prog >= HWR_PROG_MCHK && o->prog < HWR_PROG_SELF ? HWR_PROG_BASE(o->prog) : o->prog;
             if (op_bit15(o) != 1 || !op_stp[i]) continue;   /* (no texel with bit 15: nothing to set) */
-            if (fp != prog) { prog = fp; use_prog(prog, bound, boundf); }
+            { int f = op_filt(o); if (fp != prog || f != filt) { prog = fp; filt = f; use_prog(prog, f, bound, boundf); } }
             if (o->sx0 != sc0 || o->sy0 != sc1 || o->sx1 != sc2 || o->sy1 != sc3) {
                 sc0 = o->sx0; sc1 = o->sy0; sc2 = o->sx1; sc3 = o->sy1;
                 rsxSetScissor(rsx_ctx, sc0, sc1, sc2 - sc0, sc3 - sc1);
@@ -706,7 +713,7 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
         rsxSetAlphaTestEnable(rsx_ctx, GCM_FALSE);
         rsxSetDepthFunc(rsx_ctx, GCM_EQUAL);
         rsxSetDepthWriteEnable(rsx_ctx, GCM_FALSE);
-        prog = HWR_PROG_SELF; use_prog(prog, bound, boundf);
+        prog = HWR_PROG_SELF; filt = 0; use_prog(prog, 0, bound, boundf);
         for (i = 0; i < nops; i++) {
             const hwr_op *o = &ops[i];
             if (op_bit15(o) != 2) continue;
@@ -1206,7 +1213,7 @@ static int self_test(int full)
             o->mode = (float)progs[k]; o->raw = 1;
             o->umin = 0; o->vmin = 0; o->umax = 255; o->vmax = 255;
         }
-        ops[k].blend = HWR_BLEND_NONE; ops[k].prog = (uint8_t)progs[k];
+        ops[k].blend = HWR_BLEND_NONE; ops[k].prog = (uint8_t)progs[k]; ops[k].sprite = 0;
         ops[k].sx0 = 0; ops[k].sy0 = 0; ops[k].sx1 = 1024; ops[k].sy1 = 512;
         ops[k].first = k * 6; ops[k].count = 6;
     }
@@ -1300,7 +1307,7 @@ static int self_test(int full)
             o->tpy = b ? 0 : 5; o->mode = 3; o->raw = 1;
             o->umin = 0; o->vmin = 0; o->umax = 255; o->vmax = 255;
         }
-        bo.blend = HWR_BLEND_NONE; bo.prog = 3; bo.sx0 = 0; bo.sy0 = 0; bo.sx1 = 1024; bo.sy1 = 512;
+        bo.blend = HWR_BLEND_NONE; bo.prog = 3; bo.sprite = 0; bo.sx0 = 0; bo.sy0 = 0; bo.sx1 = 1024; bo.sy1 = 512;
         bo.first = 0; bo.count = 12;
         {
             /* fix-up variants: the first two are usable (the second redraws the colour, so

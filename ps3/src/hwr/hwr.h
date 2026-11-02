@@ -53,6 +53,7 @@ enum { HWR_BLEND_NONE = 0, HWR_BLEND_AVG, HWR_BLEND_ADD, HWR_BLEND_SUB, HWR_BLEN
 typedef struct {
     uint8_t blend;               /* HWR_BLEND_* */
     uint8_t prog;                /* fragment program variant */
+    uint8_t sprite;              /* 1 = a textured GP0 sprite (do_rect), 0 = polygon/line/fill: the backend picks sprite_texfilter for sprites, texfilter otherwise */
     int16_t sx0, sy0, sx1, sy1;  /* scissor, native coords, exclusive end */
     uint8_t pass;                /* vertex pass value of the whole op (0, 1, 2) */
     uint8_t mset;                /* mask-set flag: every pixel gets bit 15 */

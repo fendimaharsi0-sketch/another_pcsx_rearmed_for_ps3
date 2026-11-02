@@ -189,6 +189,7 @@ The in-game menu has these entries:
 | VRAM check (debug) | **Off**, On | The software renderer draws too, for comparison. |
 | Debug log | **Off**, On | Writes the log files and hang reports. |
 | Texture filter | **Nearest**, Bilinear, Bilinear (Performance) | Prototype, RSX only, in the upscaled pass only, directly below Renderer in the menu. Bilinear = manual 4-tap for all textured modes. Performance = hardware LINEAR for 15-bit direct textures only (1 fetch), manual bilinear for CLUT modes, so the speedup depends on how much 15-bit texture a game uses; its transparent/STP edges are softer than manual (plain average, not majority vote) and texture-window edges can blend across the window. Native VRAM stays nearest, so it never double-blurs. Takes effect immediately, no game restart. |
+| Sprite filter | **Nearest**, Bilinear, Bilinear (Performance) | Same modes as Texture filter, but only for textured GP0 sprites (textured rectangles, `do_rect`), like DuckStation's Sprite Texture Filtering. Nearest keeps small sprites, particles and HUD icons crisp. Polygons keep Texture filter. Sprites drawn by a game as textured quads (not GP0 sprites) are not separated — they follow Texture filter. RSX only, upscaled pass only. Takes effect immediately, no game restart. |
 
 Settings for all games are saved in `USRDIR/settings.txt`.
 
