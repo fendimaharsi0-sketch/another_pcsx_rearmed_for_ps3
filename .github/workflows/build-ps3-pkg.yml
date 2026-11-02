@@ -18,6 +18,13 @@
 #   pkg are PSL1GHT host tools, NOT ps3toolchain outputs. Checking them in
 #   "Verify toolchain" (before PSL1GHT is built) always fails. They are
 #   now checked only after the PSL1GHT install step, where they belong.
+# - FIX 2026-11-02 (run #2 failure, exit 126): build.sh lost its +x bit in
+#   the fork (100644, not 100755) because the API snapshot push does not
+#   preserve file modes. The Build PKG step now chmod +x first.
+# - Cache note (run #2): the toolchain was rebuilt (16m49s) despite run
+#   #1's cache save, so the cache key (ps3toolchain HEAD SHA) had moved
+#   or the save did not persist. A cache hit is a shortcut, not a
+#   guarantee: if upstream ps3toolchain moves, the next run rebuilds.
 # - PSL1GHT is built fresh every run (minutes, not hours), so the RSX patch
 #   below is always applied to a clean tree. The patch step is idempotent:
 #   it skips itself if the header already contains the clobber.
@@ -146,6 +153,12 @@ jobs:
           DYNAREC: ${{ inputs.dynarec }}
         run: |
           set -eux
+          # FIX 2026-11-02 (run #2 failure, exit 126 "Permission denied"):
+          # build.sh is 100755 in the source tree, but the prototype push
+          # (GitHub API snapshot push) stored it as 100644 in the fork, so
+          # ./build.sh cannot execute after checkout. chmod here makes the
+          # workflow immune to that mode loss on every future push too.
+          chmod +x ./build.sh
           ./build.sh "${{ inputs.pkg_name }}"
           ls -lh "build/${{ inputs.pkg_name }}.pkg"
 
