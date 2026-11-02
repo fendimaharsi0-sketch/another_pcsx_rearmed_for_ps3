@@ -771,7 +771,6 @@ static void rsxr_submit_(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx 
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, base + 40, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX3, 0, base + 48, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX4, 0, base + 56, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
-    rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX5, 0, base + 64, st, 4, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_CELL);
     if (!R.mask_used) {
         int i;
         for (i = 0; i < nops; i++)
@@ -1350,7 +1349,6 @@ static int self_test(int full)
 /* the software renderer keeps drawing into the core's VRAM as a reference */
 static int cmd_check(const uint32_t *list, const uint32_t *end)
 {
-    hwr_pgxp = cfg.pgxp;   /* PGXP switch, read fresh so the menu toggle works in-game */
     if (T.on) {                       /* raw words as in PS1 memory (little-endian) */
         const uint32_t *p;
         tr_put(1); tr_put((u32)(end - list));
@@ -1466,7 +1464,6 @@ static int cmd_timed(const uint32_t *list, const uint32_t *end)
 {
     u64 t0;
     int r;
-    hwr_pgxp = cfg.pgxp;   /* PGXP switch, read fresh so the menu toggle works in-game */
     if (!cfg.debug_log) return hwr_cmd(list, end);   /* timed only for the debug log */
     t0 = gpulib_prof_now();
     r = hwr_cmd(list, end);
@@ -1538,7 +1535,6 @@ static void start(void)
                       : "hybrid (software renderer + RSX)");
     logf_("hwr: texture filter %s\n", cfg.texfilter == 2 ? "bilinear (performance: hardware 15-bit, manual CLUT, upscaled pass only)" :
           cfg.texfilter ? "bilinear (upscaled pass only)" : "nearest");
-    logf_("hwr: PGXP %s\n", cfg.pgxp ? "visual-only (upscaled pass only)" : "off");
 }
 
 static void log_stats(void)

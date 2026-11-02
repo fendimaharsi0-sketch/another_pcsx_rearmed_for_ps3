@@ -22,14 +22,13 @@
 #define WS_HWR_H
 #include <stdint.h>
 
-/* One vertex, 80 bytes. Values that are whole numbers are 16-bit integers the
+/* One vertex, 64 bytes. Values that are whole numbers are 16-bit integers the
  * GPU converts itself (RSX "S32K", GL_SHORT): the PPU pays for every int->float
  * conversion (load-hit-store) and for every byte written. The program inputs
  * are still float4s:
  *   POSITION  x, y, u, v        TEXCOORD0 r, g, b, z
  *   TEXCOORD1 tpx, tpy, cx, cy  TEXCOORD2 mode, raw, twmx, twmy
- *   TEXCOORD3 twox, twoy, pass, a   TEXCOORD4 umin, vmin, umax, vmax
- *   TEXCOORD5 px, py, pw, pad (PGXP visual-only, see below) */
+ *   TEXCOORD3 twox, twoy, pass, a   TEXCOORD4 umin, vmin, umax, vmax */
 typedef struct {
     float x, y, u, v;          /* native VRAM coords (offset applied), texel coords */
     float r, g, b, z;          /* vertex colour 0..255; z: depth for the native pass (set by the backend) */
@@ -39,17 +38,7 @@ typedef struct {
                                       a: 1 = the mask-set flag (E6 bit 0) */
     int16_t umin, vmin, umax, vmax; /* texel range the primitive uses: sampling is clamped to it, so
                                        upscaled edges do not pick neighbouring texels (seams) */
-    float px, py, pw, pad;     /* PGXP: precise VRAM coords + w (z/32768) for the
-                                  upscaled pass only; px=x, py=y, pw=1 when no precise
-                                  vertex was found (fallback = integer path). The
-                                  shader uses x/y + w=1 in the native pass, so the
-                                  native VRAM stays byte-exact whatever pgxp does. */
 } hwr_vtx;
-
-/* PGXP visual-only switch, set by the backend from the pgxp setting (see
- * common.h): 0 = off (vertices are integer, the original path), 1 = on
- * (upscaled pass uses px/py/pw where the GTE cache hit). Default off. */
-extern int hwr_pgxp;
 
 enum { HWR_BLEND_NONE = 0, HWR_BLEND_AVG, HWR_BLEND_ADD, HWR_BLEND_SUB, HWR_BLEND_ADDQ };
 

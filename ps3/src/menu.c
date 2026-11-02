@@ -244,7 +244,6 @@ static const item_t settings_items[] = {
     { "Speed limit", "Normal: catches up after a hitch. Strict: never faster. Off: no limit." },
     { "VRAM check (debug)", "Debug: software renderer draws too. Pause menu > Dump VRAM." },
     { "Debug log", "Debug: writes log files (USRDIR/log.txt, USRDIR/logs) and hang reports." },
-    { "PGXP (visual)", "Precise GTE vertices + perspective w, upscaled pass only. Visual only: stops PS1 wobble/swimming, no CPU tracking. Native VRAM stays integer." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
@@ -292,7 +291,6 @@ static void setting_value(int i, char *b, size_t n)
     case 19: snprintf(b, n, "%s", cfg.speed_limit == 1 ? "Strict" : cfg.speed_limit == 2 ? "Off" : "Normal"); break;
     case 20: snprintf(b, n, "%s", cfg.vram_check ? "On" : "Off"); break;
     case 21: snprintf(b, n, "%s", cfg.debug_log ? "On" : "Off"); break;
-    case 22: snprintf(b, n, "%s", cfg.pgxp ? "On" : "Off"); break;
     }
 }
 
@@ -353,7 +351,6 @@ static void setting_change_(int i, int dir, int in_game)
     case 19: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
     case 20: cfg.vram_check ^= 1; break;
     case 21: cfg.debug_log ^= 1; break;
-    case 22: cfg.pgxp ^= 1; break;
     }
 }
 

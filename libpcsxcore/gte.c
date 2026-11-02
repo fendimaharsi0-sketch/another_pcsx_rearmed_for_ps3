@@ -585,84 +585,6 @@ static inline const s16 *v_inorder(const s16 *v, s16 *tmp)
 #define v_inorder(v, tmp) (v)
 #endif
 
-/* --- PGXP visual-only cache (prototype, PS3 fork) ---
- * Full SwanStation PGXP tracks every CPU instruction and keeps a shadow
- * copy of RAM; that is not ported here. This cache is the lightest thing
- * that still removes the visible PS1 wobble: RTPS/RTPT store the precise
- * float position before the >>16 truncation, keyed by the integer screen
- * position the game will later put in a GP0 word. The renderer looks the
- * integer position up and, on a hit, draws the precise position instead.
- * No CPU tracking, no shadow memory: a stale or colliding entry is
- * rejected by the frame generation + the <1px tolerance check, and the
- * vertex falls back to its integer position. Cache entries are only ever
- * used for the upscaled pass; the native pass stays integer (see hwr).
- * Stage 1 (first-writer + ambiguity) is ROLLED BACK: hardware test
- * 2026-11-02 showed it made texture flicker WORSE, not better, so this
- * file is back to the pre-Stage 1 last-write-wins cache (commit 54b25e).
- * Stage 2a (XY-only test): perspective w is REMOVED here on purpose.
- * pgxp_lookup now always returns *w = 1.0, so the shader interpolates
- * UV/colour affinely as before and only the XY position is precise.
- * That isolates the question: if texture flicker disappears with XY
- * only, the culprit was the w flip (precise w vs w=1, or wrong w);
- * if flicker persists, it is the XY precise/integer flip itself.
- * The z>0 guard stays (rejects behind-camera vertices); the old
- * w range gate is gone because w is now constant.
- * Stage 2b (XY-only + first-writer, no ambiguity): Stage 2a XY-only
- * with last-write-wins showed texture tiles separating by 1-2px,
- * with the gaps moving with the standard PS1 wobble. That is a
- * consistency failure, not a w failure: neighbouring tiles sharing
- * an integer edge resolved to different precise values (or one hit
- * and one missed) and moved independently. Now the first writer in
- * a frame wins and later pushes for the same pixel are ignored,
- * with NO ambiguity fallback to integer and NO w. All neighbours
- * sharing a pixel therefore get the same precise XY in that frame
- * and move together, so shared edges should stay shut and wobble
- * should become smooth whole-scene movement again. If gaps still
- * move independently under first-writer, the shared edge is not
- * both GTE-transformed (one side is CPU/miss), which cache-only
- * cannot fix. */
-#define PGXP_CACHE_BITS 12
-#define PGXP_CACHE_SIZE (1 << PGXP_CACHE_BITS)
-typedef struct { short sx, sy; unsigned gen; float x, y, z; } pgxp_entry_t;
-static pgxp_entry_t pgxp_cache[PGXP_CACHE_SIZE];
-static unsigned pgxp_gen = 1;
-void pgxp_next_frame(void) { if (++pgxp_gen == 0) pgxp_gen = 1; }
-void pgxp_push(int sx, int sy, float x, float y, float z)
-{
-	unsigned h = ((unsigned)sx * 73856093u) ^ ((unsigned)sy * 19349663u);
-	pgxp_entry_t *e;
-	h &= PGXP_CACHE_SIZE - 1;
-	e = &pgxp_cache[h];
-	/* New frame, or this hash slot currently holds a different pixel
-	 * (a hash collision, not a contest for the same pixel): this push
-	 * is the first writer for its pixel. */
-	if (e->gen != pgxp_gen || e->sx != sx || e->sy != sy) {
-		e->sx = (short)sx; e->sy = (short)sy;
-		e->gen = pgxp_gen;
-		e->x = x; e->y = y; e->z = z;
-		return;
-	}
-	/* Same pixel, same frame: keep the first writer, ignore later
-	 * pushes outright. No ambiguity, no fallback to integer here:
-	 * that flip is what made Stage 1 worse, and w is already gone,
-	 * so there is no w flip left to reintroduce. */
-}
-int pgxp_lookup(int sx, int sy, float *x, float *y, float *w)
-{
-	unsigned h = ((unsigned)sx * 73856093u) ^ ((unsigned)sy * 19349663u);
-	pgxp_entry_t *e;
-	h &= PGXP_CACHE_SIZE - 1;
-	e = &pgxp_cache[h];
-	if (e->gen != pgxp_gen || e->sx != sx || e->sy != sy) return 0;
-	if (e->z <= 0.0f) return 0;
-	if (e->x - (float)sx < -0.02f || e->x - (float)sx > 1.02f) return 0;
-	if (e->y - (float)sy < -0.02f || e->y - (float)sy > 1.02f) return 0;
-	/* Stage 2a XY-only: no perspective w, ever. */
-	*w = 1.0f;
-	*x = e->x; *y = e->y;
-	return 1;
-}
-
 static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 {
 	s32 vx = gteVX0, vy = gteVY0, vz = gteVZ0;
@@ -692,10 +614,6 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 
 	gteSX2 = limG1(&flags, mac0flags(&flags, gteOFX + (s64)gteIR1 * quotient) >> 16);
 	gteSY2 = limG2(&flags, mac0flags(&flags, gteOFY + (s64)gteIR2 * quotient) >> 16);
-	pgxp_push(gteSX2, gteSY2,
-		(float)((double)gteOFX + (double)gteIR1 * (double)quotient) / 65536.0f,
-		(float)((double)gteOFY + (double)gteIR2 * (double)quotient) / 65536.0f,
-		(float)sz3);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
 	gteIR0 = limH(&flags, mac0 >> 12);
@@ -732,10 +650,6 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 		fSZ(v) = sz3;
 		fSX(v) = limG1(&flags, mac0flags(&flags, gteOFX + (s64)ir1 * quotient) >> 16);
 		fSY(v) = limG2(&flags, mac0flags(&flags, gteOFY + (s64)ir2 * quotient) >> 16);
-		pgxp_push(fSX(v), fSY(v),
-			(float)((double)gteOFX + (double)ir1 * (double)quotient) / 65536.0f,
-			(float)((double)gteOFY + (double)ir2 * (double)quotient) / 65536.0f,
-			(float)sz3);
 	}
 
 	gteMAC1 = mac1;

@@ -189,7 +189,6 @@ The in-game menu has these entries:
 | VRAM check (debug) | **Off**, On | The software renderer draws too, for comparison. |
 | Debug log | **Off**, On | Writes the log files and hang reports. |
 | Texture filter | **Nearest**, Bilinear, Bilinear (Performance) | Prototype, RSX only, in the upscaled pass only, directly below Renderer in the menu. Bilinear = manual 4-tap for all textured modes. Performance = hardware LINEAR for 15-bit direct textures only (1 fetch), manual bilinear for CLUT modes, so the speedup depends on how much 15-bit texture a game uses; its transparent/STP edges are softer than manual (plain average, not majority vote) and texture-window edges can blend across the window. Native VRAM stays nearest, so it never double-blurs. Takes effect immediately, no game restart. |
-| PGXP (visual) | **Off**, On | Prototype, visual only: precise GTE vertices + perspective w from a small integer-keyed cache (RTPS/RTPT only, no CPU tracking, no shadow memory) in the upscaled pass only. Stops PS1 vertex wobble/texture swimming; CPU-transformed vertices and cache misses fall back to integer. Native VRAM stays integer. Takes effect immediately, no game restart. |
 
 Settings for all games are saved in `USRDIR/settings.txt`.
 
