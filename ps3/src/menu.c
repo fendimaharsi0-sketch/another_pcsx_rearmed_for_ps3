@@ -156,6 +156,7 @@ static void rescan(void)
 #define C_DIM    0xff9098a8
 #define C_ACCENT 0xffffd24a
 #define C_PANEL  0xe0141a26
+#define PANEL_R  16   /* rounded panel corner radius, px at 720p (cover + quick menu) */
 #define C_SEL    0xff2c3a58
 
 static const char *menu_name = "game list";
@@ -199,35 +200,73 @@ static void header(const char *title, const char *sub)
     if (sub) ovl_text(OVL_W - MARGIN - ovl_text_width(sub), 17, sub, C_DIM);
 }
 
-static int draw_prompt(int x, int y, const char *s, uint32_t color);
+/* App-title header (game list + disc interstitial only): the picked style —
+   a yellow accent bar + white title, instead of the plain yellow title
+   header() draws. Scoped to APP_TITLE on purpose: settings and tool
+   screens keep header() and their own titles. Bar 4 px, title-height 30,
+   12 px gap, title at MARGIN + 16 — same margins as header(), so CRT
+   overscan treats it exactly like the old title. */
+static void header_app(const char *sub)
+{
+    ovl_fill(0, 0, OVL_W, 64, 0xff182238);
+    ovl_fill(MARGIN, 17, 4, 30, C_ACCENT);
+    ovl_text(MARGIN + 16, 17, APP_TITLE, C_TEXT);
+    if (sub) ovl_text(OVL_W - MARGIN - ovl_text_width(sub), 17, sub, C_DIM);
+}
+
+static int draw_prompt(int x, int y, const char *s, uint32_t color, uint32_t bg);
 static int prompt_width(const char *s);
 
 static void footer(const char *s)
 {
     ovl_fill(0, OVL_H - 52, OVL_W, 52, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 41, s, C_DIM);
+    draw_prompt(MARGIN, OVL_H - 41, s, C_DIM, 0xff182238);
 }
 
 /* two-line footer (the game list) */
 static void footer2(const char *a, const char *b)
 {
     ovl_fill(0, OVL_H - 84, OVL_W, 84, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 76, a, C_DIM);
-    draw_prompt(MARGIN, OVL_H - 44, b, C_DIM);
+    draw_prompt(MARGIN, OVL_H - 76, a, C_DIM, 0xff182238);
+    draw_prompt(MARGIN, OVL_H - 44, b, C_DIM, 0xff182238);
 }
 
-/* Footer prompts with PS face-button glyphs (monochrome: glyphs use the
-   text colour). Only whole words are replaced: "X", "Circle", "Triangle",
-   "Square" — D-pad ("Up/Down"), shoulders ("L1/R1") and combos
-   ("SELECT+START") stay text. A glyph is 24 px in a 30 px text cell
-   (y + 3 centres it), followed by a 6 px gap; the single space after a
-   button name is consumed, since the gap replaces it. */
+/* Footer prompts with PS button glyphs (monochrome: glyphs use the text
+   colour). Face buttons are 24 px glyphs in a 30 px text cell (y + 3
+   centres them); shoulders/select/start are chips (pills with a text
+   label, 30 px tall since the label text itself is 30 px). Only whole
+   words are replaced: "X", "Circle", "Triangle", "Square", "L1", "R1",
+   "SELECT", "START" — D-pad ("Up/Down") stays text. A button is followed
+   by a 6 px gap; the single space after a button name is consumed, since
+   the gap replaces it. Footer strings write shoulders as two words
+   ("L1 R1") and the combo spaced ("SELECT + START") so each gets its
+   own chip. bg is the solid background behind a chip (the footer band
+   for footer/footer2); callers whose strings hold no chip words may
+   pass 0. */
 #define BTN_ADV 30   /* glyph 24 + gap 6 */
+/* Chip ids (menu.c-local, above the GLYPH_* range). */
+#define CHIP_BASE 100
+#define CHIP_L1 100
+#define CHIP_R1 101
+#define CHIP_SELECT 102
+#define CHIP_START 103
+static const char *chip_label(int btn)
+{
+    switch (btn) {
+    case CHIP_L1: return "L1";
+    case CHIP_R1: return "R1";
+    case CHIP_SELECT: return "SELECT";
+    case CHIP_START: return "START";
+    default: return "";
+    }
+}
 static int prompt_button(const char *s, int *btn)
 {
     static const struct { const char *name; int btn; } b[] = {
         { "Triangle", GLYPH_TRIANGLE }, { "Circle", GLYPH_CIRCLE },
         { "Square", GLYPH_SQUARE }, { "X", GLYPH_CROSS },
+        { "L1", CHIP_L1 }, { "R1", CHIP_R1 },
+        { "SELECT", CHIP_SELECT }, { "START", CHIP_START },
     };
     unsigned i;
     for (i = 0; i < sizeof b / sizeof b[0]; i++) {
@@ -237,7 +276,22 @@ static int prompt_button(const char *s, int *btn)
     return 0;
 }
 
-static int draw_prompt(int x, int y, const char *s, uint32_t color)
+/* Chip advance: pill width (label + 16 padding) + 6 gap. */
+static int chip_adv(const char *label) { return ovl_text_width(label) + 16 + 6; }
+
+/* Chip (pill) label: outline pill in the text colour over bg, text
+   centred. 30 px tall (the text cell — taller than the 24 px face
+   glyphs, since the label text itself is 30 px). Returns the advance. */
+static int draw_chip(int x, int y, const char *label, uint32_t color, uint32_t bg)
+{
+    int w = ovl_text_width(label) + 16;
+    ovl_round_fill(x, y, w, 30, 15, color);
+    ovl_round_fill(x + 2, y + 2, w - 4, 26, 13, bg);
+    ovl_text(x + 8, y, label, color);
+    return w + 6;
+}
+
+static int draw_prompt(int x, int y, const char *s, uint32_t color, uint32_t bg)
 {
     int i = 0, seg = 0;
     char buf[256];
@@ -250,8 +304,8 @@ static int draw_prompt(int x, int y, const char *s, uint32_t color)
                 memcpy(buf, s + seg, len); buf[len] = 0;
                 x = ovl_text(x, y, buf, color);
             }
-            ovl_button(x, y + 3, btn, color);
-            x += BTN_ADV;
+            if (btn >= CHIP_BASE) x += draw_chip(x, y, chip_label(btn), color, bg);
+            else { ovl_button(x, y + 3, btn, color); x += BTN_ADV; }
             i += n;
             if (s[i] == ' ') i++;
             seg = i;
@@ -272,8 +326,7 @@ static int prompt_width(const char *s)
     while (s[i]) {
         int btn, n = 0;
         if ((i == 0 || s[i - 1] == ' ') && (n = prompt_button(s + i, &btn)) > 0) {
-            (void)btn;
-            w += BTN_ADV;
+            w += btn >= CHIP_BASE ? chip_adv(chip_label(btn)) : BTN_ADV;
             i += n;
             if (s[i] == ' ') i++;
         } else { w += cw; i++; }
@@ -329,10 +382,49 @@ static const item_t settings_items[] = {
     { "Memory card 2", "X opens the card picker: Auto = this game's own card (saves/SCUS-12345_2.mcd), then the imported cards, then None. The other slot cannot pick the same imported file. Default is None. Next launch only." },
     { "Import PS3 VMC", "Press X to copy a PS3 virtual card from savedata/vmc/ into the imported library (saves/imported/). It does not change the active card or mode: pick it in Memory card 1 or 2 to play with it. One-way: saves made here never appear in XMB. Game list only, never in a game." },
     { "Analog joystick", "DualShock analog sticks on, or a digital pad. Some games force another layout with analog on (Moto Racer 2): turn it off. When on, Left stick as D-pad and Right stick as buttons are bypassed (the stick and D-pad stay independent)." },
+    { "Turbo CD", "Faster CD loads: instant seeks + quicker reads (upstream TurboCD). Auto-off during XA audio and FMV." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
+
+/* ---------------- settings pages ----------------
+   The 29 settings are grouped into 5 pages, flipped with L1/R1 (top row).
+   set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
+   display order; set_page_counts[p] is its length. Every item must appear
+   exactly once: the typedef below fails the build if the counts stop adding
+   up to NSET, and the host test checks uniqueness and the grouping itself. */
+#define NPAGES 5
+static const char *set_page_titles[NPAGES] = {
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves"
+};
+static const int set_page_items[NPAGES][9] = {
+    { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
+    { 1, 2, 3, 4, 5, 6, 7, 9, 10 },          /* Picture: Renderer, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
+    { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
+    { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
+    { 19, 20, 22, 23, 24, 25, 26 },          /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC */
+};
+static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 7 };
+typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 7 == NSET) ? 1 : -1];
+/* per-page cursor memory: the row each page was left on (reset on panel open) */
+static int set_page_row[NPAGES];
+static int set_page_of(int g)
+{
+    int p, r;
+    for (p = 0; p < NPAGES; p++)
+        for (r = 0; r < set_page_counts[p]; r++)
+            if (set_page_items[p][r] == g) return p;
+    return 0;
+}
+static int set_row_of(int g)
+{
+    int p, r;
+    for (p = 0; p < NPAGES; p++)
+        for (r = 0; r < set_page_counts[p]; r++)
+            if (set_page_items[p][r] == g) return r;
+    return 0;
+}
 
 static void setting_value(int i, char *b, size_t n)
 {
@@ -382,6 +474,7 @@ static void setting_value(int i, char *b, size_t n)
     case 25: snprintf(b, n, "%s", cfg.mc2_mode == 1 ? (cfg.mc2_shared[0] ? cfg.mc2_shared : "Shared (default)") : cfg.mc2_mode == 2 ? "None" : "Auto (per-game)"); break;
     case 26: snprintf(b, n, "%s", cfg.vmc_source[0] ? cfg.vmc_source : "Press X to import"); break;
     case 27: snprintf(b, n, "%s", cfg.analog ? "On (DualShock)" : "Off (digital pad)"); break;
+    case 28: snprintf(b, n, "%s", cfg.turbo_cd ? "On" : "Off"); break;
     }
 }
 
@@ -402,8 +495,8 @@ static void setting_change(int i, int dir, int in_game)
 static void setting_change_(int i, int dir, int in_game)
 {
     switch (i) {
-    case 0:                                             /* needs a restart of the game */
-        if (!in_game) {   /* Dynarec, 2 threads (Lightrec compiles on the PPU's second thread) -> 1 thread -> Interpreter */
+    case 0:                                             /* engine: live on resume via update_variables; thread mode: next launch */
+        {   /* Dynarec, 2 threads (Lightrec compiles on the PPU's second thread) -> 1 thread -> Interpreter */
             int k = !cfg.dynarec ? 2 : cfg.dynarec_thread ? 0 : 1;
             k = (k + (dir > 0 ? 1 : 2)) % 3;
             cfg.dynarec = k != 2;
@@ -450,6 +543,7 @@ static void setting_change_(int i, int dir, int in_game)
     case 25: vmc_slot_picker(2); break;
     case 26: if (!in_game) vmc_import_page(); break;   /* import writes a card file: game list only, never in a game */
     case 27: cfg.analog ^= 1; break;
+    case 28: cfg.turbo_cd ^= 1; break;
     }
 }
 
@@ -497,7 +591,7 @@ static void screen_size_page(int in_game)
         ovl_text(cx - ovl_text_width("Adjust until all four edges of the") / 2, y + 95, "Adjust until all four edges of the", C_DIM);
         ovl_text(cx - ovl_text_width("frame are just visible on your TV.") / 2, y + 125, "frame are just visible on your TV.", C_DIM);
         ovl_text(cx - ovl_text_width("Left/Right width   Up/Down height") / 2, y + 170, "Left/Right width   Up/Down height", C_TEXT);
-        draw_prompt(cx - prompt_width("Square reset   X done") / 2, y + 200, "Square reset   X done", C_TEXT);
+        draw_prompt(cx - prompt_width("Square reset   X done") / 2, y + 200, "Square reset   X done", C_TEXT, 0);
         frame_end();
     }
 }
@@ -630,7 +724,7 @@ static void vmc_import_page(void)
             if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
             text_fit(MARGIN, y, vmc_names[i], i == sel ? C_ACCENT : C_TEXT);
         }
-        footer("Up/Down select    L1/R1 page    X import    Circle back");
+        footer("Up/Down select    L1 R1 page    X import    Circle back");
         frame_end();
     }
     if (app_exit_requested) return;
@@ -759,7 +853,7 @@ static void vmc_slot_picker(int slot)
             else row = deftext;
             text_fit(MARGIN, y, row, i == sel ? C_ACCENT : col);
         }
-        footer("Up/Down select    L1/R1 page    X choose    Circle back");
+        footer("Up/Down select    L1 R1 page    X choose    Circle back");
         frame_end();
     }
     if (app_exit_requested) return;
@@ -806,47 +900,66 @@ static void vmc_slot_picker(int slot)
 
 static void draw_settings(int sel, int y0, int in_game)
 {
-    static int top;                      /* first row shown: the selection stays in view */
-    int i, rows = NSET < SET_VISIBLE ? NSET : SET_VISIBLE;
-    if (sel < top) top = sel;
-    if (sel >= top + rows) top = sel - rows + 1;
-    if (top > NSET - rows) top = NSET - rows;
-    if (top < 0) top = 0;
-    for (i = top; i < top + rows; i++) {
+    /* sel is a GLOBAL settings_items index; the page it sits on is derived,
+       so both callers keep passing the same sel they already track. */
+    int pg = set_page_of(sel), rows = set_page_counts[pg], i;
+    {   /* page navigation row, above the items: L1/R1 flank the page title.
+           Text only: the overlay font is ASCII 32-126, so no triangle glyphs
+           (the chat mockup's arrows do not exist on the PS3). One text row
+           tall, inset to the header's margins (MARGIN) so CRT overscan,
+           which eats the screen edges, does not crop it. */
+        const char *t = set_page_titles[pg];
+        int y = y0 - 34;
+        ovl_text(MARGIN, y, "< L1", C_ACCENT);
+        ovl_text((OVL_W - ovl_text_width(t)) / 2, y, t, C_ACCENT);
+        ovl_text(OVL_W - MARGIN - ovl_text_width("R1 >"), y, "R1 >", C_ACCENT);
+    }
+    for (i = 0; i < rows; i++) {
+        int g = set_page_items[pg][i];
         char v[64];
-        int y = y0 + (i - top) * SET_ROW;
-        if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
-        ovl_text(50, y, settings_items[i].label, i == sel ? C_ACCENT : C_TEXT);
-        setting_value(i, v, sizeof v);
+        int y = y0 + i * SET_ROW;
+        if (g == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+        ovl_text(50, y, settings_items[g].label, g == sel ? C_ACCENT : C_TEXT);
+        setting_value(g, v, sizeof v);
         ovl_text(520, y, "<", C_DIM);
-        ovl_text(550, y, v, (in_game && i == 0) ? C_DIM : C_TEXT);
+        ovl_text(550, y, v, C_TEXT);
         ovl_text(560 + ovl_text_width(v), y, ">", C_DIM);
     }
-    {   /* more rows above / below: a triangle at the right of the first / last row */
-        int k, ax = OVL_W - 64;
-        for (k = 0; k < 9; k++) {
-            if (top > 0)                         /* pointing up, at the first row */
-                ovl_fill(ax - k, y0 + 6 + k, 2 * k + 1, 1, C_ACCENT);
-            if (top + rows < NSET)               /* pointing down, at the last row */
-                ovl_fill(ax - k, y0 + (rows - 1) * SET_ROW + 20 - k, 2 * k + 1, 1, C_ACCENT);
-        }
-    }
+    /* No scrolling anymore: the longest page has 9 rows, SET_VISIBLE is 17,
+       so the old scroll triangles are gone (they would have lied: on a page
+       the row below the last one is not another setting). */
     ovl_text(50, y0 + rows * SET_ROW + 12, settings_items[sel].help, C_DIM);
-    if (sel == 0) ovl_text(50, y0 + rows * SET_ROW + 40, in_game ? "(change the CPU from the game list)"
+    if (sel == 0) ovl_text(50, y0 + rows * SET_ROW + 40, in_game ? "(engine switches live on resume)"
                                                               : "Interpreter if a game misbehaves.", C_DIM);
 }
 
 static void settings_screen(void)
 {
-    int sel = 0;
+    int sel = 0, i;
     logf_("menu: settings\n");
     menu_name = "settings";
+    for (i = 0; i < NPAGES; i++) set_page_row[i] = 0;   /* fresh panel: page 0, row 0 */
     while (!app_exit_requested) {
         uint32_t p;
+        char pg_ind[16];
         frame_begin(0);
         p = input_pressed();
-        if (p & PAD_UP) sel = (sel + NSET - 1) % NSET;
-        if (p & PAD_DOWN) sel = (sel + 1) % NSET;
+        /* Up/Down move within the current page; L1/R1 flip pages (wrapping)
+           and restore the row each page was left on. sel stays a GLOBAL index. */
+        if (p & PAD_UP) { int pg = set_page_of(sel), rw = set_row_of(sel);
+                          rw = (rw + set_page_counts[pg] - 1) % set_page_counts[pg];
+                          sel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
+        if (p & PAD_DOWN) { int pg = set_page_of(sel), rw = set_row_of(sel);
+                            rw = (rw + 1) % set_page_counts[pg];
+                            sel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
+        if (p & PAD_L1) { int pg = set_page_of(sel);
+                          set_page_row[pg] = set_row_of(sel);
+                          pg = (pg + NPAGES - 1) % NPAGES;
+                          sel = set_page_items[pg][set_page_row[pg]]; }
+        if (p & PAD_R1) { int pg = set_page_of(sel);
+                          set_page_row[pg] = set_row_of(sel);
+                          pg = (pg + 1) % NPAGES;
+                          sel = set_page_items[pg][set_page_row[pg]]; }
         if (p & (PAD_LEFT | PAD_CROSS)) setting_change(sel, p & PAD_LEFT ? -1 : 1, 0);
         if (p & PAD_RIGHT) setting_change(sel, 1, 0);
         if (p & (PAD_CIRCLE | PAD_TRIANGLE)) {
@@ -855,8 +968,9 @@ static void settings_screen(void)
             menu_name = "game list";
             return;
         }
-        header("Settings for all games", NULL);
-        draw_settings(sel, 84, 0);
+        snprintf(pg_ind, sizeof pg_ind, "%d / %d", set_page_of(sel) + 1, NPAGES);
+        header("Settings for all games", pg_ind);
+        draw_settings(sel, 118, 0);
         {
             char b[200];
             snprintf(b, sizeof b, "BIOS: %s", hooks_bios_status());
@@ -902,7 +1016,7 @@ static const char *start_disc(void)
     char label[40];
     int k;
     frame_begin(0);                     /* the drive may take a few seconds to spin up */
-    header(APP_TITLE, NULL);
+    header_app(NULL);
     ovl_text(MARGIN, 110, "Reading the disc...", C_TEXT);
     frame_end();
     disc_identify_wait();               /* the game list's check must not read at the same time */
@@ -1067,7 +1181,23 @@ static int copy_disc(const char *title, char *cue, size_t cue_n)
 #define PANEL_X 920
 #define PANEL_W 320
 #define COVER_X 935
-#define COVER_S 290
+/* Spine case (picked style): case 292x276 at (COVER_X,110) — spine 24 +
+   gap 2 + art 264 + right frame 2 wide; art 6px below the case top and
+   6px above its bottom. The art shrinks 290 -> 264 (near 1:1 for 268px
+   pack covers). */
+#define CASE_W 292
+#define CASE_H 276
+#define SPINE_W 24
+#define CASE_ART 264
+/* Disc placeholder (picked: tray + shadow + NO COVER inside the disc):
+   tray 246x246 centred in the art rect, disc r 107 centred (1093,248),
+   hub r 15 + hole r 5, label below the hub. */
+#define TRAY_S 246
+#define TRAY_X (COVER_X + SPINE_W + 2 + (CASE_ART - TRAY_S) / 2)
+#define TRAY_Y (110 + 6 + (CASE_ART - TRAY_S) / 2)
+#define DISC_R 107
+#define DISC_CX (COVER_X + SPINE_W + 2 + CASE_ART / 2)
+#define DISC_CY (110 + 6 + CASE_ART / 2)
 
 static char cover_key[1300];
 static cover_img_t cover_img;
@@ -1100,16 +1230,115 @@ static void text_fit_r(int x, int y, const char *s, uint32_t argb, int right)
     ovl_text(x, y, b, argb);
 }
 
+/* Diagonal shine band across a rect (the clear-plastic reflection over the
+   cover art): 3 strips per row for soft edges, clipped to the rect.
+   Slope 9/20 (~24 deg, like the picked mockup); centre strip 30% white,
+   side strips 15%. Art only, not the spine (as mocked). */
+static void cover_shine(int x, int y, int w, int h)
+{
+    int j;
+    if (w <= 0 || h <= 0) return;
+    for (j = 0; j < h; j++) {
+        /* long intermediates: int math drew -Wstrict-overflow on the
+           clamp-then-compare below; for int inputs every value here is
+           bounded by ~4e9, far inside long range, so no wrap is possible
+           and the warning is benign (GCC 7 heuristic on this pattern). */
+        long cx = (long)x + w / 3 + (long)j * 9 / 20;
+        long lo, hi;
+        lo = cx - 28; if (lo < x) lo = x;
+        hi = cx - 14; if (hi > (long)x + w) hi = (long)x + w;
+        if (hi > lo) ovl_fill((int)lo, (int)((long)y + j), (int)(hi - lo), 1, 0x26ffffffu);
+        lo = cx - 14; if (lo < x) lo = x;
+        hi = cx + 14; if (hi > (long)x + w) hi = (long)x + w;
+        if (hi > lo) ovl_fill((int)lo, (int)((long)y + j), (int)(hi - lo), 1, 0x4dffffffu);
+        lo = cx + 14; if (lo < x) lo = x;
+        hi = cx + 28; if (hi > (long)x + w) hi = (long)x + w;
+        if (hi > lo) ovl_fill((int)lo, (int)((long)y + j), (int)(hi - lo), 1, 0x26ffffffu);
+    }
+}
+
+/* Integer square root (Newton, no libm — same method as ovl_round_fill's
+   helper in draw.c, duplicated here so the disc code stays menu.c-local). */
+static int cover_isqrt(int v)
+{
+    int r, t;
+    if (v <= 0) return 0;
+    r = v;
+    while ((t = (r + v / r) / 2) < r) r = t;
+    return r;
+}
+
+/* Filled disc via one span per row (ovl_circle is outline-only). */
+static void cover_disc_fill(int cx, int cy, int r, uint32_t argb)
+{
+    int dy;
+    for (dy = -r; dy <= r; dy++) {
+        int dx = cover_isqrt(r * r - dy * dy);
+        ovl_fill(cx - dx, cy + dy, 2 * dx + 1, 1, argb);
+    }
+}
+
+/* The plastic shine band clipped to a disc: same 3-strip band as
+   cover_shine (same slope, same art-rect band), intersected per row
+   with the disc span. Same benign GCC 7 -Wstrict-overflow note as
+   cover_shine (clamp-then-compare pattern; values bounded, long math). */
+static void cover_disc_shine(int cx, int cy, int r, int bx, int by, int bw)
+{
+    int dy;
+    for (dy = -r; dy <= r; dy++) {
+        int y = cy + dy;
+        int dx = cover_isqrt(r * r - dy * dy);
+        int dlo = cx - dx, dhi = cx + dx;
+        long bc = (long)bx + bw / 3 + (long)(y - by) * 9 / 20;
+        long lo, hi;
+        lo = bc - 28; if (lo < dlo) lo = dlo;
+        hi = bc - 14; if (hi > dhi) hi = dhi;
+        if (hi > lo) ovl_fill((int)lo, y, (int)(hi - lo), 1, 0x26ffffffu);
+        lo = bc - 14; if (lo < dlo) lo = dlo;
+        hi = bc + 14; if (hi > dhi) hi = dhi;
+        if (hi > lo) ovl_fill((int)lo, y, (int)(hi - lo), 1, 0x4dffffffu);
+        lo = bc + 14; if (lo < dlo) lo = dlo;
+        hi = bc + 28; if (hi > dhi) hi = dhi;
+        if (hi > lo) ovl_fill((int)lo, y, (int)(hi - lo), 1, 0x26ffffffu);
+    }
+}
+
 static void draw_cover_panel(const char *title, const char *line2)
 {
-    ovl_fill(PANEL_X, 90, PANEL_W, 530, C_PANEL);
+    ovl_round_fill(PANEL_X, 90, PANEL_W, 530, PANEL_R, C_PANEL);
     if (cover_img.px) {
-        ovl_blit(COVER_X, 110, COVER_S, COVER_S, cover_img.px, cover_img.w, cover_img.h);
+        /* Spine case: drop shadow, black case base, spine grooves, art
+           inset right of the spine, plastic shine over the art. */
+        ovl_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+        ovl_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+        ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
+        ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
+        ovl_blit(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART,
+                 cover_img.px, cover_img.w, cover_img.h);
+        cover_shine(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     } else {
-        const char *a = "No cover found";
-        ovl_text(PANEL_X + (PANEL_W - ovl_text_width(a)) / 2, 230, a, C_TEXT);
+        /* Disc placeholder (picked: tray + shadow + NO COVER inside the
+           disc): the spine case frames it like art (same 4 case fills,
+           deliberately duplicated so the tested with-cover branch stays
+           untouched); the label is drawn AFTER the shine so it stays
+           legible over the reflection. */
+        ovl_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+        ovl_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+        ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
+        ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
+        ovl_round_fill(TRAY_X, TRAY_Y, TRAY_S, TRAY_S, 12, 0xff1a1a1au);
+        cover_disc_fill(DISC_CX + 6, DISC_CY + 8, DISC_R, 0x99000000u);
+        cover_disc_fill(DISC_CX, DISC_CY, DISC_R, 0xff050505u);
+        ovl_circle(DISC_CX, DISC_CY, DISC_R, 0xff333333u);
+        cover_disc_fill(DISC_CX, DISC_CY, 15, 0xff1a1a1au);
+        ovl_circle(DISC_CX, DISC_CY, 15, 0xff888888u);
+        cover_disc_fill(DISC_CX, DISC_CY, 5, 0xff000000u);
+        cover_disc_shine(DISC_CX, DISC_CY, DISC_R,
+                         COVER_X + SPINE_W + 2, 110 + 6, CASE_ART);
+        ovl_text(DISC_CX - ovl_text_width("NO COVER") / 2, DISC_CY + 34,
+                 "NO COVER", C_DIM);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     }
@@ -1163,7 +1392,7 @@ const char *menu_run(void)
         if (sel >= top + rows) top = sel - rows + 1;
 
         snprintf(sub, sizeof sub, "%d game%s", ngames, ngames == 1 ? "" : "s");
-        header(APP_TITLE, sub);
+        header_app(sub);
         for (i = top; i < n && i < top + rows; i++) {
             int y = y0 + (i - top) * 44;
             if (i == sel) ovl_fill(30, y - 6, 870, 42, C_SEL);
@@ -1248,9 +1477,9 @@ const char *menu_run(void)
         footer2(sel == 0 && disc_identify_result(NULL, 0) == 1
                     ? "X play   Circle copy to HDD   Triangle settings   Square rescan"
                     : sel == 1
-                    ? "X boot BIOS    Triangle settings    Square rescan    L1/R1 page"
-                    : "X play    Triangle settings    Square rescan    L1/R1 page",
-                "In game: SELECT+START opens the menu (save states, settings)");
+                    ? "X boot BIOS    Triangle settings    Square rescan    L1 R1 page"
+                    : "X play    Triangle settings    Square rescan    L1 R1 page",
+                "In game: SELECT + START opens the menu (save states, settings)");
         frame_end();
     }
     cover_release();
@@ -1271,7 +1500,7 @@ int menu_ingame(void)
                                    "Quit to game list", "Dump VRAM (debug)" };
     int N = cfg.vram_check ? 9 : 8;
     static int slot;             /* kept while the app runs */
-    int sel = 0, settings = 0, ssel = 0;
+    int sel = 0, settings = 0, ssel = 0, cpu_entry = -1;
     const char *msg = NULL;
     char info[40] = "";
     logf_("menu: in-game menu opened\n");
@@ -1283,13 +1512,47 @@ int menu_ingame(void)
         frame_begin(!settings);          /* the settings page covers the whole screen */
         p = input_pressed();
         if (settings) {
-            if (p & PAD_UP) ssel = (ssel + NSET - 1) % NSET;
-            if (p & PAD_DOWN) ssel = (ssel + 1) % NSET;
+            char pg_ind[16];
+            if (p & PAD_UP) { int pg = set_page_of(ssel), rw = set_row_of(ssel);
+                              rw = (rw + set_page_counts[pg] - 1) % set_page_counts[pg];
+                              ssel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
+            if (p & PAD_DOWN) { int pg = set_page_of(ssel), rw = set_row_of(ssel);
+                                rw = (rw + 1) % set_page_counts[pg];
+                                ssel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
+            if (p & PAD_L1) { int pg = set_page_of(ssel);
+                              set_page_row[pg] = set_row_of(ssel);
+                              pg = (pg + NPAGES - 1) % NPAGES;
+                              ssel = set_page_items[pg][set_page_row[pg]]; }
+            if (p & PAD_R1) { int pg = set_page_of(ssel);
+                              set_page_row[pg] = set_row_of(ssel);
+                              pg = (pg + 1) % NPAGES;
+                              ssel = set_page_items[pg][set_page_row[pg]]; }
             if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) { setting_change(ssel, p & PAD_LEFT ? -1 : 1, 1); game_settings_changed(); }
-            if (p & (PAD_CIRCLE | PAD_TRIANGLE)) { settings = 0; config_save(); }
+            if (p & (PAD_CIRCLE | PAD_TRIANGLE)) {
+                settings = 0; config_save();
+                if (cpu_entry >= 0 && cfg.dynarec != cpu_entry) {
+                    /* Live engine switch: the next retro_run re-reads
+                       pcsx_rearmed_drc (option_value answers from cfg.dynarec)
+                       and upstream update_variables swaps the engine
+                       (Notify BEFORE_SAVE -> Shutdown -> Init -> Notify AFTER_LOAD).
+                       From Interpreter, sync Lightrec's thread-mode global first:
+                       set_threaded only touches the global when not on Dynarec
+                       (no restart, no live state), so the fresh Lightrec starts
+                       in the picked thread mode. From Dynarec, do NOT call it:
+                       it would restart Lightrec without a register sync.
+                       Thread-mode-only changes stay next-launch. */
+                    if (!cpu_entry && cfg.dynarec) {
+                        extern void lightrec_plugin_set_threaded(int on) __attribute__((weak));
+                        if (lightrec_plugin_set_threaded) lightrec_plugin_set_threaded(cfg.dynarec_thread);
+                    }
+                    msg = "CPU switches live on resume";
+                }
+                cpu_entry = -1;
+            }
             ovl_fill(0, 0, OVL_W, OVL_H, C_PANEL);
-            header(config_game_active() ? "Settings for this game" : "Settings for all games", NULL);
-            draw_settings(ssel, 84, 1);
+            snprintf(pg_ind, sizeof pg_ind, "%d / %d", set_page_of(ssel) + 1, NPAGES);
+            header(config_game_active() ? "Settings for this game" : "Settings for all games", pg_ind);
+            draw_settings(ssel, 118, 1);
             footer("Up/Down select    Left/Right change    Circle back");
             frame_end();
             continue;
@@ -1319,7 +1582,9 @@ int menu_ingame(void)
                 break;
             /* finish this frame (the paused menu) first: starting another one without
                presenting this one made the screen blink */
-            case 5: settings = 1; ssel = 0; break;
+            case 5: settings = 1; ssel = 0; cpu_entry = cfg.dynarec;
+                    for (i = 0; i < NPAGES; i++) set_page_row[i] = 0;
+                    break;
             case 6:
                 config_game_enable(!config_game_active());
                 game_settings_changed();
@@ -1335,7 +1600,7 @@ int menu_ingame(void)
             }
             }
         }
-        ovl_fill(290, 110, 700, 130 + N * 46 + (msg ? 50 : 0), C_PANEL);
+        ovl_round_fill(290, 110, 700, 130 + N * 46 + (msg ? 50 : 0), PANEL_R, C_PANEL);
         ovl_text(320, 132, "Paused", C_ACCENT);
         for (i = 0; i < N; i++) {
             int y = 180 + i * 46;

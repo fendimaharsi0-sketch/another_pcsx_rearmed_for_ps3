@@ -71,6 +71,7 @@ typedef struct {
     char mc1_shared[256]; /* library card file name for slot 1 Shared (saves/imported/<name>), global only; empty = default pcsx-card1.mcd */
     char mc2_shared[256]; /* same for slot 2 Shared (default pcsx-card2.mcd) */
     char last_dir[512];
+    int turbo_cd;       /* upstream TurboCD: instant CD seeks + faster reads; auto-off during XA audio and FMV */
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
@@ -143,6 +144,7 @@ void ovl_blit(int x, int y, int w, int h, const unsigned char *px, int sw, int s
 void ovl_line(int x0, int y0, int x1, int y1, uint32_t argb);   /* 2 px thick */
 void ovl_circle(int cx, int cy, int r, uint32_t argb);         /* 2 px outline */
 void ovl_button(int x, int y, int btn, uint32_t argb);         /* 24x24 glyph */
+void ovl_round_fill(int x, int y, int w, int h, int r, uint32_t argb);   /* filled rounded rect */
 
 /* ---- audio.c ---- */
 int  audio_init(void);

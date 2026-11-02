@@ -14,7 +14,7 @@
 
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "",
+    .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .turbo_cd = 0,
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -49,6 +49,7 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "mc1_mode", F(mc1_mode), 0, 2, 1 },
     { "mc2_mode", F(mc2_mode), 0, 2, 1 },
     { "analog", F(analog), 0, 1, 1 },
+    { "turbo_cd", F(turbo_cd), 0, 1, 1 },
 };
 #define NINTS (sizeof ints / sizeof ints[0])
 #define IV(s, i) (*(int *)((char *)(s) + ints[i].off))

@@ -94,6 +94,7 @@ static const char *option_value(const char *key)
        too (upstream's default is 12): read on the emulation thread, a seek on the
        hard drive (Silent Hill starting a voice line) held up the frame */
     if (!strcmp(key, "pcsx_rearmed_cd_readahead")) return game_is_disc ? "64" : "32";
+    if (!strcmp(key, "pcsx_rearmed_cd_turbo")) return cfg.turbo_cd ? "enabled" : "disabled";   /* upstream TurboCD, already in the core: the core's update_variables reads this on vars_dirty, so it applies on resume in a game */
     if (!strcmp(key, "pcsx_rearmed_memcard1")) return cfg.mc1_mode == 1 ? "shared" : cfg.mc1_mode == 2 ? "none" : "serial";   /* serial: SCUS-12345_1.mcd in saves/; shared: the chosen library card (saves/imported/), or pcsx-card1.mcd when none is chosen */
     if (!strcmp(key, "pcsx_rearmed_memcard1_shared")) return shared_card_value_for(cfg.mc1_shared);
     if (!strcmp(key, "pcsx_rearmed_memcard2_shared")) return shared_card_value_for(cfg.mc2_shared);

@@ -141,6 +141,7 @@ CID=UP0001-PCSR00001_00-0000000000000001
 make_self_npdrm "$B/${NAME}_stripped.elf" "$B/pkg/USRDIR/EBOOT.BIN" $CID >/dev/null
 sfo --title "PCSX-ReARMed for PS3" --appid PCSR00001 -f "$PS3DEV/bin/sfo.xml" "$B/pkg/PARAM.SFO" >/dev/null
 cp "$ROOT/data/ICON0.PNG" "$B/pkg/ICON0.PNG"   # the XMB icon (320x176, transparent background)
+cp "$ROOT/data/PIC1.PNG" "$B/pkg/PIC1.PNG"     # the XMB background (1920x1080)
 cp "$ROOT/data/ps1titles.txt" "$B/pkg/USRDIR/"   # disc titles (tools/make_titles.py, libretro-database, CC BY-SA 4.0)
 pkg --contentid $CID "$B/pkg/" "$B/$NAME.pkg" >/dev/null
 ls -la "$B/$NAME.pkg"

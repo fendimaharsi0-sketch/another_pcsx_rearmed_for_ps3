@@ -219,6 +219,7 @@ The in-game menu has these entries:
 | Left stick as D-pad | **On**, Off | |
 | Right stick as buttons | **Off**, On | Triangle/X/Square/Circle. |
 | Analog joystick | **On (DualShock)**, Off (digital pad) | Digital pad for games that force another layout with analog on (Moto Racer 2). Quick toggle in the pause menu, after Reset. When on, stick-as-D-pad/buttons are bypassed. No L3+R3 combo: that combination is a real move in Ape Escape (crawl + hide). |
+| Turbo CD | **Off**, On | Upstream TurboCD, already in the core: instant CD seeks + faster reads. Auto-off during XA audio and FMV. Applies on resume in a game; per game. |
 | Vibration | **On**, Off | DualShock 3 vibration in games that use it. |
 | FMV decoding | **SPUs**, PPU | |
 | PS1 CPU speed | **Normal**, +50%, +75% | Some games may glitch. |

@@ -29,6 +29,50 @@ void ovl_fill(int x, int y, int w, int h, uint32_t argb)
         }
 }
 
+static int isqrt_int(int n)
+{
+    /* Integer square root (floor), Newton's method; no libm on the frontend. */
+    int x = n, y = (x + 1) / 2;
+    if (n <= 0) return 0;
+    while (y < x) { x = y; y = (x + n / x) / 2; }
+    return x;
+}
+
+void ovl_round_fill(int x, int y, int w, int h, int r, uint32_t argb)
+{
+    /* Filled rounded rect: the middle strip + two side strips (plain fills)
+       + four quarter-disc corners (one span per row, arc via isqrt).
+       r is clamped to half the short side; r == 0 is a plain fill.
+       Corner-row rule: the row at vertical distance v (1..r) from the
+       corner centre line spans dx = isqrt(r*r - v*v) pixels from the
+       centre line outward, so the outer row is just the middle strip and
+       the row by the centre line is nearly full width: a true circular arc,
+       not a chamfer. ovl_fill clips every span, so off-screen boxes are safe. */
+    int maxr, v;
+    if (r <= 0) { ovl_fill(x, y, w, h, argb); return; }
+    maxr = (w < h ? w : h) / 2;
+    if (r > maxr) r = maxr;
+    ovl_fill(x + r, y, w - 2 * r, h, argb);            /* middle strip, full height */
+    ovl_fill(x, y + r, r, h - 2 * r, argb);            /* left strip */
+    ovl_fill(x + w - r, y + r, r, h - 2 * r, argb);    /* right strip */
+    for (v = 1; v <= r; v++) {                        /* top corners */
+        int dx = isqrt_int(r * r - v * v);
+        int py = y + r - v;
+        if (dx > 0) {
+            ovl_fill(x + r - dx, py, dx, 1, argb);    /* top-left */
+            ovl_fill(x + w - r, py, dx, 1, argb);     /* top-right */
+        }
+    }
+    for (v = 1; v <= r; v++) {                        /* bottom corners */
+        int dx = isqrt_int(r * r - v * v);
+        int py = y + h - r + v - 1;
+        if (dx > 0) {
+            ovl_fill(x + r - dx, py, dx, 1, argb);    /* bottom-left */
+            ovl_fill(x + w - r, py, dx, 1, argb);     /* bottom-right */
+        }
+    }
+}
+
 int ovl_text_width(const char *s)
 {
     int n = 0;
