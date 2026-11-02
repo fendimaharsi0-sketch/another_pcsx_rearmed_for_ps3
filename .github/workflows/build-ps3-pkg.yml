@@ -1,0 +1,158 @@
+# Build PS3 PKG (prototype: bilinear texture filtering)
+# Repo: fendimaharsi0-sketch/another_pcsx_rearmed_for_ps3, branch ps3
+# Paste this file as .github/workflows/build-ps3-pkg.yml in the web UI,
+# then: Actions -> Build PS3 PKG -> Run workflow -> download the artifact.
+#
+# Why this shape:
+# - workflow_dispatch ONLY (no push trigger): a toolchain build is hours on
+#   a cold cache, it must never run on every push by accident.
+# - Toolchain is built from ps3dev/ps3toolchain source (steps 001-007, the
+#   same steps as ps3toolchain's own CI), NOT from the old GCC 7.2 libretro
+#   image: this repo's SPU code needs a modern GCC (SPU 9.5 is the last GCC
+#   with SPU support; PPU 13.2). The old image fails spu/mdec_spu.c.
+# - The toolchain folder (ps3dev) is cached by toolchain commit SHA, so the
+#   first run is long (estimate 2-4 hours, timeout 360 min) and later runs
+#   skip it and take roughly 15-30 minutes for the pkg build itself.
+# - PSL1GHT is built fresh every run (minutes, not hours), so the RSX patch
+#   below is always applied to a clean tree. The patch step is idempotent:
+#   it skips itself if the header already contains the clobber.
+# - Cg comes from the Ubuntu package (nvidia-cg-toolkit), the same package
+#   used to verify all 58 shaders locally. No other shader tool is needed.
+# - Output is ONLY an Actions artifact, not a Release: the pkg is untested
+#   on PS3 hardware until Fendi runs it. Do not turn this into a release
+#   job until a hardware test passes.
+# - UNTESTED workflow: the first run is the test. If a step fails, read its
+#   log, fix that step, re-run. Do not assume it works before a green run
+#   produces a .pkg artifact.
+
+name: Build PS3 PKG
+
+on:
+  workflow_dispatch:
+    inputs:
+      pkg_name:
+        description: 'Package file name (without .pkg)'
+        default: 'pcsx-rearmed-ps3-texfilter'
+        required: false
+      dynarec:
+        description: 'DYNAREC for the core build (lightrec or 0 for interpreter)'
+        default: 'lightrec'
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      PS3DEV: ${{ github.workspace }}/ps3dev
+      PSL1GHT: ${{ github.workspace }}/ps3dev
+      BUILD_PS3TOOLCHAIN_ONLY: '1'
+      NO_SAVANNAH: '1'
+
+    steps:
+      - name: Checkout prototype (branch ps3)
+        uses: actions/checkout@v4
+        with:
+          ref: ps3
+
+      - name: Install host dependencies
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get -y install \
+            autoconf automake bison flex gcc libelf-dev make texinfo \
+            libncurses5-dev patch python3 python-is-python3 subversion \
+            wget zlib1g-dev libtool-bin python3-dev bzip2 libgmp3-dev \
+            pkg-config libssl-dev clang git nvidia-cg-toolkit
+          echo "PATH=$GITHUB_WORKSPACE/ps3dev/bin:$GITHUB_WORKSPACE/ps3dev/ppu/bin:$GITHUB_WORKSPACE/ps3dev/spu/bin:$PATH" >> "$GITHUB_ENV"
+
+      - name: Clone ps3toolchain and record its SHA
+        id: toolchain
+        run: |
+          set -eux
+          git clone --depth 1 https://github.com/ps3dev/ps3toolchain.git ps3toolchain
+          echo "sha=$(cd ps3toolchain && git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached toolchain
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: ps3dev
+          key: ps3dev-toolchain-${{ steps.toolchain.outputs.sha }}
+
+      - name: Download toolchain archives
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        working-directory: ps3toolchain
+        run: |
+          set -eux
+          ./download.sh
+
+      - name: Build toolchain (PPU binutils + GCC/newlib, SPU binutils + GCC/newlib)
+        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+        working-directory: ps3toolchain
+        run: |
+          set -eux
+          ./toolchain.sh 001
+          ./toolchain.sh 002
+          ./toolchain.sh 004
+          ./toolchain.sh 005
+          ./toolchain.sh 006
+          # Note: steps 003/007 (GDB) are skipped on purpose: build.sh does
+          # not need GDB, and skipping them saves a large chunk of time.
+
+      - name: Verify toolchain
+        run: |
+          set -eux
+          ls "$PS3DEV/ppu/bin" | grep -E '^ppu-.*gcc$' || true
+          "$PS3DEV/ppu/bin/ppu-gcc" --version | head -1
+          "$PS3DEV/spu/bin/spu-gcc" --version | head -1
+          test -x "$PS3DEV/bin/sprxlinker"
+          test -x "$PS3DEV/bin/make_self_npdrm"
+          test -x "$PS3DEV/bin/sfo"
+          test -x "$PS3DEV/bin/pkg"
+
+      - name: Clone PSL1GHT, apply RSX patch, build and install it
+        run: |
+          set -eux
+          git clone --depth 1 https://github.com/ps3dev/PSL1GHT.git PSL1GHT
+          # The patch lives in this repo at psl1ght-patches/ (repo root).
+          # build.sh refuses to run without it: without the "memory" clobber,
+          # GCC 11+ miscompiles the RSX command-buffer callback and the GPU
+          # hangs at the first buffer wrap.
+          if grep -q '"memory"' PSL1GHT/ppu/include/rsx/rsx_function_macros.h; then
+            echo "RSX patch already present, skipping"
+          else
+            patch -p1 -d PSL1GHT < psl1ght-patches/0001-rsx-context-callback-clobbers.patch
+          fi
+          grep -q '"memory"' PSL1GHT/ppu/include/rsx/rsx_function_macros.h
+          cd PSL1GHT
+          make install-ctrl
+          make
+          make install
+          test -x "$PS3DEV/bin/cgcomp"
+
+      - name: Build the PKG
+        working-directory: ps3
+        env:
+          DYNAREC: ${{ inputs.dynarec }}
+        run: |
+          set -eux
+          ./build.sh "${{ inputs.pkg_name }}"
+          ls -lh "build/${{ inputs.pkg_name }}.pkg"
+
+      - name: Upload PKG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.pkg_name }}-pkg
+          path: ps3/build/*.pkg
+          if-no-files-found: error
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.pkg_name }}-logs
+          path: |
+            ps3/build/core.log
+            ps3/build/gen
+          if-no-files-found: ignore
