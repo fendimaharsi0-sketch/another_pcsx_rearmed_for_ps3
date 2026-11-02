@@ -11,8 +11,13 @@
 #   image: this repo's SPU code needs a modern GCC (SPU 9.5 is the last GCC
 #   with SPU support; PPU 13.2). The old image fails spu/mdec_spu.c.
 # - The toolchain folder (ps3dev) is cached by toolchain commit SHA, so the
-#   first run is long (estimate 2-4 hours, timeout 360 min) and later runs
-#   skip it and take roughly 15-30 minutes for the pkg build itself.
+#   first run builds it (run #1 took 13m27s for steps 001/002/004/005/006,
+#   no GDB) and later runs restore it from cache and skip straight to
+#   PSL1GHT + the pkg build.
+# - FIX 2026-11-02 (run #1 failure): sprxlinker / make_self_npdrm / sfo /
+#   pkg are PSL1GHT host tools, NOT ps3toolchain outputs. Checking them in
+#   "Verify toolchain" (before PSL1GHT is built) always fails. They are
+#   now checked only after the PSL1GHT install step, where they belong.
 # - PSL1GHT is built fresh every run (minutes, not hours), so the RSX patch
 #   below is always applied to a clean tree. The patch step is idempotent:
 #   it skips itself if the header already contains the clobber.
@@ -101,15 +106,14 @@ jobs:
           # not need GDB, and skipping them saves a large chunk of time.
 
       - name: Verify toolchain
+        # ONLY the compilers here: sprxlinker / make_self_npdrm / sfo / pkg
+        # do not exist yet at this point, they are installed by the PSL1GHT
+        # step below (run #1 failed exactly on that mistaken check).
         run: |
           set -eux
           ls "$PS3DEV/ppu/bin" | grep -E '^ppu-.*gcc$' || true
           "$PS3DEV/ppu/bin/ppu-gcc" --version | head -1
           "$PS3DEV/spu/bin/spu-gcc" --version | head -1
-          test -x "$PS3DEV/bin/sprxlinker"
-          test -x "$PS3DEV/bin/make_self_npdrm"
-          test -x "$PS3DEV/bin/sfo"
-          test -x "$PS3DEV/bin/pkg"
 
       - name: Clone PSL1GHT, apply RSX patch, build and install it
         run: |
@@ -129,7 +133,12 @@ jobs:
           make install-ctrl
           make
           make install
+          # PSL1GHT host tools, checked here (after install) not earlier:
           test -x "$PS3DEV/bin/cgcomp"
+          test -x "$PS3DEV/bin/sprxlinker"
+          test -x "$PS3DEV/bin/make_self_npdrm"
+          test -x "$PS3DEV/bin/sfo"
+          test -x "$PS3DEV/bin/pkg"
 
       - name: Build the PKG
         working-directory: ps3
