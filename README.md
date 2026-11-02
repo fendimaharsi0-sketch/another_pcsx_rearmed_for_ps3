@@ -130,6 +130,28 @@ and the app says so. On HEN, copy the disc to an image on a PC instead.
 
 Game names come from a list of 10,306 PS1 serials (`ps3/data/ps1titles.txt`).
 
+### Cover art in the game list
+
+The list is wide on the left, with a square cover panel on the right for the
+selected game (title without the file extension, format, "own settings" when
+the game has its own settings). No cover art is bundled in this package: the
+panel reads the cover from the user's own webMAN MOD cover pack, which most
+modded PS3s already have, so the package does not grow. When no cover is
+found the panel shows "No cover found" and the list works exactly as before.
+
+Lookup, in order: (1) the pack by serial — `SLUS_123.45_COV.JPG` or `.PNG`
+in `/dev_hdd0/game/BLES80608/USRDIR/covers_retro/psx/` (USB000/USB001 in the
+same layout are tried too); the disc's serial comes from its `SYSTEM.CNF`,
+a file's serial from `[SLUS-12345]` or `SLUS_123.45` in its file name.
+(2) A cover named after the game file itself, next to it
+(`Game.cue` → `Game.JPG`/`Game.PNG`). Reading the serial out of the disc
+image itself is not in this version, so a file whose name carries no serial
+and has no same-name cover shows the placeholder, and a playlist (`.m3u`)
+entry looks up its playlist name, not the discs inside it. Covers are
+small by design (the pack's are 268x268 or smaller): only the selected
+game's cover is kept, files over 512 KB and images over 512x512 are refused,
+and the cover is freed when the list is left.
+
 ### Copy disc to HDD
 
 The console's drive pauses the game whenever it has to seek, for example when a

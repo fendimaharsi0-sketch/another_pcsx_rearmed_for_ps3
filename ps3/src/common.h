@@ -8,7 +8,7 @@
 
 #define APP_ID    "PCSR00001"
 #define APP_TITLE "PCSX-ReARMed for PS3"
-#define APP_VERSION "0.1 (build 72)"   /* shown in the game list and the logs */
+#define APP_VERSION "0.1 (build 72)"   /* logs only; not shown in the game list (version lives on the release page) */
 #ifndef APP_DIR   /* overridable for the host UI tests */
 #define APP_DIR   "/dev_hdd0/game/" APP_ID "/USRDIR"
 #endif
@@ -122,6 +122,10 @@ void video_reset_state(void);
 void ovl_fill(int x, int y, int w, int h, uint32_t argb);
 int  ovl_text(int x, int y, const char *s, uint32_t argb);   /* returns end x */
 int  ovl_text_width(const char *s);
+/* An RGBA image scaled to w x h at x, y (nearest sampling, alpha blended);
+   used for the game list's cover panel. No image asset is bundled: the
+   image comes from the user's cover pack at run time. */
+void ovl_blit(int x, int y, int w, int h, const unsigned char *px, int sw, int sh);
 
 /* ---- audio.c ---- */
 int  audio_init(void);

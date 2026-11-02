@@ -3,11 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/systime.h>
 #include "common.h"
 #include "core_hooks.h"
+#include "cover.h"
 #include "hwr/hwr.h"
 
 #define MAX_GAMES 2000
@@ -476,6 +478,7 @@ static void settings_screen(void)
 int disc_probe(char *label, size_t n);     /* disc.c */
 void disc_identify_start(void);
 int  disc_identify_result(char *title, size_t n);
+const char *disc_identify_serial(void);   /* disc.c: serial from SYSTEM.CNF */
 void disc_identify_wait(void);
 static char disc_msg[64], disc_msg2[64];   /* one or two lines over the game list */
 static int disc_msg_frames;
@@ -659,6 +662,68 @@ static int copy_disc(const char *title, char *cue, size_t cue_n)
     return 0;
 }
 
+/* ---- game list cover panel (wide list + square cover, agreed proto) ----
+   List right edge 884, panel 920..1240, cover 290x290 at (935, 110).
+   No bundled image asset: the cover is the user's webMAN pack file at run
+   time, the placeholder is just panel + text. Only the selected game's
+   cover is kept (cover_key); it is reloaded when the selection changes
+   and freed when the list is left, so the menu never holds a whole list
+   of images on an old machine. When there are no game files the panel is
+   skipped, so the empty-list help stays exactly as before. */
+#define LIST_TAG_R 884
+#define PANEL_X 920
+#define PANEL_W 320
+#define COVER_X 935
+#define COVER_S 290
+
+static char cover_key[1300];
+static cover_img_t cover_img;
+
+static void cover_release(void)
+{
+    cover_free(&cover_img);
+    cover_key[0] = 0;
+}
+
+static void cover_update(const char *key, const char *game_path, int is_disc, const char *disc_serial)
+{
+    if (!strcmp(key, cover_key)) return;
+    cover_free(&cover_img);
+    snprintf(cover_key, sizeof cover_key, "%s", key);
+    if (cover_load(game_path, is_disc, disc_serial, &cover_img))
+        logf_("menu: cover found for %s (%dx%d)\n", key, cover_img.w, cover_img.h);
+    else
+        logf_("menu: no cover for %s\n", key);
+}
+
+/* text_fit, but ending at a right edge other than the TV margin (the list
+   now ends at 884, the panel's text at 1225) */
+static void text_fit_r(int x, int y, const char *s, uint32_t argb, int right)
+{
+    char b[256];
+    int max = (right - x) / ovl_text_width("W");
+    if ((int)strlen(s) <= max || max < 4) { ovl_text(x, y, s, argb); return; }
+    snprintf(b, sizeof b, "%.*s...", max - 3, s);
+    ovl_text(x, y, b, argb);
+}
+
+static void draw_cover_panel(const char *title, const char *line2)
+{
+    ovl_fill(PANEL_X, 90, PANEL_W, 530, C_PANEL);
+    if (cover_img.px) {
+        ovl_blit(COVER_X, 110, COVER_S, COVER_S, cover_img.px, cover_img.w, cover_img.h);
+        text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
+        if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
+        ovl_text(COVER_X, 500, "webMAN cover pack", C_DIM);
+    } else {
+        const char *a = "No cover found", *b = "webMAN cover pack";
+        ovl_text(PANEL_X + (PANEL_W - ovl_text_width(a)) / 2, 230, a, C_TEXT);
+        ovl_text(PANEL_X + (PANEL_W - ovl_text_width(b)) / 2, 270, b, C_DIM);
+        text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
+        if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
+    }
+}
+
 /* list entry 0 is the disc in the drive, entries 1.. the game files */
 const char *menu_run(void)
 {
@@ -679,8 +744,9 @@ const char *menu_run(void)
         if (p & PAD_L1) sel = sel > rows ? sel - rows : 0;
         if (p & PAD_R1) sel = sel + rows < n ? sel + rows : n - 1;
         if (p & PAD_CROSS) {
-            if (sel == 0) { const char *d = start_disc(); if (d) return d; continue; }
+            if (sel == 0) { const char *d = start_disc(); if (d) { cover_release(); return d; } continue; }
             logf_("menu: starting %s\n", games[sel - 1]);
+            cover_release();
             return games[sel - 1];
         }
         if ((p & PAD_CIRCLE) && sel == 0) {   /* copy the disc to the HDD */
@@ -698,10 +764,9 @@ const char *menu_run(void)
 
         snprintf(sub, sizeof sub, "%d game%s", ngames, ngames == 1 ? "" : "s");
         header(APP_TITLE, sub);
-        ovl_text(MARGIN + ovl_text_width(APP_TITLE "  "), 17, "v" APP_VERSION, C_DIM);
         for (i = top; i < n && i < top + rows; i++) {
             int y = y0 + (i - top) * 44;
-            if (i == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            if (i == sel) ovl_fill(30, y - 6, 870, 42, C_SEL);
             if (i == 0) {               /* the disc in the drive: icon, its game, "from disc" */
                 char t[128], nm[160];
                 int r = disc_identify_result(t, sizeof t), max;
@@ -711,20 +776,48 @@ const char *menu_run(void)
                 else if (r == 0) snprintf(nm, sizeof nm, "No PS1 disc in the drive");
                 else if (r == 2) snprintf(nm, sizeof nm, "Disc in the drive (could not read it)");
                 else snprintf(nm, sizeof nm, "%s", t[0] ? t : "PS1 disc");
-                max = (OVL_W - 2 * MARGIN - 44 - ovl_text_width(tag) - ovl_text_width(" ")) / ovl_text_width("W");
+                max = (LIST_TAG_R - ovl_text_width(tag) - ovl_text_width(" ") - (MARGIN + 44)) / ovl_text_width("W");
                 if ((int)strlen(nm) > max && max > 3) { nm[max - 3] = 0; strcat(nm, "..."); }
                 ovl_text(MARGIN + 44, y, nm, r == 1 ? (i == sel ? C_ACCENT : C_TEXT) : C_DIM);
-                if (tag[0]) ovl_text(OVL_W - MARGIN - ovl_text_width(tag), y, tag, C_DIM);
+                if (tag[0]) ovl_text(LIST_TAG_R - ovl_text_width(tag), y, tag, C_DIM);
             } else if (own_cfg[i - 1]) {
-                ovl_text(OVL_W - MARGIN - ovl_text_width("own settings"), y, "own settings", C_DIM);
+                ovl_text(LIST_TAG_R - ovl_text_width("own settings"), y, "own settings", C_DIM);
                 {   /* the name ends before the tag */
                     char nm[256];
-                    int max = (OVL_W - 2 * MARGIN - ovl_text_width("own settings ")) / ovl_text_width("W");
+                    int max = (LIST_TAG_R - ovl_text_width("own settings ") - MARGIN) / ovl_text_width("W");
                     const char *s = base_name(games[i - 1]);
                     if ((int)strlen(s) > max && max > 3) { snprintf(nm, sizeof nm, "%.*s...", max - 3, s); s = nm; }
                     ovl_text(MARGIN, y, s, i == sel ? C_ACCENT : C_TEXT);
                 }
-            } else text_fit(MARGIN, y, base_name(games[i - 1]), i == sel ? C_ACCENT : C_TEXT);
+            } else text_fit_r(MARGIN, y, base_name(games[i - 1]), i == sel ? C_ACCENT : C_TEXT, LIST_TAG_R);
+        }
+        if (ngames) {                  /* the selected game's cover, right of the list */
+            char title[256], line2[128];
+            if (sel == 0) {
+                char t[128];
+                int r = disc_identify_result(t, sizeof t);
+                char key[1300];
+                snprintf(key, sizeof key, "disc:%s", disc_identify_serial());
+                cover_update(key, NULL, 1, disc_identify_serial());
+                snprintf(title, sizeof title, "%s", r == 1 ? (t[0] ? t : "PS1 disc") : "PS1 disc");
+                snprintf(line2, sizeof line2, "%s", r == 1 ? "from disc" : "");
+            } else {
+                const char *s = base_name(games[sel - 1]), *e = ext_of(s);
+                char ext[16];
+                int k;
+                cover_update(games[sel - 1], games[sel - 1], 0, NULL);
+                snprintf(title, sizeof title, "%s", s);
+                {   /* panel title without the file extension ("Tekken 3", not "Tekken 3.cue") */
+                    char *dot = strrchr(title, '.');
+                    if (dot && dot != title) *dot = 0;
+                }
+                for (k = 0; e[k] && k < 15; k++) ext[k] = (char)toupper((unsigned char)e[k]);
+                ext[k] = 0;
+                if (ext[0] && own_cfg[sel - 1]) snprintf(line2, sizeof line2, "%s   own settings", ext);
+                else if (own_cfg[sel - 1]) snprintf(line2, sizeof line2, "own settings");
+                else snprintf(line2, sizeof line2, "%s", ext);
+            }
+            draw_cover_panel(title, line2);
         }
         if (!ngames) {                  /* below the disc entry */
             ovl_text(MARGIN, 170, "No game files found.", C_TEXT);
@@ -750,6 +843,7 @@ const char *menu_run(void)
                 "In game: SELECT+START opens the menu (save states, settings)");
         frame_end();
     }
+    cover_release();
     return NULL;
 }
 

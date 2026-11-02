@@ -407,6 +407,7 @@ static int title_for(const char *serial, char *title, size_t n)
 static volatile int id_state;           /* 1 while the thread runs */
 static int id_found;
 static char id_title[128];
+static char id_serial[16];              /* for the game list's cover lookup */
 static sys_ppu_thread_t id_thread;
 static int id_joinable;
 
@@ -415,12 +416,13 @@ static void id_main(void *arg)
     char label[40], serial[16];
     disc_t *d;
     (void)arg;
-    id_found = 0; id_title[0] = 0;
+    id_found = 0; id_title[0] = 0; id_serial[0] = 0;
     toc_seen = 0;
     if (!(d = disc_open(label, sizeof label, 2)) && toc_seen) id_found = 2;   /* a CD it could not read */
     if (d) {
         id_found = 1;
         if (read_serial(d, serial, sizeof serial) == 0) {
+            snprintf(id_serial, sizeof id_serial, "%s", serial);
             if (!title_for(serial, id_title, sizeof id_title)) {
                 /* not in the list: the label, else the serial as SLUS-00707 */
                 if (label[0] && strcmp(label, "PS1 disc")) snprintf(id_title, sizeof id_title, "%s", label);
@@ -455,6 +457,15 @@ int disc_identify_result(char *title, size_t n)
     if (id_joinable) { u64 r; sysThreadJoin(id_thread, &r); id_joinable = 0; }
     if (title) snprintf(title, n, "%s", id_title);
     return id_found;
+}
+
+/* The disc's serial as read from SYSTEM.CNF ("" while reading or unknown);
+   the game list uses it to find the disc's cover in the webMAN pack. */
+const char *disc_identify_serial(void)
+{
+    if (id_state) return "";
+    if (id_joinable) { u64 r; sysThreadJoin(id_thread, &r); id_joinable = 0; }
+    return id_serial;
 }
 
 /* before the disc is opened to play it: the background check must have finished */

@@ -36,6 +36,32 @@ int ovl_text_width(const char *s)
     return n * FONT_W;
 }
 
+void ovl_blit(int x, int y, int w, int h, const unsigned char *px, int sw, int sh)
+{
+    uint32_t *o = video_overlay();
+    int i, j;
+    if (!px || w <= 0 || h <= 0 || sw <= 0 || sh <= 0) return;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > OVL_W) w = OVL_W - x;
+    if (y + h > OVL_H) h = OVL_H - y;
+    for (j = 0; j < h; j++) {
+        /* nearest sampling: the pack's covers are 268x268 or smaller and
+           the panel is 290x290, so the scale is near 1:1 and no extra
+           scaled buffer is needed (one less allocation on an old machine) */
+        int sy = (int)((long)j * sh / h);
+        for (i = 0; i < w; i++) {
+            const unsigned char *s = px + ((size_t)sy * sw + (size_t)i * sw / w) * 4;
+            unsigned a = s[3];
+            uint32_t *p;
+            if (!a) continue;
+            p = &o[(y + j) * OVL_W + x + i];
+            *p = a == 255 ? (0xff000000u | (unsigned)s[0] << 16 | (unsigned)s[1] << 8 | s[2])
+                          : blend(*p, (unsigned)s[0] << 16 | (unsigned)s[1] << 8 | s[2], a);
+        }
+    }
+}
+
 int ovl_text(int x, int y, const char *s, uint32_t argb)
 {
     uint32_t *o = video_overlay();
