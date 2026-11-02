@@ -889,11 +889,9 @@ static void draw_cover_panel(const char *title, const char *line2)
         ovl_blit(COVER_X, 110, COVER_S, COVER_S, cover_img.px, cover_img.w, cover_img.h);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
-        ovl_text(COVER_X, 500, "webMAN cover pack", C_DIM);
     } else {
-        const char *a = "No cover found", *b = "webMAN cover pack";
+        const char *a = "No cover found";
         ovl_text(PANEL_X + (PANEL_W - ovl_text_width(a)) / 2, 230, a, C_TEXT);
-        ovl_text(PANEL_X + (PANEL_W - ovl_text_width(b)) / 2, 270, b, C_DIM);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     }
