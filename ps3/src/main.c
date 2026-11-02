@@ -73,9 +73,8 @@ extern int CdromExeRead;         /* core, libpcsxcore/misc.c */
    default shared card). Sanitized here AND in the core: a name from a
    hand-edited settings.txt must never escape saves/imported/ (no slash,
    no leading dot) nor overflow the core's 256-byte card path. */
-static const char *shared_card_value(void)
+static const char *shared_card_value_for(const char *s)
 {
-    const char *s = cfg.mc1_shared;
     if (!s[0] || s[0] == '.' || strchr(s, '/') || strchr(s, '\\')) return "";
     if (strlen(APP_DIR "/saves/imported/") + strlen(s) + 1 > 256) return "";
     return s;
@@ -96,7 +95,8 @@ static const char *option_value(const char *key)
        hard drive (Silent Hill starting a voice line) held up the frame */
     if (!strcmp(key, "pcsx_rearmed_cd_readahead")) return game_is_disc ? "64" : "32";
     if (!strcmp(key, "pcsx_rearmed_memcard1")) return cfg.mc1_mode == 1 ? "shared" : cfg.mc1_mode == 2 ? "none" : "serial";   /* serial: SCUS-12345_1.mcd in saves/; shared: the chosen library card (saves/imported/), or pcsx-card1.mcd when none is chosen */
-    if (!strcmp(key, "pcsx_rearmed_memcard1_shared")) return shared_card_value();
+    if (!strcmp(key, "pcsx_rearmed_memcard1_shared")) return shared_card_value_for(cfg.mc1_shared);
+    if (!strcmp(key, "pcsx_rearmed_memcard2_shared")) return shared_card_value_for(cfg.mc2_shared);
     if (!strcmp(key, "pcsx_rearmed_memcard2")) return cfg.mc2_mode == 1 ? "shared" : cfg.mc2_mode == 2 ? "none" : "serial";   /* default None: slot 2 was always off */
     if (!strcmp(key, "pcsx_rearmed_rgb32_output")) return "enabled";  /* XRGB8888, what the RSX path takes */
     if (!strcmp(key, "pcsx_rearmed_dithering")) return cfg.dithering ? "enabled" : "disabled";
@@ -115,7 +115,7 @@ static const char *option_value(const char *key)
     if (!strcmp(key, "pcsx_rearmed_show_overscan")) return "disabled";
     if (!strcmp(key, "pcsx_rearmed_screen_centering")) return "auto";
     if (!strcmp(key, "pcsx_rearmed_vibration")) return "enabled";   /* the Vibration setting: input.c */
-    if (!strcmp(key, "pcsx_rearmed_analog_combo")) return "l3+r3";   /* toggles DualShock analog mode */
+    if (!strcmp(key, "pcsx_rearmed_analog_combo")) return "disabled";   /* no stick-click combo: L3+R3 is a real move in Ape Escape (crawl + hide) and the combo would eat it; the quick-menu Analog toggle is the only switch */
     return NULL;
 }
 
@@ -556,7 +556,15 @@ static void apply_spu_mdec(void)
     spu_mdec_enable(up && cfg.spu_mdec);
 }
 
-void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); }
+/* DualShock if analog is on, else a digital pad; both ports together. */
+static void apply_controller_type(void)
+{
+    unsigned dev = cfg.analog ? RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1) : RETRO_DEVICE_JOYPAD;
+    retro_set_controller_port_device(0, dev);
+    retro_set_controller_port_device(1, dev);
+}
+
+void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
 
 static void run_game(const char *path)
 {
@@ -571,8 +579,11 @@ static void run_game(const char *path)
     double tb_ms = 1000.0 / (double)sysGetTimebaseFrequency();
     int combo_held = 0, notice_frames = 0;
 
-    game_is_disc = !strncmp(path, "cdrom:", 6);
-    {
+    int is_bios = !strcmp(path, "bios:");   /* game-list Boot BIOS entry: BIOS menu, no disc */
+    game_is_disc = !is_bios && !strncmp(path, "cdrom:", 6);
+    if (is_bios)
+        snprintf(game_name, sizeof game_name, "BIOS");   /* no per-game file exists for it, so global settings stay */
+    else {
         const char *b = strrchr(path, '/');
         char *dot;
         snprintf(game_name, sizeof game_name, "%s", b ? b + 1 : path);
@@ -588,7 +599,7 @@ static void run_game(const char *path)
     logf_("settings: cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
           cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
           cfg.show_fps, cfg.gpu_thread);
-    logf_("loading %s (%s)\n", path, !cfg.dynarec ? "interpreter" : cfg.dynarec_thread ? "dynarec, compiling on the second thread" : "dynarec");
+    logf_("loading %s (%s)\n", is_bios ? "BIOS menu" : path, !cfg.dynarec ? "interpreter" : cfg.dynarec_thread ? "dynarec, compiling on the second thread" : "dynarec");
     logf_("BIOS: %s%s\n", hooks_bios_status(), cfg.boot_logo ? (hooks_bios_present() ? ", PS1 logo on" : ", PS1 logo needs a BIOS") : "");
     {   /* Lightrec's compiler thread (core: restarts Lightrec if the setting changed) */
         extern void lightrec_plugin_set_threaded(int on) __attribute__((weak));
@@ -605,8 +616,7 @@ static void run_game(const char *path)
         log_game_end();
         return;
     }
-    retro_set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1));   /* DualShock */
-    retro_set_controller_port_device(1, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1));
+    apply_controller_type();   /* DualShock if analog on, else a digital pad */
     retro_get_system_av_info(&av);
     core_fps = av.timing.fps; core_rate = av.timing.sample_rate;
     audio_set_input_rate(core_rate);

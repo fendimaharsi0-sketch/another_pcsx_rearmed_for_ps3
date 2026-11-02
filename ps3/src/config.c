@@ -14,7 +14,7 @@
 
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .last_dir = "",
+    .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "",
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -48,6 +48,7 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "screen_h", F(screen_h), SCREEN_MIN, SCREEN_MAX, 0 },
     { "mc1_mode", F(mc1_mode), 0, 2, 1 },
     { "mc2_mode", F(mc2_mode), 0, 2, 1 },
+    { "analog", F(analog), 0, 1, 1 },
 };
 #define NINTS (sizeof ints / sizeof ints[0])
 #define IV(s, i) (*(int *)((char *)(s) + ints[i].off))
@@ -80,6 +81,7 @@ static int read_file(const char *path, settings_t *s, int game)
         if (!game && !strcmp(k, "last_dir")) snprintf(s->last_dir, sizeof s->last_dir, "%s", eq);
         if (!game && !strcmp(k, "vmc_source")) snprintf(s->vmc_source, sizeof s->vmc_source, "%s", eq);
         if (!game && !strcmp(k, "mc1_shared")) snprintf(s->mc1_shared, sizeof s->mc1_shared, "%s", eq);
+        if (!game && !strcmp(k, "mc2_shared")) snprintf(s->mc2_shared, sizeof s->mc2_shared, "%s", eq);
         if (!strcmp(k, "version")) version = atoi(eq);
     }
     fclose(f);
@@ -97,6 +99,7 @@ static int write_file(const char *path, const settings_t *s, int game)
         if (!game || ints[i].game) fprintf(f, "%s=%d\n", ints[i].key, IV(s, i));
     if (!game) fprintf(f, "vmc_source=%s\n", s->vmc_source);
     if (!game) fprintf(f, "mc1_shared=%s\n", s->mc1_shared);
+    if (!game) fprintf(f, "mc2_shared=%s\n", s->mc2_shared);
     if (!game) fprintf(f, "last_dir=%s\n", s->last_dir);
     fclose(f);
     return 1;
@@ -182,6 +185,7 @@ void config_save(void)
         for (i = 0; i < NINTS; i++) if (!ints[i].game) IV(&global_cfg, i) = IV(&cfg, i);
         snprintf(global_cfg.last_dir, sizeof global_cfg.last_dir, "%s", cfg.last_dir);
         snprintf(global_cfg.mc1_shared, sizeof global_cfg.mc1_shared, "%s", cfg.mc1_shared);
+        snprintf(global_cfg.mc2_shared, sizeof global_cfg.mc2_shared, "%s", cfg.mc2_shared);
         write_file(game_path, &cfg, 1);
         write_file(CFG_PATH, &global_cfg, 0);
     } else write_file(CFG_PATH, &cfg, 0);

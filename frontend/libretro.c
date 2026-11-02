@@ -2016,6 +2016,10 @@ bool retro_load_game(const struct retro_game_info *info)
    }
    is_m3u = (strcasestr(info->path, ".m3u") != NULL);
    is_exe = (strcasestr(info->path, ".exe") != NULL);
+   /* "bios:" is the PS3 frontend's Boot BIOS entry (menu_run): boot the
+      BIOS menu with no disc, so the BIOS memory-card manager can run.
+      The frontend only offers it when a real BIOS file is present. */
+   bool is_bios = (strcmp(info->path, "bios:") == 0);
 
    update_variables(false);
    /* a front end that loads several games in one session: the BIOS files and the
@@ -2032,7 +2036,13 @@ bool retro_load_game(const struct retro_game_info *info)
 
    extract_directory(base_dir, info->path, sizeof(base_dir));
 
-   if (is_m3u)
+   if (is_bios)
+   {
+      /* No disc image: disks stay empty (disk_init above) and the
+         set_cd_image() below clears any previous game's image, so the
+         BIOS boots with no disc and shows its menu. */
+   }
+   else if (is_m3u)
    {
       if (!read_m3u(info->path))
       {
@@ -2095,7 +2105,7 @@ bool retro_load_game(const struct retro_game_info *info)
     * > Cannot do this until after OpenPlugins() is
     *   called (since this sets the value of
     *   cdrIsoMultidiskCount) */
-   if (!is_m3u && (cdrIsoMultidiskCount > 1))
+   if (!is_bios && !is_m3u && (cdrIsoMultidiskCount > 1))
    {
       disk_count = cdrIsoMultidiskCount < 8 ? cdrIsoMultidiskCount : 8;
 
@@ -2161,25 +2171,30 @@ bool retro_load_game(const struct retro_game_info *info)
    for (i = 0; i < 8; ++i)
       in_type[i] = PSE_PAD_TYPE_STANDARD;
 
-   if (!is_exe)
+   if (!is_bios)
    {
-      if (CheckCdrom() == -1)
+      if (!is_exe)
       {
-         LogErr("unsupported/invalid CD image: %s\n", info->path);
-         return false;
+         if (CheckCdrom() == -1)
+         {
+            LogErr("unsupported/invalid CD image: %s\n", info->path);
+            return false;
+         }
       }
-   }
-   else
-   {
-      Config.PsxRegion = PSX_REGION_US;
-      Config.PsxType = PSX_TYPE_NTSC;
+      else
+      {
+         Config.PsxRegion = PSX_REGION_US;
+         Config.PsxType = PSX_TYPE_NTSC;
+      }
    }
 
    load_memcards();
    plugin_call_rearmed_cbs();
    SysReset();
 
-   if (is_exe)
+   if (is_bios)
+      ret = 0;   /* no exe to load: the BIOS menu itself runs after SysReset */
+   else if (is_exe)
       ret = Load(info->path);
    else
       ret = LoadCdromMainExe(NULL);
@@ -3805,22 +3820,24 @@ static void load_memcards(void)
       }
       else if (!strcmp(var.value, "shared") && dir) {
          memcard_type[c - 1] = MEMCARDTYPE_SHARED;
-         /* Slot 1 may name an imported library card (saves/imported/<name>),
-            chosen in the PS3 frontend's Shared card picker; the frontend
+         /* Either slot may name an imported library card (saves/imported/<name>),
+            chosen in the PS3 frontend's per-slot card picker; the frontend
             sanitizes it, but validate again here: a hand-edited value must
             never escape imported/ nor overflow the card path. Anything
             missing, invalid or too long falls back to the default shared
-            card, exactly as before this feature existed. */
-         if (c == 1) {
-            struct retro_variable svar = { "pcsx_rearmed_memcard1_shared", NULL };
+            card for that slot, exactly as before this feature existed. */
+         {
+            struct retro_variable svar = { NULL, NULL };
+            char skey[64];
+            snprintf(skey, sizeof(skey), "pcsx_rearmed_memcard%d_shared", c);
+            svar.key = skey;
             if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &svar) && svar.value && svar.value[0]
                 && svar.value[0] != '.' && !strchr(svar.value, '/') && !strchr(svar.value, '\\')
                 && strlen(dir) + strlen("/imported/") + strlen(svar.value) + 1 <= sizeof(Config.Mcd1))
                snprintf(mcdpath, sizeof(Config.Mcd1), "%s/imported/%s", dir, svar.value);
             else
                snprintf(mcdpath, sizeof(Config.Mcd1), "%s/pcsx-card%d.mcd", dir, c);
-         } else
-            snprintf(mcdpath, sizeof(Config.Mcd1), "%s/pcsx-card%d.mcd", dir, c);
+         }
       }
       else {
          memcard_type[c - 1] = MEMCARDTYPE_NONE;

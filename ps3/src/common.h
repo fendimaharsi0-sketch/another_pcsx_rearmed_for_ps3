@@ -52,6 +52,7 @@ typedef struct {
     int gpu_thread;     /* software renderer on the second PPU thread */
     int stick_dpad;     /* left stick also presses the D-pad */
     int stick_buttons;  /* right stick presses Triangle / X / Square / Circle */
+    int analog;         /* DualShock analog sticks on (else a digital pad) */
     int vram_check;     /* debug: software renderer draws too, for VRAM dumps */
     int spu_mdec;       /* FMV (MDEC) decoding on the SPUs */
     int audio_stretch;  /* sound slows down with the game instead of crackling */
@@ -68,6 +69,7 @@ typedef struct {
     int mc2_mode;       /* memory card 2: same values, default None (slot 2 was always off) */
     char vmc_source[128]; /* base name of the PS3 VMC last imported into the library (global only, display only) */
     char mc1_shared[256]; /* library card file name for slot 1 Shared (saves/imported/<name>), global only; empty = default pcsx-card1.mcd */
+    char mc2_shared[256]; /* same for slot 2 Shared (default pcsx-card2.mcd) */
     char last_dir[512];
 } settings_t;
 extern settings_t cfg;

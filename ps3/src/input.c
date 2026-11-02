@@ -70,10 +70,14 @@ void input_poll(void)
         s->lx = d.ANA_L_H; s->ly = d.ANA_L_V; s->rx = d.ANA_R_H; s->ry = d.ANA_R_V;
         /* optional: sticks press buttons too (for games made for the digital pad).
            Past ~40% deflection; the real buttons keep working */
-        if (cfg.stick_dpad)
+        /* Bypassed when analog is on: in analog mode the stick and the D-pad /
+           buttons are independent inputs (some games use both, differently);
+           in digital mode the mappings are useful, since digital games
+           ignore the stick values entirely. */
+        if (cfg.stick_dpad && !cfg.analog)
             s->buttons |= (s->ly < 128 - 52 ? PAD_UP : 0) | (s->ly > 128 + 52 ? PAD_DOWN : 0) |
                           (s->lx < 128 - 52 ? PAD_LEFT : 0) | (s->lx > 128 + 52 ? PAD_RIGHT : 0);
-        if (cfg.stick_buttons)
+        if (cfg.stick_buttons && !cfg.analog)
             s->buttons |= (s->ry < 128 - 52 ? PAD_TRIANGLE : 0) | (s->ry > 128 + 52 ? PAD_CROSS : 0) |
                           (s->rx < 128 - 52 ? PAD_SQUARE : 0) | (s->rx > 128 + 52 ? PAD_CIRCLE : 0);
     }

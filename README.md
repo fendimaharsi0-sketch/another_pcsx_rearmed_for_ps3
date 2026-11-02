@@ -117,6 +117,11 @@ Insert the disc. The first entry of the game list is the drive. It is checked wh
 the list opens (Square checks again), and it shows the game's name with a black
 disc icon and "from disc" at the right. Press X to play.
 
+The second entry, Boot BIOS, boots the PS1 BIOS menu (memory card manager)
+instead of a game. It needs a real BIOS in `USRDIR/system/` (the built-in HLE
+BIOS has no menu), uses the global memory-card settings, and ignores any disc
+in the drive.
+
 Reading PS1 discs needs raw CD access, which retail firmware blocks. On CFW the
 emulator unlocks it for the session with temporary LV1/LV2 patches (the same
 method as IRISMAN), then restores the original values. On HEN this is not
@@ -213,6 +218,7 @@ The in-game menu has these entries:
 | GPU thread | **On**, Off | Software renderer on the PPU's second thread. |
 | Left stick as D-pad | **On**, Off | |
 | Right stick as buttons | **Off**, On | Triangle/X/Square/Circle. |
+| Analog joystick | **On (DualShock)**, Off (digital pad) | Digital pad for games that force another layout with analog on (Moto Racer 2). Quick toggle in the pause menu, after Reset. When on, stick-as-D-pad/buttons are bypassed. No L3+R3 combo: that combination is a real move in Ape Escape (crawl + hide). |
 | Vibration | **On**, Off | DualShock 3 vibration in games that use it. |
 | FMV decoding | **SPUs**, PPU | |
 | PS1 CPU speed | **Normal**, +50%, +75% | Some games may glitch. |
@@ -225,10 +231,9 @@ The in-game menu has these entries:
 | Debug log | **Off**, On | Writes the log files and hang reports. |
 | Texture filter | **Nearest**, Bilinear, Bilinear (Performance) | Prototype, RSX only, in the upscaled pass only, directly below Renderer in the menu. Bilinear = manual 4-tap for all textured modes. Performance = hardware LINEAR for 15-bit direct textures only (1 fetch), manual bilinear for CLUT modes, so the speedup depends on how much 15-bit texture a game uses; its transparent/STP edges are softer than manual (plain average, not majority vote) and texture-window edges can blend across the window. Native VRAM stays nearest, so it never double-blurs. Takes effect immediately, no game restart. |
 | Sprite filter | **Nearest**, Bilinear, Bilinear (Performance) | Same modes as Texture filter, but for sprites, like DuckStation's Sprite Texture Filtering: textured GP0 sprites (textured rectangles, `do_rect`) plus textured polygons whose UV mapping is axis-aligned (U varies only with X, V only with Y — a 2D, non-rotated, non-skewed quad/triangle; both triangles of a quad must pass). Nearest keeps small sprites, particles and HUD icons crisp. Rotated, skewed or perspective polygons keep Texture filter. RSX only, upscaled pass only. Takes effect immediately, no game restart. |
-| Memory card 1 | **Auto (per-game)**, Shared (imported), None | Auto: the game's own card, `saves/<serial>_1.mcd`. Shared: the card chosen in Shared card, or the default `saves/pcsx-card1.mcd` when none is chosen, shared by every game set to Shared. Per game (the mode; the chosen card is global). Applies on the next launch from the game list; Reset alone does not apply it. |
-| Memory card 2 | **None**, Auto (per-game), Shared (card2) | Auto: `saves/<serial>_2.mcd`. Shared: `saves/pcsx-card2.mcd` — not the imported VMC; import and Shared card are slot 1 only. Per game. Next launch only. |
-| Import PS3 VMC | Press X | Copies a PS3 virtual card from `savedata/vmc/*.VM1` (read-only there, never written) into the imported library `saves/imported/<name>.mcd`; an existing library copy is backed up as `<name>.mcd.bak`. It does not change the active card or mode: pick it in Shared card to play with it. One-way only: saves made here go to the library file, never back to XMB. Game list only, never in a game. A PS1 card holds only 15 blocks, so expect many `.VM1` files: the picker sorts them and scrolls. |
-| Shared card | Press X | Which imported card slot 1 Shared uses. The core reads it directly from `saves/imported/` at launch, no copy, so switching cards can never lose saves. Default = `saves/pcsx-card1.mcd`. Game list only, never in a game. |
+| Memory card 1 | Press X for the picker | Picker, in order: Auto (the game's own card, `saves/<serial>_1.mcd`), the imported cards, None, and the legacy default `saves/pcsx-card1.mcd` when such a file exists. The core reads the chosen card directly from `saves/imported/` at launch, no copy, so switching cards can never lose saves. The other slot cannot pick the same imported file. Per game. Applies on the next launch; Reset alone does not apply it. |
+| Memory card 2 | Press X for the picker | Same picker as slot 1 (Auto = `saves/<serial>_2.mcd`, imported cards, None, legacy default `saves/pcsx-card2.mcd` when it exists). Default is None. The other slot cannot pick the same imported file. Per game. Next launch only. |
+| Import PS3 VMC | Press X | Copies a PS3 virtual card from `savedata/vmc/*.VM1` (read-only there, never written) into the imported library `saves/imported/<name>.mcd`; an existing library copy is backed up as `<name>.mcd.bak`. It does not change the active card or mode: pick it in Memory card 1 or 2 to play with it. One-way only: saves made here go to the library file, never back to XMB. Game list only, never in a game. A PS1 card holds only 15 blocks, so expect many `.VM1` files: the picker sorts them and scrolls. |
 
 Settings for all games are saved in `USRDIR/settings.txt`.
 
@@ -266,7 +271,7 @@ All paths are inside `/dev_hdd0/game/PCSR00001/USRDIR`.
 | Save states | `states/` |
 | Memory cards (one per game) | `saves/<serial>_1.mcd` |
 | Imported cards (library) | `saves/imported/<name>.mcd`, backup `<name>.mcd.bak` on re-import |
-| Default shared card | `saves/pcsx-card1.mcd` (used by slot 1 Shared when no library card is chosen) |
+| Default shared cards | `saves/pcsx-card1.mcd` / `saves/pcsx-card2.mcd` (used by a Shared slot when no library card is chosen; offered in the slot picker when such a file exists) |
 | BIOS | `system/` |
 | Logs (only with Debug log on) | `log.txt` (app and menus) and `logs/<game>.txt`, replaced on each run |
 | VRAM dumps, hang dumps | `dumps/` |

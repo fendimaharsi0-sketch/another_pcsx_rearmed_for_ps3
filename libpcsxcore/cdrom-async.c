@@ -245,7 +245,17 @@ int cdra_open(void)
 
    acdrom_dbg("%s %s\n", __func__, name);
    acdrom.have_subchannel = 0;
-   if (!name[0] || !strncmp(name, "cdrom:", 6)) {
+   if (!name[0]) {
+      /* Boot BIOS (no disc): succeed with no disc inserted, so the BIOS
+         shows its menu instead of booting a game. Normal loads always
+         set an image before opening, so this only triggers for the BIOS
+         path. No read-ahead thread is started (nothing to prefetch);
+         cdra_close() stops a thread only if one runs. */
+      g_cd_handle = NULL;
+      acdrom.total_lba = 0;
+      return 0;
+   }
+   if (!strncmp(name, "cdrom:", 6)) {
       g_cd_handle = rcdrom_open(name, &acdrom.total_lba, &acdrom.have_subchannel);
       if (!!g_cd_handle)
          ret = 0;
@@ -505,6 +515,7 @@ void cdra_shutdown(void)
 
 int cdra_open(void)
 {
+   if (!GetIsoFile()[0]) return 0;   /* Boot BIOS: no disc, success (see async variant) */
    return ISOopen(GetIsoFile());
 }
 

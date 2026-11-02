@@ -325,10 +325,10 @@ static const item_t settings_items[] = {
     { "Speed limit", "Normal: catches up after a hitch. Strict: never faster. Off: no limit." },
     { "VRAM check (debug)", "Debug: software renderer draws too. Pause menu > Dump VRAM." },
     { "Debug log", "Debug: writes log files (USRDIR/log.txt, USRDIR/logs) and hang reports." },
-    { "Memory card 1", "Auto: this game's own card (saves/SCUS-12345_1.mcd). Shared: the card chosen in Shared card, or the default pcsx-card1.mcd when none is chosen. None: no card. Next launch from the game list only; Reset alone does not apply it." },
-    { "Memory card 2", "Auto: this game's own card (saves/SCUS-12345_2.mcd). Shared: pcsx-card2.mcd (not the imported VMC; import only creates slot 1). None: no card (default). Next launch only." },
-    { "Import PS3 VMC", "Press X to copy a PS3 virtual card from savedata/vmc/ into the imported library (saves/imported/). It does not change the active card or mode: pick it in Shared card to play with it. One-way: saves made here never appear in XMB. Game list only, never in a game." },
-    { "Shared card", "Which imported PS3 VMC card slot 1 Shared uses. The core reads it directly from the library, no copy. Default = pcsx-card1.mcd. Auto still uses the game's own serial card. Next launch only. Game list only, never in a game." },
+    { "Memory card 1", "X opens the card picker: Auto = this game's own card (saves/SCUS-12345_1.mcd), then the imported cards, then None. The other slot cannot pick the same imported file. Next launch only; Reset alone does not apply it." },
+    { "Memory card 2", "X opens the card picker: Auto = this game's own card (saves/SCUS-12345_2.mcd), then the imported cards, then None. The other slot cannot pick the same imported file. Default is None. Next launch only." },
+    { "Import PS3 VMC", "Press X to copy a PS3 virtual card from savedata/vmc/ into the imported library (saves/imported/). It does not change the active card or mode: pick it in Memory card 1 or 2 to play with it. One-way: saves made here never appear in XMB. Game list only, never in a game." },
+    { "Analog joystick", "DualShock analog sticks on, or a digital pad. Some games force another layout with analog on (Moto Racer 2): turn it off. When on, Left stick as D-pad and Right stick as buttons are bypassed (the stick and D-pad stay independent)." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
@@ -378,10 +378,10 @@ static void setting_value(int i, char *b, size_t n)
     case 21: snprintf(b, n, "%s", cfg.speed_limit == 1 ? "Strict" : cfg.speed_limit == 2 ? "Off" : "Normal"); break;
     case 22: snprintf(b, n, "%s", cfg.vram_check ? "On" : "Off"); break;
     case 23: snprintf(b, n, "%s", cfg.debug_log ? "On" : "Off"); break;
-    case 24: snprintf(b, n, "%s", cfg.mc1_mode == 1 ? "Shared (imported)" : cfg.mc1_mode == 2 ? "None" : "Auto (per-game)"); break;
-    case 25: snprintf(b, n, "%s", cfg.mc2_mode == 1 ? "Shared (card2)" : cfg.mc2_mode == 2 ? "None" : "Auto (per-game)"); break;
+    case 24: snprintf(b, n, "%s", cfg.mc1_mode == 1 ? (cfg.mc1_shared[0] ? cfg.mc1_shared : "Shared (default)") : cfg.mc1_mode == 2 ? "None" : "Auto (per-game)"); break;
+    case 25: snprintf(b, n, "%s", cfg.mc2_mode == 1 ? (cfg.mc2_shared[0] ? cfg.mc2_shared : "Shared (default)") : cfg.mc2_mode == 2 ? "None" : "Auto (per-game)"); break;
     case 26: snprintf(b, n, "%s", cfg.vmc_source[0] ? cfg.vmc_source : "Press X to import"); break;
-    case 27: snprintf(b, n, "%s", cfg.mc1_shared[0] ? cfg.mc1_shared : "Default (pcsx-card1.mcd)"); break;
+    case 27: snprintf(b, n, "%s", cfg.analog ? "On (DualShock)" : "Off (digital pad)"); break;
     }
 }
 
@@ -389,7 +389,7 @@ static void setting_value(int i, char *b, size_t n);
 static void setting_change_(int i, int dir, int in_game);
 static void screen_size_page(int in_game);
 static void vmc_import_page(void);
-static void vmc_shared_page(void);
+static void vmc_slot_picker(int slot);
 static void setting_change(int i, int dir, int in_game)
 {
     char before[64], after[64];
@@ -446,10 +446,10 @@ static void setting_change_(int i, int dir, int in_game)
     case 21: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
     case 22: cfg.vram_check ^= 1; break;
     case 23: cfg.debug_log ^= 1; break;
-    case 24: cfg.mc1_mode = (cfg.mc1_mode + (dir > 0 ? 1 : 2)) % 3; break;
-    case 25: cfg.mc2_mode = (cfg.mc2_mode + (dir > 0 ? 1 : 2)) % 3; break;
+    case 24: vmc_slot_picker(1); break;   /* any key opens the picker; it only writes settings, so it is safe in a game too (launch-only, like the old mode toggle) */
+    case 25: vmc_slot_picker(2); break;
     case 26: if (!in_game) vmc_import_page(); break;   /* import writes a card file: game list only, never in a game */
-    case 27: if (!in_game) vmc_shared_page(); break;   /* choosing writes settings only, but the card it names is read at the next launch: game list only, never in a game */
+    case 27: cfg.analog ^= 1; break;
     }
 }
 
@@ -508,15 +508,24 @@ static void screen_size_page(int in_game)
  * are not fixed short lists. The source in savedata/vmc/ is opened read-only
  * ("rb") and never written: XMB's cache is never invalidated by us.
  * Import copies a VM1 into the library (saves/imported/<name>.mcd) and
- * changes nothing else: not the active card, not the mode. The Shared card
- * picker names one library card in settings (mc1_shared); the core then
- * reads that file directly at the next launch (frontend/libretro.c
- * load_memcards, new pcsx_rearmed_memcard1_shared variable), with no copy
- * and no write-back step, so switching cards can never lose saves. With no
- * card chosen, slot 1 Shared falls back to the default pcsx-card1.mcd,
- * exactly as before this feature. One-way: saves made here go to the
- * library file, never back to the XMB VM1. Both pickers are game-list only:
- * import writes a card file, and the shared choice is read at launch. */
+ * changes nothing else: not the active card, not the mode. Each slot's
+ * picker (Memory card 1 / 2) then chooses that slot's card: Auto first
+ * (the game's own serial card), then the imported files, then None, plus
+ * the legacy default shared card (pcsx-card<slot>.mcd) when such a file
+ * exists and is valid. The choice is stored as the slot's mode + library
+ * file name (mc1_mode/mc1_shared, mc2_mode/mc2_shared); the core reads
+ * the chosen file directly at the next launch (frontend/libretro.c
+ * load_memcards, pcsx_rearmed_memcard<slot>_shared variables), with no
+ * copy and no write-back step, so switching cards can never lose saves.
+ * With no card chosen, a Shared slot falls back to its default
+ * pcsx-card<slot>.mcd, exactly as before this feature. One-way: saves made
+ * here go to the library file, never back to the XMB VM1. The slot picker
+ * only writes settings, so unlike import it is safe in a game too (the
+ * choice still applies on the next launch only, and in-game it edits the
+ * game's own settings when Own settings is on, like every other setting).
+ * Same-file protection: the other slot's chosen imported file is shown
+ * dimmed and refused with a message, so two slots can never share one
+ * library file (Auto uses per-slot serial files, so Auto+Auto is fine). */
 #define VMC_DIR "/dev_hdd0/savedata/vmc"
 #define LIB_DIR APP_DIR "/saves/imported"
 #define VMC_SIZE 131072
@@ -658,7 +667,7 @@ static void vmc_import_page(void)
             text_fit(MARGIN, 110, msg, C_ACCENT);
             text_fit(MARGIN, 170, bakmsg, C_TEXT);
             ovl_text(MARGIN, 210, "Import does not change the active card or mode.", C_TEXT);
-            ovl_text(MARGIN, 250, "Pick it in Shared card to play with it.", C_DIM);
+            ovl_text(MARGIN, 250, "Pick it in Memory card 1 or 2 to play with it.", C_DIM);
             footer("X import    Circle back");
             frame_end();
             if (q & PAD_CIRCLE) return;
@@ -691,24 +700,39 @@ static void vmc_import_page(void)
         snprintf(cfg.vmc_source, sizeof cfg.vmc_source, "%s", vmc_names[sel]);
         config_save();
         logf_("vmc: imported %s to %s (library; active card and mode unchanged)\n", src, dst);
-        vmc_message("Import PS3 VMC", "Import succeeded", vmc_names[sel], "It is now in the library. Choose it in Shared card to play with it.");
+        vmc_message("Import PS3 VMC", "Import succeeded", vmc_names[sel], "It is now in the library. Choose it in Memory card 1 or 2 to play with it.");
     }
 }
 
-static void vmc_shared_page(void)
+static void vmc_slot_picker(int slot)
 {
-    int sel = 0, top = 0, rows = 17, i, n;
-    char path[1300];
-    logf_("menu: shared card picker\n");
+    /* Entries: 0 = Auto, 1..n = imported files, n+1 = None, and n+2 =
+       the legacy default shared card, only when such a file exists and
+       is a valid card (so pre-library shared cards stay reachable). */
+    int *mode = slot == 1 ? &cfg.mc1_mode : &cfg.mc2_mode;
+    char *shared = slot == 1 ? cfg.mc1_shared : cfg.mc2_shared;
+    const char *other_shared = slot == 1 ? cfg.mc2_shared : cfg.mc1_shared;
+    int other_mode = slot == 1 ? cfg.mc2_mode : cfg.mc1_mode;
+    int sel = 0, top = 0, rows = 17, i, n, total, has_default;
+    char title[32], defpath[1300], deftext[64], path[1300];
+    snprintf(title, sizeof title, "Memory card %d", slot);
+    snprintf(defpath, sizeof defpath, APP_DIR "/saves/pcsx-card%d.mcd", slot);
+    snprintf(deftext, sizeof deftext, "Default shared card (pcsx-card%d.mcd)", slot);
+    logf_("menu: memory card %d picker\n", slot);
     n = lib_scan();
-    /* Start on the currently chosen card, if it is still in the library. */
-    for (i = 0; i < n; i++)
-        if (cfg.mc1_shared[0] && !strcmp(vmc_names[i], cfg.mc1_shared)) sel = i + 1;
-    /* sel 0 = default shared card, sel 1..n = vmc_names[sel-1]. */
+    has_default = vmc_valid(defpath);
+    total = n + 2 + (has_default ? 1 : 0);
+    /* Start on the current choice (a dangling file choice, whose file is
+       gone from the library, starts on None; Circle leaves it unchanged). */
+    if (*mode == 0) sel = 0;
+    else if (*mode == 2) sel = n + 1;
+    else if (*mode == 1 && shared[0]) {
+        sel = n + 1;
+        for (i = 0; i < n; i++) if (!strcmp(vmc_names[i], shared)) sel = i + 1;
+    } else if (*mode == 1) sel = has_default ? n + 2 : n + 1;
     while (!app_exit_requested) {
         uint32_t p;
         char sub[64];
-        int total = n + 1;
         frame_begin(0);
         p = input_pressed();
         if (p & PAD_UP) sel = (sel + total - 1) % total;
@@ -719,35 +743,65 @@ static void vmc_shared_page(void)
         if (p & PAD_CROSS) break;
         if (sel < top) top = sel;
         if (sel >= top + rows) top = sel - rows + 1;
-        snprintf(sub, sizeof sub, "%d cards", n);
-        header("Shared card (slot 1)", sub);
+        snprintf(sub, sizeof sub, "%d imported cards", n);
+        header(title, sub);
         for (i = top; i < total && i < top + rows; i++) {
             int y = 90 + (i - top) * SET_ROW;
+            const char *row = NULL;
+            uint32_t col = C_TEXT;
             if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
-            if (i == 0) text_fit(MARGIN, y, "Default shared card (pcsx-card1.mcd)", i == sel ? C_ACCENT : C_TEXT);
-            else text_fit(MARGIN, y, vmc_names[i - 1], i == sel ? C_ACCENT : C_TEXT);
+            if (i == 0) row = "Auto (per-game)";
+            else if (i <= n) {
+                row = vmc_names[i - 1];
+                if (other_mode == 1 && other_shared[0] && !strcmp(row, other_shared)) col = C_DIM;
+            }
+            else if (i == n + 1) row = "None (no card)";
+            else row = deftext;
+            text_fit(MARGIN, y, row, i == sel ? C_ACCENT : col);
         }
         footer("Up/Down select    L1/R1 page    X choose    Circle back");
         frame_end();
     }
     if (app_exit_requested) return;
     if (sel == 0) {
-        cfg.mc1_shared[0] = 0;
+        *mode = 0; shared[0] = 0;
         config_save();
-        logf_("vmc: shared card reset to default pcsx-card1.mcd\n");
-        vmc_message("Shared card (slot 1)", "Shared card reset to default", "Slot 1 Shared will use pcsx-card1.mcd.", "Next launch only.");
+        logf_("vmc: memory card %d set to Auto\n", slot);
+        vmc_message(title, "Memory card set to Auto", "This game's own serial card.", "Next launch only.");
+        return;
+    }
+    if (sel == n + 1) {
+        *mode = 2; shared[0] = 0;
+        config_save();
+        logf_("vmc: memory card %d set to None\n", slot);
+        vmc_message(title, "Memory card set to None", "No card in this slot.", "Next launch only.");
+        return;
+    }
+    if (has_default && sel == n + 2) {
+        *mode = 1; shared[0] = 0;
+        config_save();
+        logf_("vmc: memory card %d set to default %s\n", slot, defpath);
+        vmc_message(title, "Memory card set to Default", deftext, "Next launch only.");
+        return;
+    }
+    /* An imported file: refuse it when the other slot already uses it. */
+    if (other_mode == 1 && other_shared[0] && !strcmp(vmc_names[sel - 1], other_shared)) {
+        char msg[300];
+        snprintf(msg, sizeof msg, "That card is already used by slot %d.", slot == 1 ? 2 : 1);
+        vmc_message(title, "Cannot pick that card", msg, "Pick a different card.");
         return;
     }
     snprintf(path, sizeof path, "%s/%s", LIB_DIR, vmc_names[sel - 1]);
     if (!vmc_valid(path)) {
-        logf_("vmc: shared choice refused, %s is not a 128 KB MC card\n", path);
-        vmc_message("Shared card (slot 1)", "Cannot use that card", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
+        logf_("vmc: slot %d choice refused, %s is not a 128 KB MC card\n", slot, path);
+        vmc_message(title, "Cannot use that card", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
         return;
     }
-    snprintf(cfg.mc1_shared, sizeof cfg.mc1_shared, "%s", vmc_names[sel - 1]);
+    *mode = 1;
+    snprintf(shared, 256, "%s", vmc_names[sel - 1]);
     config_save();
-    logf_("vmc: shared card set to %s\n", path);
-    vmc_message("Shared card (slot 1)", "Shared card set", vmc_names[sel - 1], "Slot 1 Shared will use this card on next launch.");
+    logf_("vmc: memory card %d set to %s\n", slot, path);
+    vmc_message(title, "Memory card set", vmc_names[sel - 1], "Next launch only.");
 }
 
 static void draw_settings(int sel, int y0, int in_game)
@@ -1061,18 +1115,18 @@ static void draw_cover_panel(const char *title, const char *line2)
     }
 }
 
-/* list entry 0 is the disc in the drive, entries 1.. the game files */
+/* list entry 0 is the disc in the drive, entry 1 is Boot BIOS, entries 2.. the game files */
 const char *menu_run(void)
 {
     static int sel = -1, top;
     const int rows = 12;
     if (!scanned) rescan();
     check_own_settings();               /* may have changed in the game just played */
-    if (sel < 0 || sel > ngames) sel = ngames ? 1 : 0;   /* the first game file, as before */
+    if (sel < 0 || sel > ngames + 1) sel = ngames ? 2 : 0;   /* the first game file, as before */
     disc_identify_start();              /* which game is in the drive (in the background) */
     while (!app_exit_requested) {
         uint32_t p;
-        int i, n = ngames + 1, y0 = 90;
+        int i, n = ngames + 2, y0 = 90;
         char sub[64];
         frame_begin(0);
         p = input_pressed();
@@ -1082,20 +1136,29 @@ const char *menu_run(void)
         if (p & PAD_R1) sel = sel + rows < n ? sel + rows : n - 1;
         if (p & PAD_CROSS) {
             if (sel == 0) { const char *d = start_disc(); if (d) { cover_release(); return d; } continue; }
-            logf_("menu: starting %s\n", games[sel - 1]);
+            if (sel == 1) {   /* Boot BIOS: the PS1 BIOS menu, no disc */
+                if (!hooks_bios_present()) {
+                    vmc_message("Boot BIOS", "No real BIOS found", "Put scph5501.bin in " APP_DIR "/system/", "The built-in HLE BIOS has no menu.");
+                    continue;
+                }
+                logf_("menu: starting BIOS menu\n");
+                cover_release();
+                return "bios:";   /* sentinel: run_game + the core boot the BIOS with no disc */
+            }
+            logf_("menu: starting %s\n", games[sel - 2]);
             cover_release();
-            return games[sel - 1];
+            return games[sel - 2];
         }
         if ((p & PAD_CIRCLE) && sel == 0) {   /* copy the disc to the HDD */
             char t[128], cue[512];
             if (disc_identify_result(t, sizeof t) == 1 && copy_disc(t[0] ? t : "PS1 disc", cue, sizeof cue)) {
                 rescan(); check_own_settings();
-                for (i = 0; i < ngames; i++) if (!strcmp(games[i], cue)) sel = i + 1;
+                for (i = 0; i < ngames; i++) if (!strcmp(games[i], cue)) sel = i + 2;
             }
             continue;
         }
         if (p & PAD_TRIANGLE) { settings_screen(); continue; }
-        if (p & PAD_SQUARE) { rescan(); check_own_settings(); sel = ngames ? 1 : 0; top = 0; disc_identify_start(); continue; }
+        if (p & PAD_SQUARE) { rescan(); check_own_settings(); sel = ngames ? 2 : 0; top = 0; disc_identify_start(); continue; }
         if (sel < top) top = sel;
         if (sel >= top + rows) top = sel - rows + 1;
 
@@ -1117,16 +1180,20 @@ const char *menu_run(void)
                 if ((int)strlen(nm) > max && max > 3) { nm[max - 3] = 0; strcat(nm, "..."); }
                 ovl_text(MARGIN + 44, y, nm, r == 1 ? (i == sel ? C_ACCENT : C_TEXT) : C_DIM);
                 if (tag[0]) ovl_text(LIST_TAG_R - ovl_text_width(tag), y, tag, C_DIM);
-            } else if (own_cfg[i - 1]) {
+            } else if (i == 1) {   /* Boot BIOS, below the disc entry */
+                const char *tag = "memory card manager";
+                ovl_text(MARGIN, y, "Boot BIOS", i == sel ? C_ACCENT : C_TEXT);
+                ovl_text(LIST_TAG_R - ovl_text_width(tag), y, tag, C_DIM);
+            } else if (own_cfg[i - 2]) {
                 ovl_text(LIST_TAG_R - ovl_text_width("own settings"), y, "own settings", C_DIM);
                 {   /* the name ends before the tag */
                     char nm[256];
                     int max = (LIST_TAG_R - ovl_text_width("own settings ") - MARGIN) / ovl_text_width("W");
-                    const char *s = base_name(games[i - 1]);
+                    const char *s = base_name(games[i - 2]);
                     if ((int)strlen(s) > max && max > 3) { snprintf(nm, sizeof nm, "%.*s...", max - 3, s); s = nm; }
                     ovl_text(MARGIN, y, s, i == sel ? C_ACCENT : C_TEXT);
                 }
-            } else text_fit_r(MARGIN, y, base_name(games[i - 1]), i == sel ? C_ACCENT : C_TEXT, LIST_TAG_R);
+            } else text_fit_r(MARGIN, y, base_name(games[i - 2]), i == sel ? C_ACCENT : C_TEXT, LIST_TAG_R);
         }
         if (ngames) {                  /* the selected game's cover, right of the list */
             char title[256], line2[128];
@@ -1138,11 +1205,15 @@ const char *menu_run(void)
                 cover_update(key, NULL, 1, disc_identify_serial());
                 snprintf(title, sizeof title, "%s", r == 1 ? (t[0] ? t : "PS1 disc") : "PS1 disc");
                 snprintf(line2, sizeof line2, "%s", r == 1 ? "from disc" : "");
+            } else if (sel == 1) {
+                cover_release();   /* no cover for BIOS: the placeholder panel */
+                snprintf(title, sizeof title, "Boot BIOS");
+                snprintf(line2, sizeof line2, "memory card manager");
             } else {
-                const char *s = base_name(games[sel - 1]), *e = ext_of(s);
+                const char *s = base_name(games[sel - 2]), *e = ext_of(s);
                 char ext[16];
                 int k;
-                cover_update(games[sel - 1], games[sel - 1], 0, NULL);
+                cover_update(games[sel - 2], games[sel - 2], 0, NULL);
                 snprintf(title, sizeof title, "%s", s);
                 {   /* panel title without the file extension ("Tekken 3", not "Tekken 3.cue") */
                     char *dot = strrchr(title, '.');
@@ -1150,18 +1221,18 @@ const char *menu_run(void)
                 }
                 for (k = 0; e[k] && k < 15; k++) ext[k] = (char)toupper((unsigned char)e[k]);
                 ext[k] = 0;
-                if (ext[0] && own_cfg[sel - 1]) snprintf(line2, sizeof line2, "%s   own settings", ext);
-                else if (own_cfg[sel - 1]) snprintf(line2, sizeof line2, "own settings");
+                if (ext[0] && own_cfg[sel - 2]) snprintf(line2, sizeof line2, "%s   own settings", ext);
+                else if (own_cfg[sel - 2]) snprintf(line2, sizeof line2, "own settings");
                 else snprintf(line2, sizeof line2, "%s", ext);
             }
             draw_cover_panel(title, line2);
         }
         if (!ngames) {                  /* below the disc entry */
-            ovl_text(MARGIN, 170, "No game files found.", C_TEXT);
-            ovl_text(MARGIN, 220, "Put .cue/.bin, .chd, .pbp, .iso or .m3u files in one of:", C_DIM);
-            for (i = 0; scan_dirs[i] && i < 6; i++) ovl_text(MARGIN + 32, 260 + i * 36, scan_dirs[i], C_TEXT);
-            ovl_text(MARGIN, 490, "BIOS (optional, better compatibility):", C_DIM);
-            ovl_text(MARGIN + 32, 526, APP_DIR "/system/scph5501.bin", C_TEXT);
+            ovl_text(MARGIN, 214, "No game files found.", C_TEXT);
+            ovl_text(MARGIN, 264, "Put .cue/.bin, .chd, .pbp, .iso or .m3u files in one of:", C_DIM);
+            for (i = 0; scan_dirs[i] && i < 6; i++) ovl_text(MARGIN + 32, 304 + i * 36, scan_dirs[i], C_TEXT);
+            ovl_text(MARGIN, 534, "BIOS (optional, better compatibility):", C_DIM);
+            ovl_text(MARGIN + 32, 570, APP_DIR "/system/scph5501.bin", C_TEXT);
         }
         if (disc_msg_frames > 0) {
             disc_msg_frames--;
@@ -1176,6 +1247,8 @@ const char *menu_run(void)
         }
         footer2(sel == 0 && disc_identify_result(NULL, 0) == 1
                     ? "X play   Circle copy to HDD   Triangle settings   Square rescan"
+                    : sel == 1
+                    ? "X boot BIOS    Triangle settings    Square rescan    L1/R1 page"
                     : "X play    Triangle settings    Square rescan    L1/R1 page",
                 "In game: SELECT+START opens the menu (save states, settings)");
         frame_end();
@@ -1194,9 +1267,9 @@ extern void game_settings_changed(void);
 
 int menu_ingame(void)
 {
-    static const char *items[] = { "Resume", "Save state", "Load state", "Reset", "Settings", "Own settings for this game",
+    static const char *items[] = { "Resume", "Save state", "Load state", "Reset", "Analog joystick", "Settings", "Own settings for this game",
                                    "Quit to game list", "Dump VRAM (debug)" };
-    int N = cfg.vram_check ? 8 : 7;
+    int N = cfg.vram_check ? 9 : 8;
     static int slot;             /* kept while the app runs */
     int sel = 0, settings = 0, ssel = 0;
     const char *msg = NULL;
@@ -1238,16 +1311,22 @@ int menu_ingame(void)
                 break;
             case 2: if (game_load_state(slot)) return 0; msg = "This slot is empty"; break;
             case 3: game_reset(); return 0;
+            case 4:
+                cfg.analog ^= 1;
+                game_settings_changed();   /* applies the port type immediately */
+                config_save();             /* persist now: per-game if Own on, else global */
+                msg = cfg.analog ? "Analog joystick on" : "Analog joystick off";
+                break;
             /* finish this frame (the paused menu) first: starting another one without
                presenting this one made the screen blink */
-            case 4: settings = 1; ssel = 0; break;
-            case 5:
+            case 5: settings = 1; ssel = 0; break;
+            case 6:
                 config_game_enable(!config_game_active());
                 game_settings_changed();
                 msg = config_game_active() ? "Changes now apply to this game only" : "This game uses the settings for all games";
                 break;
-            case 6: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
-            case 7: {
+            case 7: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
+            case 8: {
                 static char dm[64];
                 int n = game_dump_vram();
                 if (n) snprintf(dm, sizeof dm, "Dump %d written to USRDIR/dumps", n);
@@ -1262,7 +1341,8 @@ int menu_ingame(void)
             int y = 180 + i * 46;
             char line[80];
             if (i == 1 || i == 2) snprintf(line, sizeof line, "%s   < slot %d >", items[i], slot);
-            else if (i == 5) snprintf(line, sizeof line, "%s: %s", items[i], config_game_active() ? "On" : "Off");
+            else if (i == 4) snprintf(line, sizeof line, "%s: %s", items[i], cfg.analog ? "On" : "Off");
+            else if (i == 6) snprintf(line, sizeof line, "%s: %s", items[i], config_game_active() ? "On" : "Off");
             else snprintf(line, sizeof line, "%s", items[i]);
             if (i == sel) ovl_fill(305, y - 7, 670, 42, C_SEL);
             ovl_text(330, y, line, i == sel ? C_ACCENT : C_TEXT);
