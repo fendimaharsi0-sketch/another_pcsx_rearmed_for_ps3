@@ -6,7 +6,13 @@
    Small by design, for an old machine: only the selected game's cover is
    kept, never the whole list; a file over 512 KB or an image over 512x512
    is refused outright (the pack's covers are 268x268 or smaller, so this
-   cap has headroom without letting a stray huge image eat PS3 memory). */
+   cap has headroom without letting a stray huge image eat PS3 memory).
+   Lookup, in order: (1) a cover named after the game file itself (the
+   user's own custom cover, highest priority), (2) the pack by the serial
+   in the file name (or the disc's serial), (3) webMAN MOD's own game
+   list, mygames.xml, whose icon path is used directly (see cover.c).
+   A missing or stale mygames.xml simply skips layer 3; it is never an
+   error and never blocks the list. */
 #ifndef COVER_H
 #define COVER_H
 
@@ -21,5 +27,9 @@ typedef struct {
    when a cover was decoded, 0 with px NULL when none was found or readable. */
 int cover_load(const char *game_path, int is_disc, const char *disc_serial, cover_img_t *out);
 void cover_free(cover_img_t *c);
+/* Forget the parsed mygames.xml (call it when the game list is rescanned,
+   so a refreshed webMAN list is picked up on the next cover lookup). The
+   XML itself is read lazily, once, on the next lookup after this call. */
+void cover_xml_invalidate(void);
 
 #endif

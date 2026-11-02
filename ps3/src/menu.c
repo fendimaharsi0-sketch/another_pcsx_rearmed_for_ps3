@@ -133,6 +133,8 @@ static void scan(const char *dir, int depth)
 static const char *base_name(const char *p) { const char *s = strrchr(p, '/'); return s ? s + 1 : p; }
 static int cmp_games(const void *a, const void *b) { return strcasecmp(base_name(*(char *const *)a), base_name(*(char *const *)b)); }
 
+static void cover_release(void);   /* defined with the cover panel, below */
+
 static void rescan(void)
 {
     int i;
@@ -141,6 +143,11 @@ static void rescan(void)
     for (i = 0; scan_dirs[i]; i++) scan(scan_dirs[i], 0);
     qsort(games, ngames, sizeof *games, cmp_games);
     scanned = 1;
+    /* A rescan is also when a refreshed mygames.xml should take effect:
+       drop the parsed XML and the cached cover, so the next frame's
+       cover lookup re-reads the XML even if the selection did not move. */
+    cover_xml_invalidate();
+    cover_release();
     logf_("menu: %d games found\n", ngames);
 }
 

@@ -139,18 +139,28 @@ panel reads the cover from the user's own webMAN MOD cover pack, which most
 modded PS3s already have, so the package does not grow. When no cover is
 found the panel shows "No cover found" and the list works exactly as before.
 
-Lookup, in order: (1) the pack by serial — `SLUS_123.45_COV.JPG` or `.PNG`
-in `/dev_hdd0/game/BLES80608/USRDIR/covers_retro/psx/` (USB000/USB001 in the
+Lookup, in order: (1) a cover named after the game file itself, next to
+it (`Game.cue` → `Game.JPG`/`Game.PNG`) — a user's own custom cover, so
+it wins over the generic pack. (2) The pack by serial —
+`SLUS_123.45_COV.JPG` or `.PNG` in
+`/dev_hdd0/game/BLES80608/USRDIR/covers_retro/psx/` (USB000/USB001 in the
 same layout are tried too); the disc's serial comes from its `SYSTEM.CNF`,
 a file's serial from `[SLUS-12345]` or `SLUS_123.45` in its file name.
-(2) A cover named after the game file itself, next to it
-(`Game.cue` → `Game.JPG`/`Game.PNG`). Reading the serial out of the disc
-image itself is not in this version, so a file whose name carries no serial
-and has no same-name cover shows the placeholder, and a playlist (`.m3u`)
-entry looks up its playlist name, not the discs inside it. Covers are
-small by design (the pack's are 268x268 or smaller): only the selected
-game's cover is kept, files over 512 KB and images over 512x512 are refused,
-and the cover is freed when the list is left.
+(3) webMAN MOD's own game list, `/dev_hdd0/xmlhost/game_plugin/mygames.xml`:
+the entry whose mount path matches the game (extension stripped, so a
+list entry `Game.cue` matches webMAN's `Game.bin`, `+`/`%XX` decoded,
+case-insensitive) contributes its icon path directly — that is how files
+whose names carry no serial still get their pack cover, because webMAN's
+scanner already found the serial. Generic webMAN icons and non-local
+paths are skipped, and a missing or stale list (a game added after
+webMAN's last Refresh XML) simply skips this layer. A playlist (`.m3u`)
+entry looks up its playlist name, not the discs inside it. Reading the
+serial out of the disc image itself is still not in this version: for
+webMAN users the XML already covers it, and it would only help users
+without webMAN. Covers are small by design (the pack's are 268x268 or
+smaller): only the selected game's cover is kept, files over 512 KB and
+images over 512x512 are refused, and the cover is freed when the list is
+left.
 
 ### Copy disc to HDD
 
