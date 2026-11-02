@@ -64,6 +64,9 @@ typedef struct {
     int speed_limit;    /* 0 normal (catches up after a hitch), 1 strict (never faster), 2 off (as fast as possible) */
     int screen_w;       /* screen adjustment: width and height of the whole */
     int screen_h;       /* picture (game and menus) in % of the TV signal */
+    int mc1_mode;       /* memory card 1: 0 = Auto (the game's own serial card), 1 = Shared (imported PS3 VMC), 2 = None */
+    int mc2_mode;       /* memory card 2: same values, default None (slot 2 was always off) */
+    char vmc_source[128]; /* base name of the PS3 VMC last imported into the shared card (global only, display only) */
     char last_dir[512];
 } settings_t;
 extern settings_t cfg;

@@ -223,6 +223,9 @@ The in-game menu has these entries:
 | Debug log | **Off**, On | Writes the log files and hang reports. |
 | Texture filter | **Nearest**, Bilinear, Bilinear (Performance) | Prototype, RSX only, in the upscaled pass only, directly below Renderer in the menu. Bilinear = manual 4-tap for all textured modes. Performance = hardware LINEAR for 15-bit direct textures only (1 fetch), manual bilinear for CLUT modes, so the speedup depends on how much 15-bit texture a game uses; its transparent/STP edges are softer than manual (plain average, not majority vote) and texture-window edges can blend across the window. Native VRAM stays nearest, so it never double-blurs. Takes effect immediately, no game restart. |
 | Sprite filter | **Nearest**, Bilinear, Bilinear (Performance) | Same modes as Texture filter, but for sprites, like DuckStation's Sprite Texture Filtering: textured GP0 sprites (textured rectangles, `do_rect`) plus textured polygons whose UV mapping is axis-aligned (U varies only with X, V only with Y — a 2D, non-rotated, non-skewed quad/triangle; both triangles of a quad must pass). Nearest keeps small sprites, particles and HUD icons crisp. Rotated, skewed or perspective polygons keep Texture filter. RSX only, upscaled pass only. Takes effect immediately, no game restart. |
+| Memory card 1 | **Auto (per-game)**, Shared (imported), None | Auto: the game's own card, `saves/<serial>_1.mcd`. Shared: the imported PS3 VMC card, `saves/pcsx-card1.mcd`, shared by every game set to Shared. Per game. Applies on the next launch from the game list; Reset alone does not apply it. |
+| Memory card 2 | **None**, Auto (per-game), Shared (card2) | Auto: `saves/<serial>_2.mcd`. Shared: `saves/pcsx-card2.mcd` — not the imported VMC; import only creates slot 1's card. Per game. Next launch only. |
+| Import PS3 VMC | Press X | Copies a PS3 virtual card from `savedata/vmc/*.VM1` (read-only there, never written) into the shared card `saves/pcsx-card1.mcd`, backs up the old shared card as `pcsx-card1.mcd.bak`, and switches Memory card 1 to Shared. One-way only: saves made here never appear in XMB. Game list only, never in a game. A PS1 card holds only 15 blocks, so expect many `.VM1` files: the picker sorts them and scrolls. |
 
 Settings for all games are saved in `USRDIR/settings.txt`.
 
@@ -259,6 +262,7 @@ All paths are inside `/dev_hdd0/game/PCSR00001/USRDIR`.
 | Settings | `settings.txt`, `configs/<game>.ini` |
 | Save states | `states/` |
 | Memory cards (one per game) | `saves/<serial>_1.mcd` |
+| Shared card (imported PS3 VMC) | `saves/pcsx-card1.mcd`, backup `saves/pcsx-card1.mcd.bak` |
 | BIOS | `system/` |
 | Logs (only with Debug log on) | `log.txt` (app and menus) and `logs/<game>.txt`, replaced on each run |
 | VRAM dumps, hang dumps | `dumps/` |

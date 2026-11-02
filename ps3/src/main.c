@@ -83,8 +83,8 @@ static const char *option_value(const char *key)
        too (upstream's default is 12): read on the emulation thread, a seek on the
        hard drive (Silent Hill starting a voice line) held up the frame */
     if (!strcmp(key, "pcsx_rearmed_cd_readahead")) return game_is_disc ? "64" : "32";
-    if (!strcmp(key, "pcsx_rearmed_memcard1")) return "serial";     /* SCUS-12345_1.mcd in saves/ */
-    if (!strcmp(key, "pcsx_rearmed_memcard2")) return "none";
+    if (!strcmp(key, "pcsx_rearmed_memcard1")) return cfg.mc1_mode == 1 ? "shared" : cfg.mc1_mode == 2 ? "none" : "serial";   /* serial: SCUS-12345_1.mcd in saves/; shared: pcsx-card1.mcd (imported VMC) */
+    if (!strcmp(key, "pcsx_rearmed_memcard2")) return cfg.mc2_mode == 1 ? "shared" : cfg.mc2_mode == 2 ? "none" : "serial";   /* default None: slot 2 was always off */
     if (!strcmp(key, "pcsx_rearmed_rgb32_output")) return "enabled";  /* XRGB8888, what the RSX path takes */
     if (!strcmp(key, "pcsx_rearmed_dithering")) return cfg.dithering ? "enabled" : "disabled";
     /* skipped frames never reach the RSX renderer, which then misses drawing that
