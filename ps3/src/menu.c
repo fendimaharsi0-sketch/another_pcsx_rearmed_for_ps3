@@ -225,7 +225,7 @@ static const item_t settings_items[] = {
     { "CPU", "Dynarec is much faster. 2 threads is experimental and can freeze some games." },
     { "Renderer", "RSX draws 3D at higher resolution on the PS3 GPU (experimental)." },
     { "Texture filter", "Nearest / Bilinear (manual, all modes) / Bilinear (Performance: hardware 15-bit, manual CLUT). RSX only, upscaled pass only. Native VRAM stays nearest." },
-    { "Sprite filter", "Texture filter for sprites (textured GP0 sprites only, like DuckStation's Sprite Texture Filtering). Nearest keeps small sprites, particles and HUD icons crisp. Same modes as Texture filter. RSX only, upscaled pass only." },
+    { "Sprite filter", "Texture filter for sprites (textured GP0 sprites and axis-aligned textured polygons, like DuckStation's Sprite Texture Filtering). Nearest keeps small sprites, particles and HUD icons crisp. Same modes as Texture filter. RSX only, upscaled pass only." },
     { "Picture filter", "How the picture is scaled to your TV." },
     { "Aspect ratio", "Zoom keeps the PS1 shape and crops the top and bottom." },
     { "Screen size", "Press X to shrink or stretch the picture to fit your TV." },

@@ -499,11 +499,45 @@ static void colour(pv *p, uint32_t c)
     p->r = (float)(c & 0xff); p->g = (float)((c >> 8) & 0xff); p->b = (float)((c >> 16) & 0xff);
 }
 
+/* DuckStation IsPossibleSpritePolygon, integer-exact: a textured triangle is
+   sprite-like when its UV mapping is separable — U varies only with X and V
+   only with Y (dU/dY == 0 and dV/dX == 0). The numerators below are the same
+   gradients ps1_sample_shift computes, but with exact integer arithmetic:
+   p[].x/y/u/v are integer-valued here (before ps1_sample_shift, which only
+   adds the same shift to every vertex of a triangle, so it cannot change a
+   difference). A quad is sprite-like only when every triangle actually drawn
+   passes, so a twisted quad whose halves disagree stays a polygon. Degenerate
+   triangles (det == 0, nothing drawn) are not sprites. Shape orientation alone
+   does not matter: a diamond whose UVs are still u=x, v=y passes, because only
+   the UV mapping is tested, like DuckStation. The test is per triangle (quads
+   are split into triangles before drawing), so a non-affine quad whose two
+   triangles are each separable passes even if a per-quad test would reject
+   it — per-triangle is the correct unit here. */
+static int tri_is_sprite(const pv *a, const pv *b, const pv *c)
+{
+    int e1x = (int)(b->x - a->x), e1y = (int)(b->y - a->y);
+    int e2x = (int)(c->x - a->x), e2y = (int)(c->y - a->y);
+    int det = e1x * e2y - e2x * e1y;
+    int du1 = (int)(b->u - a->u), du2 = (int)(c->u - a->u);
+    int dv1 = (int)(b->v - a->v), dv2 = (int)(c->v - a->v);
+    if (det == 0) return 0;
+    /* dU/dY numerator: (uc-ua)*e1x - (ub-ua)*e2x ; dV/dX numerator: (vb-va)*e2y - (vc-va)*e1y */
+    return (du2 * e1x - du1 * e2x) == 0 && (dv1 * e2y - dv2 * e1y) == 0;
+}
+static int poly_is_sprite(const pv *t, int n)
+{
+    int k;
+    if (n < 3) return 0;
+    for (k = 0; k + 2 < n; k += 3)
+        if (!tri_is_sprite(&t[k], &t[k + 1], &t[k + 2])) return 0;
+    return 1;
+}
+
 static void do_poly(const uint32_t *l, const uint32_t *end)
 {
     uint32_t w0 = le32(l), cmd = w0 >> 24, uvw[4] = { 0 };
     int gour = cmd & 0x10, quad = cmd & 8, tex = cmd & 4, semi = cmd & 2, raw = cmd & 1;
-    int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0;
+    int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0, spr = 0;
     int umin = 255, umax = 0, vmin = 255, vmax = 0, nt = 0;
     pv p[4], t[6];
     for (i = 0; i < n; i++) {
@@ -535,6 +569,9 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
     if (!too_big(&p[0], &p[1], &p[2])) { t[nt++] = p[0]; t[nt++] = p[1]; t[nt++] = p[2]; }
     if (quad && !too_big(&p[1], &p[2], &p[3])) { t[nt++] = p[1]; t[nt++] = p[2]; t[nt++] = p[3]; }
     if (!nt) return;
+    /* axis-aligned check on the triangles actually drawn, before the sample
+       shift (which preserves all vertex differences, so it cannot change it) */
+    spr = tex ? poly_is_sprite(t, nt) : 0;
     /* the PS1 never draws the right and bottom edge, so a polygon mapping texels
        0..64 shows 0..63: clamping to 64 let upscaled edge pixels pick texel 64,
        a thin line of the neighbouring tile along polygon seams (Tekken 3 skies) */
@@ -544,7 +581,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
     tex_setup(tex, raw, cx, cy, umin, umax, vmin, vmax, ta, ca);
     if (!prepare(tex, ta[0], ta[1], ta[2], ta[3], ca[0], ca[1], ca[2])) return;
     if (!mask_prepare(t, nt, sc)) return;
-    cur_spr = 0; emit(t, nt, semi, tex, sc);
+    cur_spr = spr; emit(t, nt, semi, tex, sc);
     grow_bbox(t, nt, sc);
     hwr_stats.prims++;
 }
