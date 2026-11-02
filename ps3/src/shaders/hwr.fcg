@@ -4,6 +4,23 @@
  * bit 15 set: the fix-up for blended draws, see hwr_rsx.c); -DTWIN=1 adds the PS1
  * texture window; -DMCHK=1 the mask check: pixels whose bit 15 is set in the
  * native VRAM are not drawn (uv.zw = the native position).
+ * -DFILT=1 (textured modes 1..3 only, prototype): bilinear texture filtering.
+ * The backend (hwr_rsx.c) selects a FILT program only for the upscaled pass;
+ * the native pass, the self-test, flat/copy/self programs and the byte-decoding
+ * fallback when the fast programs fail all stay nearest, so native VRAM is
+ * never blurred. Filtering is bilinear only (4 taps): JINC2/xBR are
+ * deliberately not implemented for the RSX.
+ *
+ * Bilinear rules, shared by both paths (SwanStation's FilteredSampleFromVRAM
+ * pattern, reimplemented for this VRAM layout):
+ *  - taps are the 4 texels around the pixel's texel centre (uv - 0.5), each
+ *    clamped to the primitive's texel range (lim) and then texture-windowed,
+ *    so edges never bleed into a neighbouring tile;
+ *  - a tap whose texel is transparent (0000) contributes no colour and no
+ *    weight: the remaining weights are renormalised, so a transparent black
+ *    texel never darkens an edge (SwanStation's rgb /= ialpha compensation);
+ *  - the STP (bit 15) output is the same weighted average, so the existing
+ *    pass drop test (threshold 0.5) becomes a majority vote for the STP pass.
  *
  * All maths is float, but the RSX evaluates parts of it at half precision (11-bit
  * mantissa: a 15-bit colour value loses its red bits). So a VRAM halfword is kept
@@ -19,6 +36,9 @@
 #endif
 #ifndef MCHK
 #define MCHK 0
+#endif
+#ifndef FILT
+#define FILT 0
 #endif
 
 float wrapf(float a, float m) { return a - m * floor(a / m); }
@@ -75,6 +95,50 @@ float twin(float t, float m, float o)
 }
 #endif
 
+#if FILT
+/* Single-texel fetchers used only by the bilinear path below. They repeat the
+ * nearest fetch of main() verbatim for one integer texel w / (u, v), so the
+ * filtered result is exactly the average of the texels nearest would pick. */
+half4 texel_fast(sampler2D vram16, sampler2D vram8, float4 t1, float2 w)
+{
+#if MODE == 1
+    float hu = floor(w.x * 0.5f), m = w.x - 2.0f * hu, m2 = hu - 2.0f * floor(hu * 0.5f);
+    float b = floor(tex2D(vram8, float2(t1.x * 2.0f + hu - 2.0f * m2 + 0.5f, t1.y + w.y) *
+                                 float2(1.0f / 2048.0f, 1.0f / 512.0f)).x * 255.0f + 0.5f);
+    float hiN = floor(b * (1.0f / 16.0f));
+    return h4tex2D(vram16, float2(t1.z + lerp(b - 16.0f * hiN, hiN, m), t1.w) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
+#elif MODE == 2
+    float m2 = w.x - 2.0f * floor(w.x * 0.5f);
+    float b = floor(tex2D(vram8, float2(t1.x * 2.0f + w.x - 2.0f * m2 + 0.5f, t1.y + w.y) *
+                                 float2(1.0f / 2048.0f, 1.0f / 512.0f)).x * 255.0f + 0.5f);
+    return h4tex2D(vram16, float2(t1.z + b, t1.w) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
+#elif MODE == 3
+    return h4tex2D(vram16, (t1.xy + w) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
+#else
+    return half4(0.0h, 0.0h, 0.0h, 0.0h);
+#endif
+}
+
+float2 texel_slow(sampler2D vram, float4 t1, float u, float v)
+{
+    float tpx = floor(t1.x + 0.5f);
+    float y = floor(t1.y + 0.5f) + v;
+#if MODE == 1
+    float b = rd8(vram, tpx * 2.0f + floor(u * 0.5f), y);
+    float hiN = floor(b * (1.0f / 16.0f));
+    float idx = lerp(b - 16.0f * hiN, hiN, u - 2.0f * floor(u * 0.5f));
+    return rd16(vram, floor(t1.z + 0.5f) + idx, floor(t1.w + 0.5f));
+#elif MODE == 2
+    float b = rd8(vram, tpx * 2.0f + u, y);
+    return rd16(vram, floor(t1.z + 0.5f) + b, floor(t1.w + 0.5f));
+#elif MODE == 3
+    return rd16(vram, tpx + u, y);
+#else
+    return float2(0.0f, 0.0f);
+#endif
+}
+#endif
+
 #if FAST
 /* Fast variants: the texture unit decodes VRAM. vram16 views it as a 1024x512
    A1R5G5B5 texture (one fetch = a halfword's 5-bit colours, already scaled, and
@@ -105,13 +169,52 @@ half4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2,
 #elif MODE == 4
     return h4tex2D(vram16, (floor(uv.xy) + 0.5f) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
 #else
+    half4 t;
+#if FILT
+    /* Bilinear: the 4 texels around the texel centre (uv - 0.5). Each tap is
+       clamped to lim, then windowed, exactly as the nearest fetch is. */
+    float2 pc = uv.xy - 256.0f * floor(uv.xy * (1.0f / 256.0f));
+    float2 base = floor(pc - 0.5f);
+    float2 fr = pc - 0.5f - base;
+    float2 t00 = clamp(base, lim.xy, lim.zw);
+    float2 t10 = clamp(base + float2(1.0f, 0.0f), lim.xy, lim.zw);
+    float2 t01 = clamp(base + float2(0.0f, 1.0f), lim.xy, lim.zw);
+    float2 t11 = clamp(base + float2(1.0f, 1.0f), lim.xy, lim.zw);
+#if TWIN
+    t00.x = twin(t00.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    t00.y = twin(t00.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+    t10.x = twin(t10.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    t10.y = twin(t10.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+    t01.x = twin(t01.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    t01.y = twin(t01.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+    t11.x = twin(t11.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    t11.y = twin(t11.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+#endif
+    half4 s00 = texel_fast(vram16, vram8, t1, t00);
+    half4 s10 = texel_fast(vram16, vram8, t1, t10);
+    half4 s01 = texel_fast(vram16, vram8, t1, t01);
+    half4 s11 = texel_fast(vram16, vram8, t1, t11);
+    float a00 = dot(float4(s00), float4(1.0f, 1.0f, 1.0f, 1.0f)) == 0.0f ? 0.0f : 1.0f;
+    float a10 = dot(float4(s10), float4(1.0f, 1.0f, 1.0f, 1.0f)) == 0.0f ? 0.0f : 1.0f;
+    float a01 = dot(float4(s01), float4(1.0f, 1.0f, 1.0f, 1.0f)) == 0.0f ? 0.0f : 1.0f;
+    float a11 = dot(float4(s11), float4(1.0f, 1.0f, 1.0f, 1.0f)) == 0.0f ? 0.0f : 1.0f;
+    float w00 = (1.0f - fr.x) * (1.0f - fr.y);
+    float w10 = fr.x * (1.0f - fr.y);
+    float w01 = (1.0f - fr.x) * fr.y;
+    float w11 = fr.x * fr.y;
+    float ialpha = w00 * a00 + w10 * a10 + w01 * a01 + w11 * a11;
+    if (ialpha > 0.0f)
+        t = half4((w00 * a00 * s00.rgb + w10 * a10 * s10.rgb + w01 * a01 * s01.rgb + w11 * a11 * s11.rgb) / ialpha,
+                  (w00 * a00 * s00.a + w10 * a10 * s10.a + w01 * a01 * s01.a + w11 * a11 * s11.a) / ialpha);
+    else
+        t = half4(0.0h, 0.0h, 0.0h, 0.0h);
+#else
     float2 w = floor(uv.xy);
     w = floor(clamp(w - 256.0f * floor(w * (1.0f / 256.0f)), lim.xy, lim.zw) + 0.5f);
 #if TWIN
     w.x = twin(w.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
     w.y = twin(w.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
 #endif
-    half4 t;
 #if MODE == 1
     float hu = floor(w.x * 0.5f), m = w.x - 2.0f * hu, m2 = hu - 2.0f * floor(hu * 0.5f);
     /* PS1 byte tpx*2 + hu is memory byte ^ 1 = tpx*2 + hu + 1 - 2*(hu & 1); the +1
@@ -127,6 +230,7 @@ half4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2,
     t = h4tex2D(vram16, float2(t1.z + b, t1.w) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
 #else
     t = h4tex2D(vram16, (t1.xy + w) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
+#endif
 #endif
     /* never the transparent 0000 texel, and only this pass's texels */
     if ((dot(t, half4(1.0h, 1.0h, 1.0h, 1.0h)) == 0.0h ? 1.0h : 0.0h) + (half)t3.z + t.a * (half)t3.w > 0.5h) discard;
@@ -157,6 +261,53 @@ float4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2
     /* alpha: bit 15; one final multiply (cgcomp hazard: nothing may be computed
        after the colour output is written, see tools/fpcheck.py) */
     return float4(rgb15(c).zyx, floor(c.y * (1.0f / 128.0f)) * 31.0f) * (1.0f / 31.0f);
+#else
+#if FILT
+    /* Bilinear, byte-decoding path: same 4-tap rule as the fast path, with the
+       halfword (not the decoded colour) as the tap value, so CLUT indexes are
+       never interpolated. Returns directly; the nearest code below is skipped. */
+    float pu = wrapf(uv.x, 256.0f), pv = wrapf(uv.y, 256.0f);
+    float bu = floor(pu - 0.5f), bv = floor(pv - 0.5f);
+    float fu = pu - 0.5f - bu, fv = pv - 0.5f - bv;
+    float2 tap00 = float2(bu, bv), tap10 = float2(bu + 1.0f, bv);
+    float2 tap01 = float2(bu, bv + 1.0f), tap11 = float2(bu + 1.0f, bv + 1.0f);
+    tap00 = clamp(tap00, float2(floor(lim.x + 0.5f), floor(lim.y + 0.5f)), float2(floor(lim.z + 0.5f), floor(lim.w + 0.5f)));
+    tap10 = clamp(tap10, float2(floor(lim.x + 0.5f), floor(lim.y + 0.5f)), float2(floor(lim.z + 0.5f), floor(lim.w + 0.5f)));
+    tap01 = clamp(tap01, float2(floor(lim.x + 0.5f), floor(lim.y + 0.5f)), float2(floor(lim.z + 0.5f), floor(lim.w + 0.5f)));
+    tap11 = clamp(tap11, float2(floor(lim.x + 0.5f), floor(lim.y + 0.5f)), float2(floor(lim.z + 0.5f), floor(lim.w + 0.5f)));
+#if TWIN
+    tap00.x = twin(tap00.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    tap00.y = twin(tap00.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+    tap10.x = twin(tap10.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    tap10.y = twin(tap10.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+    tap01.x = twin(tap01.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    tap01.y = twin(tap01.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+    tap11.x = twin(tap11.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    tap11.y = twin(tap11.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+#endif
+    float2 c00 = texel_slow(vram, t1, tap00.x, tap00.y);
+    float2 c10 = texel_slow(vram, t1, tap10.x, tap10.y);
+    float2 c01 = texel_slow(vram, t1, tap01.x, tap01.y);
+    float2 c11 = texel_slow(vram, t1, tap11.x, tap11.y);
+    float a00 = (c00.x + c00.y < 0.5f) ? 0.0f : 1.0f;
+    float a10 = (c10.x + c10.y < 0.5f) ? 0.0f : 1.0f;
+    float a01 = (c01.x + c01.y < 0.5f) ? 0.0f : 1.0f;
+    float a11 = (c11.x + c11.y < 0.5f) ? 0.0f : 1.0f;
+    float fw00 = (1.0f - fu) * (1.0f - fv);
+    float fw10 = fu * (1.0f - fv);
+    float fw01 = (1.0f - fu) * fv;
+    float fw11 = fu * fv;
+    float fialpha = fw00 * a00 + fw10 * a10 + fw01 * a01 + fw11 * a11;
+    if (fialpha < 0.5f / 256.0f) discard;
+    float3 ftx = (fw00 * a00 * rgb15(c00) + fw10 * a10 * rgb15(c10) + fw01 * a01 * rgb15(c01) + fw11 * a11 * rgb15(c11)) / fialpha;
+    float fstp = (fw00 * a00 * floor(c00.y * (1.0f / 128.0f)) + fw10 * a10 * floor(c10.y * (1.0f / 128.0f)) +
+                  fw01 * a01 * floor(c01.y * (1.0f / 128.0f)) + fw11 * a11 * floor(c11.y * (1.0f / 128.0f))) / fialpha;
+    float fps = floor(t3.z + 0.5f);
+    float fdrop = (fps == 1.0f ? fstp : 0.0f) + (fps == 2.0f ? 1.0f - fstp : 0.0f);
+    if (fdrop > 0.5f) discard;
+    float3 fmo = ftx * floor(col.rgb + (1.0f / 64.0f)) * (1.0f / 128.0f);
+    float3 fo = lerp(min(lerp(fmo, floor(fmo), t2.x), float3(31.0f, 31.0f, 31.0f)), ftx, t2.y);
+    return float4(fo.zyx * (1.0f / 31.0f), max(fstp, col.a));
 #else
     float u = wrapf(floor(uv.x), 256.0f), v = wrapf(floor(uv.y), 256.0f);
     /* stay inside the texels the primitive maps: at higher resolutions edge pixels
@@ -192,6 +343,7 @@ float4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2
     float3 mo = tx * floor(col.rgb + (1.0f / 64.0f)) * (1.0f / 128.0f);
     float3 o = lerp(min(lerp(mo, floor(mo), t2.x), float3(31.0f, 31.0f, 31.0f)), tx, t2.y);
     return float4(o.zyx * (1.0f / 31.0f), max(stp, col.a));
+#endif
 #endif
 }
 #endif

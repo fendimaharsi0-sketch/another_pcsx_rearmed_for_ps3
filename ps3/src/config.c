@@ -13,7 +13,7 @@
 #define GAME_DIR APP_DIR "/configs"
 
 settings_t cfg = {
-    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .aspect = ASPECT_4_3,
+    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .texfilter = 0, .aspect = ASPECT_4_3,
     .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .last_dir = "",
 };
 
@@ -24,6 +24,7 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "dynarec_thread", F(dynarec_thread), 0, 1, 1 },
     { "gpu_scale", F(gpu_scale), 0, 5, 1 },
     { "filter", F(filter), 0, FILTER_COUNT - 1, 1 },
+    { "texfilter", F(texfilter), 0, 1, 1 },
     { "aspect", F(aspect), 0, ASPECT_COUNT - 1, 1 },
     { "frameskip", F(frameskip), 0, 1, 1 },
     { "dithering", F(dithering), 0, 1, 1 },

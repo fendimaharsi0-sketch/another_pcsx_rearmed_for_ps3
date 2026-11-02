@@ -188,6 +188,7 @@ The in-game menu has these entries:
 | Speed limit | **Normal**, Strict, Off | Normal catches up after a hitch; Strict never goes above 100%. |
 | VRAM check (debug) | **Off**, On | The software renderer draws too, for comparison. |
 | Debug log | **Off**, On | Writes the log files and hang reports. |
+| Texture filter | **Nearest**, Bilinear | Prototype, RSX only: bilinear filtering for 3D textures in the upscaled pass only. Native VRAM stays nearest, so it never double-blurs. Takes effect immediately, no game restart. |
 
 Settings for all games are saved in `USRDIR/settings.txt`.
 

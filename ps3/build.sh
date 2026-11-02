@@ -88,6 +88,19 @@ for F in 0 1; do
     c_array "$GEN/hwr_$n.fpo" "hwr_${n}_fpo" >>"$GEN/shaders.h"
   done
 done
+# + bilinear variants (FILT=1, names ...b): textured modes 1..3 only, with and
+# without texture window and mask check, both program sets (24 programs).
+# Flat/copy/self have no bilinear variant: hwr_rsx.c aliases them to nearest.
+for F in 0 1; do
+  for v in "1 0 0 f1b" "2 0 0 f2b" "3 0 0 f3b" "1 1 0 f1wb" "2 1 0 f2wb" "3 1 0 f3wb" \
+           "1 0 1 mf1b" "2 0 1 mf2b" "3 0 1 mf3b" "1 1 1 mf1wb" "2 1 1 mf2wb" "3 1 1 mf3wb"; do
+    set -- $v
+    n=$4; [ $F = 1 ] && n=f$4
+    cpp -P -DMODE=$1 -DTWIN=$2 -DMCHK=$3 -DFAST=$F -DFILT=1 src/shaders/hwr.fcg >"$GEN/hwr_$n.fcg"
+    fpc "$GEN/hwr_$n.fcg" "$GEN/hwr_$n.fpo"
+    c_array "$GEN/hwr_$n.fpo" "hwr_${n}_fpo" >>"$GEN/shaders.h"
+  done
+done
 
 echo "== SPU programs"
 # FMV decoding: the core's own MDEC routines (libpcsxcore/mdec_decode.h) on the SPUs

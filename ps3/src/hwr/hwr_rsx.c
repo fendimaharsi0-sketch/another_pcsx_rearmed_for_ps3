@@ -83,9 +83,14 @@ static struct {
     rsxProgramConst *vp_native[2];   /* the "native" constant (1 in the native pass) */
     int vp_cur;                   /* set of the loaded one (-1: unknown) */
     unsigned vp_epoch;            /* video_vp_epoch when it was loaded */
-    rsxFragmentProgram *fps[2][HWR_NPROG]; u32 fps_off[2][HWR_NPROG];
-    int ua[2][HWR_NPROG], ub[2][HWR_NPROG];   /* units of "vram" / "vram16" and "vram8" (-1) */
+    /* program sets: [fast][filter][prog], filter 1 = bilinear (textured modes
+       only; flat/copy/self entries alias the nearest program). Filter is only
+       chosen for the upscaled pass (see use_prog): the native pass, which
+       writes the VRAM later textures are read from, always stays nearest. */
+    rsxFragmentProgram *fps[2][2][HWR_NPROG]; u32 fps_off[2][2][HWR_NPROG];
+    int ua[2][2][HWR_NPROG], ub[2][2][HWR_NPROG];   /* units of "vram" / "vram16" and "vram8" (-1) */
     int fast;                     /* program set in use */
+    int draw_native;              /* the draw_ops pass in progress is the native (1x) pass */
     int px, py, pw, ph;           /* displayed VRAM rect of the last presented frame */
     int check;                    /* VRAM check: the software renderer draws too, as a reference */
     int bit15;                    /* native VRAM keeps bit 15 (self-test result) */
@@ -230,6 +235,15 @@ static int alloc_once(void)
         { hwr_ff0_fpo, hwr_ff1_fpo, hwr_ff2_fpo, hwr_ff3_fpo, hwr_ff4_fpo, hwr_ff1w_fpo, hwr_ff2w_fpo, hwr_ff3w_fpo,
           hwr_fmf0_fpo, hwr_fmf1_fpo, hwr_fmf2_fpo, hwr_fmf3_fpo, hwr_fmf4_fpo, hwr_fmf1w_fpo, hwr_fmf2w_fpo, hwr_fmf3w_fpo,
           hwr_ff5_fpo } };
+    /* Bilinear variants, textured modes only (index = prog, NULL = alias nearest).
+       build.sh names them with a trailing 'b': f1b, f1wb, mf1b, mf1wb, fast ff1b, fmf1b, ... */
+    static const unsigned char *fps_b[2][HWR_NPROG] = {
+        { NULL, hwr_f1b_fpo, hwr_f2b_fpo, hwr_f3b_fpo, NULL, hwr_f1wb_fpo, hwr_f2wb_fpo, hwr_f3wb_fpo,
+          NULL, hwr_mf1b_fpo, hwr_mf2b_fpo, hwr_mf3b_fpo, NULL, hwr_mf1wb_fpo, hwr_mf2wb_fpo, hwr_mf3wb_fpo,
+          NULL },
+        { NULL, hwr_ff1b_fpo, hwr_ff2b_fpo, hwr_ff3b_fpo, NULL, hwr_ff1wb_fpo, hwr_ff2wb_fpo, hwr_ff3wb_fpo,
+          NULL, hwr_fmf1b_fpo, hwr_fmf2b_fpo, hwr_fmf3b_fpo, NULL, hwr_fmf1wb_fpo, hwr_fmf2wb_fpo, hwr_fmf3wb_fpo,
+          NULL } };
     int s;
     void *tgt, *dep; u32 sz; int i;
     if (R.ok) return 1;
@@ -297,9 +311,18 @@ static int alloc_once(void)
         R.vp_native[s] = rsxVertexProgramGetConst(R.vps[s], "native");
         if (!R.vp_native[s]) logf_("hwr: vertex program %d has no 'native' constant\n", s);
         for (i = 0; i < HWR_NPROG; i++) {
-            R.fps[s][i] = (rsxFragmentProgram *)fps[s][i];
-            if (!(R.fps_off[s][i] = load_fp(R.fps[s][i], s ? "vram16" : "vram", s ? "vram8" : NULL,
-                                            &R.ua[s][i], &R.ub[s][i]))) return 0;
+            R.fps[s][0][i] = (rsxFragmentProgram *)fps[s][i];
+            if (!(R.fps_off[s][0][i] = load_fp(R.fps[s][0][i], s ? "vram16" : "vram", s ? "vram8" : NULL,
+                                            &R.ua[s][0][i], &R.ub[s][0][i]))) return 0;
+            if (fps_b[s][i]) {
+                R.fps[s][1][i] = (rsxFragmentProgram *)fps_b[s][i];
+                if (!(R.fps_off[s][1][i] = load_fp(R.fps[s][1][i], s ? "vram16" : "vram", s ? "vram8" : NULL,
+                                                &R.ua[s][1][i], &R.ub[s][1][i]))) return 0;
+            } else {
+                /* flat/copy/self: the bilinear entry is the nearest program */
+                R.fps[s][1][i] = R.fps[s][0][i]; R.fps_off[s][1][i] = R.fps_off[s][0][i];
+                R.ua[s][1][i] = R.ua[s][0][i]; R.ub[s][1][i] = R.ub[s][0][i];
+            }
         }
     }
     R.ok = 1; R.failed = 0;
@@ -447,11 +470,19 @@ static void nat_format(int one)
 }
 
 /* loads fragment program variant p of the current set and makes sure its texture
-   units hold the views it samples */
+   units hold the views it samples. Bilinear only when the user turned it on,
+   the renderer is actually running (R.on is still 0 during the start-up
+   self-test, so the test always measures the nearest programs), this is the
+   upscaled pass (the native pass writes the VRAM textures are read from, so
+   blurring it would double-blur and break exactness), and p is a textured
+   mode (base 1..3, windowed 5..7); flat/copy/self alias nearest anyway. */
 static void use_prog(int p, signed char *bound)
 {
-    int f = R.fast, a = R.ua[f][p], b = R.ub[f][p];
-    rsxLoadFragmentProgramLocation(rsx_ctx, R.fps[f][p], R.fps_off[f][p], GCM_LOCATION_RSX);
+    int f = R.fast, base = p & 7, filt = 0, a, b;
+    if (cfg.texfilter && R.on && !R.draw_native && (base == 1 || base == 2 || base == 3 || base == 5 || base == 6 || base == 7))
+        filt = 1;
+    a = R.ua[f][filt][p]; b = R.ub[f][filt][p];
+    rsxLoadFragmentProgramLocation(rsx_ctx, R.fps[f][filt][p], R.fps_off[f][filt][p], GCM_LOCATION_RSX);
     if (a >= 0 && a < 16 && bound[a] != (f ? 1 : 0)) { bound[a] = (signed char)(f ? 1 : 0); bind_view((u32)a, bound[a]); }
     if (b >= 0 && b < 16 && bound[b] != 2) { bound[b] = 2; bind_view((u32)b, 2); }
 }
@@ -505,6 +536,7 @@ static void flush_stp(const hwr_op *ops, int native, int *prog, signed char *bou
 static void draw_ops(const hwr_op *ops, int nops, int native)
 {
     int i, prog = -1, blend = -1, SX = native ? 1 : R.SX, fix = 0, skey = -1;
+    R.draw_native = native;   /* use_prog reads this: bilinear only when native == 0 */
     float SY = native ? 1.f : R.SY;
     int sc0 = -1, sc1 = -1, sc2 = -1, sc3 = -1;
     signed char bound[16];                  /* view bound on each texture unit (-1 unknown) */
@@ -1464,6 +1496,7 @@ static void start(void)
     logf_("hwr: GPU renderer on, %dx%s (%dx%d), %s mode\n", R.SX, R.S > HWR_MAXS ? " wide, 4.5x tall" : "", 1024 * R.SX, (int)(512.f * R.SY + 0.5f),
           R.base.full ? (R.check ? "full, with the VRAM check (software renderer draws too)" : "full (the RSX draws everything)")
                       : "hybrid (software renderer + RSX)");
+    logf_("hwr: texture filter %s\n", cfg.texfilter ? "bilinear (upscaled pass only)" : "nearest");
 }
 
 static void log_stats(void)
