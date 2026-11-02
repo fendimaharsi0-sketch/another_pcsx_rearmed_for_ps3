@@ -606,7 +606,21 @@ static inline const s16 *v_inorder(const s16 *v, s16 *tmp)
  * only, the culprit was the w flip (precise w vs w=1, or wrong w);
  * if flicker persists, it is the XY precise/integer flip itself.
  * The z>0 guard stays (rejects behind-camera vertices); the old
- * w range gate is gone because w is now constant. */
+ * w range gate is gone because w is now constant.
+ * Stage 2b (XY-only + first-writer, no ambiguity): Stage 2a XY-only
+ * with last-write-wins showed texture tiles separating by 1-2px,
+ * with the gaps moving with the standard PS1 wobble. That is a
+ * consistency failure, not a w failure: neighbouring tiles sharing
+ * an integer edge resolved to different precise values (or one hit
+ * and one missed) and moved independently. Now the first writer in
+ * a frame wins and later pushes for the same pixel are ignored,
+ * with NO ambiguity fallback to integer and NO w. All neighbours
+ * sharing a pixel therefore get the same precise XY in that frame
+ * and move together, so shared edges should stay shut and wobble
+ * should become smooth whole-scene movement again. If gaps still
+ * move independently under first-writer, the shared edge is not
+ * both GTE-transformed (one side is CPU/miss), which cache-only
+ * cannot fix. */
 #define PGXP_CACHE_BITS 12
 #define PGXP_CACHE_SIZE (1 << PGXP_CACHE_BITS)
 typedef struct { short sx, sy; unsigned gen; float x, y, z; } pgxp_entry_t;
@@ -616,10 +630,22 @@ void pgxp_next_frame(void) { if (++pgxp_gen == 0) pgxp_gen = 1; }
 void pgxp_push(int sx, int sy, float x, float y, float z)
 {
 	unsigned h = ((unsigned)sx * 73856093u) ^ ((unsigned)sy * 19349663u);
+	pgxp_entry_t *e;
 	h &= PGXP_CACHE_SIZE - 1;
-	pgxp_cache[h].sx = (short)sx; pgxp_cache[h].sy = (short)sy;
-	pgxp_cache[h].gen = pgxp_gen;
-	pgxp_cache[h].x = x; pgxp_cache[h].y = y; pgxp_cache[h].z = z;
+	e = &pgxp_cache[h];
+	/* New frame, or this hash slot currently holds a different pixel
+	 * (a hash collision, not a contest for the same pixel): this push
+	 * is the first writer for its pixel. */
+	if (e->gen != pgxp_gen || e->sx != sx || e->sy != sy) {
+		e->sx = (short)sx; e->sy = (short)sy;
+		e->gen = pgxp_gen;
+		e->x = x; e->y = y; e->z = z;
+		return;
+	}
+	/* Same pixel, same frame: keep the first writer, ignore later
+	 * pushes outright. No ambiguity, no fallback to integer here:
+	 * that flip is what made Stage 1 worse, and w is already gone,
+	 * so there is no w flip left to reintroduce. */
 }
 int pgxp_lookup(int sx, int sy, float *x, float *y, float *w)
 {
