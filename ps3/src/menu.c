@@ -325,9 +325,10 @@ static const item_t settings_items[] = {
     { "Speed limit", "Normal: catches up after a hitch. Strict: never faster. Off: no limit." },
     { "VRAM check (debug)", "Debug: software renderer draws too. Pause menu > Dump VRAM." },
     { "Debug log", "Debug: writes log files (USRDIR/log.txt, USRDIR/logs) and hang reports." },
-    { "Memory card 1", "Auto: this game's own card (saves/SCUS-12345_1.mcd). Shared: the imported PS3 VMC card. None: no card. Next launch from the game list only; Reset alone does not apply it." },
+    { "Memory card 1", "Auto: this game's own card (saves/SCUS-12345_1.mcd). Shared: the card chosen in Shared card, or the default pcsx-card1.mcd when none is chosen. None: no card. Next launch from the game list only; Reset alone does not apply it." },
     { "Memory card 2", "Auto: this game's own card (saves/SCUS-12345_2.mcd). Shared: pcsx-card2.mcd (not the imported VMC; import only creates slot 1). None: no card (default). Next launch only." },
-    { "Import PS3 VMC", "Press X to copy a PS3 virtual card from savedata/vmc/ into the shared card and switch Memory card 1 to Shared. One-way: saves made here never appear in XMB. Game list only, never in a game." },
+    { "Import PS3 VMC", "Press X to copy a PS3 virtual card from savedata/vmc/ into the imported library (saves/imported/). It does not change the active card or mode: pick it in Shared card to play with it. One-way: saves made here never appear in XMB. Game list only, never in a game." },
+    { "Shared card", "Which imported PS3 VMC card slot 1 Shared uses. The core reads it directly from the library, no copy. Default = pcsx-card1.mcd. Auto still uses the game's own serial card. Next launch only. Game list only, never in a game." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
@@ -380,6 +381,7 @@ static void setting_value(int i, char *b, size_t n)
     case 24: snprintf(b, n, "%s", cfg.mc1_mode == 1 ? "Shared (imported)" : cfg.mc1_mode == 2 ? "None" : "Auto (per-game)"); break;
     case 25: snprintf(b, n, "%s", cfg.mc2_mode == 1 ? "Shared (card2)" : cfg.mc2_mode == 2 ? "None" : "Auto (per-game)"); break;
     case 26: snprintf(b, n, "%s", cfg.vmc_source[0] ? cfg.vmc_source : "Press X to import"); break;
+    case 27: snprintf(b, n, "%s", cfg.mc1_shared[0] ? cfg.mc1_shared : "Default (pcsx-card1.mcd)"); break;
     }
 }
 
@@ -387,6 +389,7 @@ static void setting_value(int i, char *b, size_t n);
 static void setting_change_(int i, int dir, int in_game);
 static void screen_size_page(int in_game);
 static void vmc_import_page(void);
+static void vmc_shared_page(void);
 static void setting_change(int i, int dir, int in_game)
 {
     char before[64], after[64];
@@ -446,6 +449,7 @@ static void setting_change_(int i, int dir, int in_game)
     case 24: cfg.mc1_mode = (cfg.mc1_mode + (dir > 0 ? 1 : 2)) % 3; break;
     case 25: cfg.mc2_mode = (cfg.mc2_mode + (dir > 0 ? 1 : 2)) % 3; break;
     case 26: if (!in_game) vmc_import_page(); break;   /* import writes a card file: game list only, never in a game */
+    case 27: if (!in_game) vmc_shared_page(); break;   /* choosing writes settings only, but the card it names is read at the next launch: game list only, never in a game */
     }
 }
 
@@ -498,15 +502,23 @@ static void screen_size_page(int in_game)
     }
 }
 
-/* ---- PS3 VMC import (shared card) ----
+/* ---- PS3 VMC import + shared-card library (core-direct, no copy) ----
  * A PS1 card is only 128 KB (15 blocks), so a PS3 user usually has MANY .VM1
- * files, not one: the picker below sorts them and scrolls (L1/R1 page), it is
- * not a fixed short list. The source in savedata/vmc/ is opened read-only
- * ("rb") and never written: XMB's cache is never invalidated by us. The copy
- * lands in saves/pcsx-card1.mcd (the core's "shared" card 1), the old shared
- * card is backed up first, and Memory card 1 switches to Shared. One-way:
- * saves made here never appear in XMB. */
+ * files, not one: the pickers below sort them and scroll (L1/R1 page), they
+ * are not fixed short lists. The source in savedata/vmc/ is opened read-only
+ * ("rb") and never written: XMB's cache is never invalidated by us.
+ * Import copies a VM1 into the library (saves/imported/<name>.mcd) and
+ * changes nothing else: not the active card, not the mode. The Shared card
+ * picker names one library card in settings (mc1_shared); the core then
+ * reads that file directly at the next launch (frontend/libretro.c
+ * load_memcards, new pcsx_rearmed_memcard1_shared variable), with no copy
+ * and no write-back step, so switching cards can never lose saves. With no
+ * card chosen, slot 1 Shared falls back to the default pcsx-card1.mcd,
+ * exactly as before this feature. One-way: saves made here go to the
+ * library file, never back to the XMB VM1. Both pickers are game-list only:
+ * import writes a card file, and the shared choice is read at launch. */
 #define VMC_DIR "/dev_hdd0/savedata/vmc"
+#define LIB_DIR APP_DIR "/saves/imported"
 #define VMC_SIZE 131072
 #define MAX_VMC 256
 static char vmc_names[MAX_VMC][256];
@@ -514,23 +526,28 @@ static int nvmc;
 
 static int vmc_name_cmp(const void *a, const void *b) { return strcasecmp((const char *)a, (const char *)b); }
 
-static int vmc_scan(void)
+/* Sorted scan of one directory for one extension, into vmc_names (the two
+   pickers are modal, so sharing the buffer is safe). */
+static int vmc_scan_dir(const char *dir, const char *ext)
 {
     DIR *d;
     struct dirent *e;
     int total = 0;
     nvmc = 0;
-    if (!(d = opendir(VMC_DIR))) return 0;
+    if (!(d = opendir(dir))) return 0;
     while ((e = readdir(d)) != NULL) {
-        if (!is_ext(e->d_name, "VM1")) continue;
+        if (!is_ext(e->d_name, ext)) continue;
         total++;
         if (nvmc < MAX_VMC) snprintf(vmc_names[nvmc++], sizeof vmc_names[0], "%s", e->d_name);
     }
     closedir(d);
     if (nvmc > 1) qsort(vmc_names, (size_t)nvmc, sizeof vmc_names[0], vmc_name_cmp);
-    if (total > nvmc) logf_("vmc: %d cards in %s, showing %d\n", total, VMC_DIR, nvmc);
+    if (total > nvmc) logf_("vmc: %d cards in %s, showing %d\n", total, dir, nvmc);
     return nvmc;
 }
+
+static int vmc_scan(void) { return vmc_scan_dir(VMC_DIR, "VM1"); }
+static int lib_scan(void) { return vmc_scan_dir(LIB_DIR, "MCD"); }
 
 static int vmc_valid(const char *path)
 {
@@ -559,13 +576,13 @@ static int copy_file(const char *src, const char *dst)
     return fclose(out) == 0;
 }
 
-static void vmc_message(const char *title, const char *a, const char *b)
+static void vmc_message(const char *page, const char *title, const char *a, const char *b)
 {
     while (!app_exit_requested) {
         uint32_t p;
         frame_begin(0);
         p = input_pressed();
-        header("Import PS3 VMC", NULL);
+        header(page, NULL);
         text_fit(MARGIN, 110, title, C_ACCENT);
         if (a) text_fit(MARGIN, 170, a, C_TEXT);
         if (b) text_fit(MARGIN, 210, b, C_DIM);
@@ -581,7 +598,7 @@ static void vmc_import_page(void)
     char src[1300], dst[1300], bak[1400];
     logf_("menu: import PS3 VMC\n");
     if (vmc_scan() == 0) {
-        vmc_message("No PS3 VMC found", "Create a card in XMB Memory Card Utility first,", "then come back here (savedata/vmc/*.VM1).");
+        vmc_message("Import PS3 VMC", "No PS3 VMC found", "Create a card in XMB Memory Card Utility first,", "then come back here (savedata/vmc/*.VM1).");
         return;
     }
     while (!app_exit_requested) {   /* picker: sorted, scrolls, L1/R1 page */
@@ -608,52 +625,129 @@ static void vmc_import_page(void)
         frame_end();
     }
     if (app_exit_requested) return;
-    snprintf(src, sizeof src, "%s/%s", VMC_DIR, vmc_names[sel]);
-    snprintf(dst, sizeof dst, APP_DIR "/saves/pcsx-card1.mcd");
-    while (!app_exit_requested) {   /* confirm */
-        uint32_t p;
-        char msg[300];
-        frame_begin(0);
-        p = input_pressed();
-        header("Import PS3 VMC", NULL);
-        snprintf(msg, sizeof msg, "Copy %s to the shared card?", vmc_names[sel]);
-        text_fit(MARGIN, 110, msg, C_ACCENT);
-        ovl_text(MARGIN, 170, "The old shared card is backed up as pcsx-card1.mcd.bak.", C_TEXT);
-        ovl_text(MARGIN, 210, "One-way: saves made here will NOT appear in XMB.", C_TEXT);
-        ovl_text(MARGIN, 250, "Memory card 1 will switch to Shared.", C_DIM);
-        footer("X import    Circle back");
-        frame_end();
-        if (p & PAD_CIRCLE) return;
-        if (p & PAD_CROSS) break;
-    }
     if (app_exit_requested) return;
-    if (!vmc_valid(src)) {
-        logf_("vmc: import refused, %s is not a 128 KB MC card\n", src);
-        vmc_message("Import failed", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
-        return;
-    }
-    snprintf(bak, sizeof bak, "%s.bak", dst);
-    {   struct stat st;
-        if (stat(dst, &st) == 0 && !copy_file(dst, bak)) {
-            logf_("vmc: import aborted, could not back up %s\n", dst);
-            vmc_message("Import failed", "Could not back up the old shared card.", "Nothing was changed.");
+    /* Library name: the VM1 base name with .mcd instead of .VM1. */
+    {
+        char libname[256], bakmsg[300];
+        size_t ln = strlen(vmc_names[sel]);
+        if (ln >= 4 && !strcasecmp(vmc_names[sel] + ln - 4, ".VM1")) {
+            if (ln - 4 == 0) {
+                vmc_message("Import PS3 VMC", "Import failed", "That file has no card name.", "Nothing was changed.");
+                return;
+            }
+            snprintf(libname, sizeof libname, "%.*s.mcd", (int)(ln - 4), vmc_names[sel]);
+        } else
+            snprintf(libname, sizeof libname, "%s.mcd", vmc_names[sel]);
+        /* The core's card path is 256 bytes: a library name that does not
+           fit in saves/imported/ would be read back truncated, so refuse
+           it here rather than importing a card the core cannot address. */
+        if (strlen(LIB_DIR "/") + strlen(libname) + 1 > 256) {
+            vmc_message("Import PS3 VMC", "Import failed", "That card name is too long for the core's path limit.", "Rename it in XMB first, then import again.");
             return;
         }
-        if (stat(dst, &st) == 0) logf_("vmc: backed up %s to %s\n", dst, bak);
+        snprintf(src, sizeof src, "%s/%s", VMC_DIR, vmc_names[sel]);
+        snprintf(dst, sizeof dst, "%s/%s", LIB_DIR, libname);
+        snprintf(bakmsg, sizeof bakmsg, "Existing library copy, if any, is backed up as %s.bak.", libname);
+        while (!app_exit_requested) {   /* confirm */
+            uint32_t q;
+            char msg[300];
+            frame_begin(0);
+            q = input_pressed();
+            header("Import PS3 VMC", NULL);
+            snprintf(msg, sizeof msg, "Copy %s to the imported library?", vmc_names[sel]);
+            text_fit(MARGIN, 110, msg, C_ACCENT);
+            text_fit(MARGIN, 170, bakmsg, C_TEXT);
+            ovl_text(MARGIN, 210, "Import does not change the active card or mode.", C_TEXT);
+            ovl_text(MARGIN, 250, "Pick it in Shared card to play with it.", C_DIM);
+            footer("X import    Circle back");
+            frame_end();
+            if (q & PAD_CIRCLE) return;
+            if (q & PAD_CROSS) break;
+        }
+        if (app_exit_requested) return;
+        if (!vmc_valid(src)) {
+            logf_("vmc: import refused, %s is not a 128 KB MC card\n", src);
+            vmc_message("Import PS3 VMC", "Import failed", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
+            return;
+        }
+        mkdir(LIB_DIR, 0777);
+        snprintf(bak, sizeof bak, "%s.bak", dst);
+        {   struct stat st;
+            if (stat(dst, &st) == 0 && !copy_file(dst, bak)) {
+                logf_("vmc: import aborted, could not back up %s\n", dst);
+                vmc_message("Import PS3 VMC", "Import failed", "Could not back up the existing library copy.", "Nothing was changed.");
+                return;
+            }
+            if (stat(dst, &st) == 0) logf_("vmc: backed up %s to %s\n", dst, bak);
+        }
+        if (!copy_file(src, dst) || !vmc_valid(dst)) {
+            struct stat st;
+            if (stat(bak, &st) == 0) copy_file(bak, dst);
+            else remove(dst);
+            logf_("vmc: import failed copying %s\n", src);
+            vmc_message("Import PS3 VMC", "Import failed", "Copy failed; the old library copy was restored.", NULL);
+            return;
+        }
+        snprintf(cfg.vmc_source, sizeof cfg.vmc_source, "%s", vmc_names[sel]);
+        config_save();
+        logf_("vmc: imported %s to %s (library; active card and mode unchanged)\n", src, dst);
+        vmc_message("Import PS3 VMC", "Import succeeded", vmc_names[sel], "It is now in the library. Choose it in Shared card to play with it.");
     }
-    if (!copy_file(src, dst) || !vmc_valid(dst)) {
-        struct stat st;
-        if (stat(bak, &st) == 0) copy_file(bak, dst);
-        else remove(dst);
-        logf_("vmc: import failed copying %s\n", src);
-        vmc_message("Import failed", "Copy failed; the old card was restored.", NULL);
+}
+
+static void vmc_shared_page(void)
+{
+    int sel = 0, top = 0, rows = 17, i, n;
+    char path[1300];
+    logf_("menu: shared card picker\n");
+    n = lib_scan();
+    /* Start on the currently chosen card, if it is still in the library. */
+    for (i = 0; i < n; i++)
+        if (cfg.mc1_shared[0] && !strcmp(vmc_names[i], cfg.mc1_shared)) sel = i + 1;
+    /* sel 0 = default shared card, sel 1..n = vmc_names[sel-1]. */
+    while (!app_exit_requested) {
+        uint32_t p;
+        char sub[64];
+        int total = n + 1;
+        frame_begin(0);
+        p = input_pressed();
+        if (p & PAD_UP) sel = (sel + total - 1) % total;
+        if (p & PAD_DOWN) sel = (sel + 1) % total;
+        if (p & PAD_L1) sel = sel > rows ? sel - rows : 0;
+        if (p & PAD_R1) sel = sel + rows < total ? sel + rows : total - 1;
+        if (p & PAD_CIRCLE) return;
+        if (p & PAD_CROSS) break;
+        if (sel < top) top = sel;
+        if (sel >= top + rows) top = sel - rows + 1;
+        snprintf(sub, sizeof sub, "%d cards", n);
+        header("Shared card (slot 1)", sub);
+        for (i = top; i < total && i < top + rows; i++) {
+            int y = 90 + (i - top) * SET_ROW;
+            if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (i == 0) text_fit(MARGIN, y, "Default shared card (pcsx-card1.mcd)", i == sel ? C_ACCENT : C_TEXT);
+            else text_fit(MARGIN, y, vmc_names[i - 1], i == sel ? C_ACCENT : C_TEXT);
+        }
+        footer("Up/Down select    L1/R1 page    X choose    Circle back");
+        frame_end();
+    }
+    if (app_exit_requested) return;
+    if (sel == 0) {
+        cfg.mc1_shared[0] = 0;
+        config_save();
+        logf_("vmc: shared card reset to default pcsx-card1.mcd\n");
+        vmc_message("Shared card (slot 1)", "Shared card reset to default", "Slot 1 Shared will use pcsx-card1.mcd.", "Next launch only.");
         return;
     }
-    cfg.mc1_mode = 1;
-    snprintf(cfg.vmc_source, sizeof cfg.vmc_source, "%s", vmc_names[sel]);
+    snprintf(path, sizeof path, "%s/%s", LIB_DIR, vmc_names[sel - 1]);
+    if (!vmc_valid(path)) {
+        logf_("vmc: shared choice refused, %s is not a 128 KB MC card\n", path);
+        vmc_message("Shared card (slot 1)", "Cannot use that card", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
+        return;
+    }
+    snprintf(cfg.mc1_shared, sizeof cfg.mc1_shared, "%s", vmc_names[sel - 1]);
     config_save();
-    logf_("vmc: imported %s to %s, memory card 1 now Shared\n", src, dst);
-    vmc_message("Import succeeded", vmc_names[sel], "Memory card 1 is now Shared. Launch a game to see its saves.");
+    logf_("vmc: shared card set to %s\n", path);
+    vmc_message("Shared card (slot 1)", "Shared card set", vmc_names[sel - 1], "Slot 1 Shared will use this card on next launch.");
 }
 
 static void draw_settings(int sel, int y0, int in_game)

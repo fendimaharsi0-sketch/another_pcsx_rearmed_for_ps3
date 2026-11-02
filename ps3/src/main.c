@@ -68,6 +68,18 @@ static void core_log(enum retro_log_level lvl, const char *fmt, ...)
 
 extern int hwr_boot_hold;        /* hwr/hwr_rsx.c */
 extern int CdromExeRead;         /* core, libpcsxcore/misc.c */
+/* Slot 1 Shared card, as the core reads it: the library file name from
+   settings, or "" when none is chosen (the core then falls back to the
+   default shared card). Sanitized here AND in the core: a name from a
+   hand-edited settings.txt must never escape saves/imported/ (no slash,
+   no leading dot) nor overflow the core's 256-byte card path. */
+static const char *shared_card_value(void)
+{
+    const char *s = cfg.mc1_shared;
+    if (!s[0] || s[0] == '.' || strchr(s, '/') || strchr(s, '\\')) return "";
+    if (strlen(APP_DIR "/saves/imported/") + strlen(s) + 1 > 256) return "";
+    return s;
+}
 extern unsigned int lightrec_poll_skips __attribute__((weak)), lightrec_poll_addr __attribute__((weak));   /* core, lightrec/plugin.c (dynarec builds) */
 static unsigned boot_frames;
 static const char *option_value(const char *key)
@@ -83,7 +95,8 @@ static const char *option_value(const char *key)
        too (upstream's default is 12): read on the emulation thread, a seek on the
        hard drive (Silent Hill starting a voice line) held up the frame */
     if (!strcmp(key, "pcsx_rearmed_cd_readahead")) return game_is_disc ? "64" : "32";
-    if (!strcmp(key, "pcsx_rearmed_memcard1")) return cfg.mc1_mode == 1 ? "shared" : cfg.mc1_mode == 2 ? "none" : "serial";   /* serial: SCUS-12345_1.mcd in saves/; shared: pcsx-card1.mcd (imported VMC) */
+    if (!strcmp(key, "pcsx_rearmed_memcard1")) return cfg.mc1_mode == 1 ? "shared" : cfg.mc1_mode == 2 ? "none" : "serial";   /* serial: SCUS-12345_1.mcd in saves/; shared: the chosen library card (saves/imported/), or pcsx-card1.mcd when none is chosen */
+    if (!strcmp(key, "pcsx_rearmed_memcard1_shared")) return shared_card_value();
     if (!strcmp(key, "pcsx_rearmed_memcard2")) return cfg.mc2_mode == 1 ? "shared" : cfg.mc2_mode == 2 ? "none" : "serial";   /* default None: slot 2 was always off */
     if (!strcmp(key, "pcsx_rearmed_rgb32_output")) return "enabled";  /* XRGB8888, what the RSX path takes */
     if (!strcmp(key, "pcsx_rearmed_dithering")) return cfg.dithering ? "enabled" : "disabled";
@@ -782,7 +795,7 @@ static void run_game(const char *path)
 
 static int app_main(void)
 {
-    mkdir(APP_DIR "/system", 0777); mkdir(APP_DIR "/saves", 0777);
+    mkdir(APP_DIR "/system", 0777); mkdir(APP_DIR "/saves", 0777); mkdir(APP_DIR "/saves/imported", 0777);
     mkdir(APP_DIR "/states", 0777); mkdir(APP_DIR "/roms", 0777); mkdir(APP_DIR "/logs", 0777);
     mkdir(APP_DIR "/dumps", 0777);   /* made here, long before a hang report may need it */
     log_open();

@@ -3805,7 +3805,22 @@ static void load_memcards(void)
       }
       else if (!strcmp(var.value, "shared") && dir) {
          memcard_type[c - 1] = MEMCARDTYPE_SHARED;
-         snprintf(mcdpath, sizeof(Config.Mcd1), "%s/pcsx-card%d.mcd", dir, c);
+         /* Slot 1 may name an imported library card (saves/imported/<name>),
+            chosen in the PS3 frontend's Shared card picker; the frontend
+            sanitizes it, but validate again here: a hand-edited value must
+            never escape imported/ nor overflow the card path. Anything
+            missing, invalid or too long falls back to the default shared
+            card, exactly as before this feature existed. */
+         if (c == 1) {
+            struct retro_variable svar = { "pcsx_rearmed_memcard1_shared", NULL };
+            if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &svar) && svar.value && svar.value[0]
+                && svar.value[0] != '.' && !strchr(svar.value, '/') && !strchr(svar.value, '\\')
+                && strlen(dir) + strlen("/imported/") + strlen(svar.value) + 1 <= sizeof(Config.Mcd1))
+               snprintf(mcdpath, sizeof(Config.Mcd1), "%s/imported/%s", dir, svar.value);
+            else
+               snprintf(mcdpath, sizeof(Config.Mcd1), "%s/pcsx-card%d.mcd", dir, c);
+         } else
+            snprintf(mcdpath, sizeof(Config.Mcd1), "%s/pcsx-card%d.mcd", dir, c);
       }
       else {
          memcard_type[c - 1] = MEMCARDTYPE_NONE;
