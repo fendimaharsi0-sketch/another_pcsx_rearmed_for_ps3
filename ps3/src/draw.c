@@ -96,19 +96,19 @@ void ovl_button(int x, int y, int btn, uint32_t argb)
 {
     /* 24x24 box, 2 px inset: the glyph spans x+2..x+21, y+2..y+21. */
     switch (btn) {
-    case BTN_CROSS:
+    case GLYPH_CROSS:
         ovl_line(x + 3, y + 3, x + 20, y + 20, argb);
         ovl_line(x + 20, y + 3, x + 3, y + 20, argb);
         break;
-    case BTN_CIRCLE:
+    case GLYPH_CIRCLE:
         ovl_circle(x + 11, y + 11, 9, argb);
         break;
-    case BTN_TRIANGLE:
+    case GLYPH_TRIANGLE:
         ovl_line(x + 11, y + 2, x + 2, y + 21, argb);
         ovl_fill(x + 2, y + 21, 20, 2, argb);
         ovl_line(x + 21, y + 21, x + 11, y + 2, argb);
         break;
-    case BTN_SQUARE:
+    case GLYPH_SQUARE:
         ovl_fill(x + 2, y + 2, 20, 2, argb);
         ovl_fill(x + 2, y + 20, 20, 2, argb);
         ovl_fill(x + 2, y + 2, 2, 20, argb);

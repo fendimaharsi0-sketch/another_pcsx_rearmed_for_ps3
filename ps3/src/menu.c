@@ -226,8 +226,8 @@ static void footer2(const char *a, const char *b)
 static int prompt_button(const char *s, int *btn)
 {
     static const struct { const char *name; int btn; } b[] = {
-        { "Triangle", BTN_TRIANGLE }, { "Circle", BTN_CIRCLE },
-        { "Square", BTN_SQUARE }, { "X", BTN_CROSS },
+        { "Triangle", GLYPH_TRIANGLE }, { "Circle", GLYPH_CIRCLE },
+        { "Square", GLYPH_SQUARE }, { "X", GLYPH_CROSS },
     };
     unsigned i;
     for (i = 0; i < sizeof b / sizeof b[0]; i++) {

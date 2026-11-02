@@ -133,10 +133,10 @@ void ovl_blit(int x, int y, int w, int h, const unsigned char *px, int sw, int s
    a 24x24 outline glyph, 2 px stroke (1 px flickers at 480i on a CRT).
    Monochrome: every button uses the caller's colour, so glyphs match the
    text they sit next to. */
-#define BTN_CROSS 0
-#define BTN_CIRCLE 1
-#define BTN_TRIANGLE 2
-#define BTN_SQUARE 3
+#define GLYPH_CROSS 0
+#define GLYPH_CIRCLE 1
+#define GLYPH_TRIANGLE 2
+#define GLYPH_SQUARE 3
 void ovl_line(int x0, int y0, int x1, int y1, uint32_t argb);   /* 2 px thick */
 void ovl_circle(int cx, int cy, int r, uint32_t argb);         /* 2 px outline */
 void ovl_button(int x, int y, int btn, uint32_t argb);         /* 24x24 glyph */
