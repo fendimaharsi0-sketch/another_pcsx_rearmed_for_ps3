@@ -62,6 +62,61 @@ void ovl_blit(int x, int y, int w, int h, const unsigned char *px, int sw, int s
     }
 }
 
+void ovl_line(int x0, int y0, int x1, int y1, uint32_t argb)
+{
+    /* Bresenham, 2 px thick (a 2x2 block per step; ovl_fill clips). */
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1, sx = x0 < x1 ? 1 : -1;
+    int dy = y1 > y0 ? y1 - y0 : y0 - y1, sy = y0 < y1 ? 1 : -1;
+    int err = (dx > dy ? dx : -dy) / 2, e2;
+    for (;;) {
+        ovl_fill(x0, y0, 2, 2, argb);
+        if (x0 == x1 && y0 == y1) break;
+        e2 = err;
+        if (e2 > -dx) { err -= dy; x0 += sx; }
+        if (e2 < dy) { err += dx; y0 += sy; }
+    }
+}
+
+void ovl_circle(int cx, int cy, int r, uint32_t argb)
+{
+    /* Midpoint circle, 2 px outline. */
+    int x = 0, y = r, d = 1 - r;
+    while (x <= y) {
+        ovl_fill(cx + x, cy + y, 2, 2, argb); ovl_fill(cx - x, cy + y, 2, 2, argb);
+        ovl_fill(cx + x, cy - y, 2, 2, argb); ovl_fill(cx - x, cy - y, 2, 2, argb);
+        ovl_fill(cx + y, cy + x, 2, 2, argb); ovl_fill(cx - y, cy + x, 2, 2, argb);
+        ovl_fill(cx + y, cy - x, 2, 2, argb); ovl_fill(cx - y, cy - x, 2, 2, argb);
+        if (d < 0) d += 2 * x + 3;
+        else { d += 2 * (x - y) + 5; y--; }
+        x++;
+    }
+}
+
+void ovl_button(int x, int y, int btn, uint32_t argb)
+{
+    /* 24x24 box, 2 px inset: the glyph spans x+2..x+21, y+2..y+21. */
+    switch (btn) {
+    case BTN_CROSS:
+        ovl_line(x + 3, y + 3, x + 20, y + 20, argb);
+        ovl_line(x + 20, y + 3, x + 3, y + 20, argb);
+        break;
+    case BTN_CIRCLE:
+        ovl_circle(x + 11, y + 11, 9, argb);
+        break;
+    case BTN_TRIANGLE:
+        ovl_line(x + 11, y + 2, x + 2, y + 21, argb);
+        ovl_fill(x + 2, y + 21, 20, 2, argb);
+        ovl_line(x + 21, y + 21, x + 11, y + 2, argb);
+        break;
+    case BTN_SQUARE:
+        ovl_fill(x + 2, y + 2, 20, 2, argb);
+        ovl_fill(x + 2, y + 20, 20, 2, argb);
+        ovl_fill(x + 2, y + 2, 2, 20, argb);
+        ovl_fill(x + 20, y + 2, 2, 20, argb);
+        break;
+    }
+}
+
 int ovl_text(int x, int y, const char *s, uint32_t argb)
 {
     uint32_t *o = video_overlay();

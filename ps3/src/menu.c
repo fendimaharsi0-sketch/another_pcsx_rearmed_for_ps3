@@ -199,19 +199,89 @@ static void header(const char *title, const char *sub)
     if (sub) ovl_text(OVL_W - MARGIN - ovl_text_width(sub), 17, sub, C_DIM);
 }
 
+static int draw_prompt(int x, int y, const char *s, uint32_t color);
+static int prompt_width(const char *s);
+
 static void footer(const char *s)
 {
     ovl_fill(0, OVL_H - 52, OVL_W, 52, 0xff182238);
-    ovl_text(MARGIN, OVL_H - 41, s, C_DIM);
+    draw_prompt(MARGIN, OVL_H - 41, s, C_DIM);
 }
 
 /* two-line footer (the game list) */
 static void footer2(const char *a, const char *b)
 {
     ovl_fill(0, OVL_H - 84, OVL_W, 84, 0xff182238);
-    ovl_text(MARGIN, OVL_H - 76, a, C_DIM);
-    ovl_text(MARGIN, OVL_H - 44, b, C_DIM);
+    draw_prompt(MARGIN, OVL_H - 76, a, C_DIM);
+    draw_prompt(MARGIN, OVL_H - 44, b, C_DIM);
 }
+
+/* Footer prompts with PS face-button glyphs (monochrome: glyphs use the
+   text colour). Only whole words are replaced: "X", "Circle", "Triangle",
+   "Square" — D-pad ("Up/Down"), shoulders ("L1/R1") and combos
+   ("SELECT+START") stay text. A glyph is 24 px in a 30 px text cell
+   (y + 3 centres it), followed by a 6 px gap; the single space after a
+   button name is consumed, since the gap replaces it. */
+#define BTN_ADV 30   /* glyph 24 + gap 6 */
+static int prompt_button(const char *s, int *btn)
+{
+    static const struct { const char *name; int btn; } b[] = {
+        { "Triangle", BTN_TRIANGLE }, { "Circle", BTN_CIRCLE },
+        { "Square", BTN_SQUARE }, { "X", BTN_CROSS },
+    };
+    unsigned i;
+    for (i = 0; i < sizeof b / sizeof b[0]; i++) {
+        size_t n = strlen(b[i].name);
+        if (!strncmp(s, b[i].name, n) && (s[n] == ' ' || s[n] == 0)) { *btn = b[i].btn; return (int)n; }
+    }
+    return 0;
+}
+
+static int draw_prompt(int x, int y, const char *s, uint32_t color)
+{
+    int i = 0, seg = 0;
+    char buf[256];
+    while (s[i]) {
+        int btn, n = 0;
+        if ((i == 0 || s[i - 1] == ' ') && (n = prompt_button(s + i, &btn)) > 0) {
+            if (i > seg) {
+                size_t len = (size_t)(i - seg);
+                if (len >= sizeof buf) len = sizeof buf - 1;
+                memcpy(buf, s + seg, len); buf[len] = 0;
+                x = ovl_text(x, y, buf, color);
+            }
+            ovl_button(x, y + 3, btn, color);
+            x += BTN_ADV;
+            i += n;
+            if (s[i] == ' ') i++;
+            seg = i;
+        } else i++;
+    }
+    if (i > seg) {
+        size_t len = (size_t)(i - seg);
+        if (len >= sizeof buf) len = sizeof buf - 1;
+        memcpy(buf, s + seg, len); buf[len] = 0;
+        x = ovl_text(x, y, buf, color);
+    }
+    return x;
+}
+
+static int prompt_width(const char *s)
+{
+    int w = 0, i = 0, cw = ovl_text_width("W");
+    while (s[i]) {
+        int btn, n = 0;
+        if ((i == 0 || s[i - 1] == ' ') && (n = prompt_button(s + i, &btn)) > 0) {
+            (void)btn;
+            w += BTN_ADV;
+            i += n;
+            if (s[i] == ' ') i++;
+        } else { w += cw; i++; }
+    }
+    return w;
+}
+
+
 
 /* text cut with "..." so it ends before the right margin */
 static void text_fit(int x, int y, const char *s, uint32_t argb)
@@ -423,7 +493,7 @@ static void screen_size_page(int in_game)
         ovl_text(cx - ovl_text_width("Adjust until all four edges of the") / 2, y + 95, "Adjust until all four edges of the", C_DIM);
         ovl_text(cx - ovl_text_width("frame are just visible on your TV.") / 2, y + 125, "frame are just visible on your TV.", C_DIM);
         ovl_text(cx - ovl_text_width("Left/Right width   Up/Down height") / 2, y + 170, "Left/Right width   Up/Down height", C_TEXT);
-        ovl_text(cx - ovl_text_width("Square reset   X done") / 2, y + 200, "Square reset   X done", C_TEXT);
+        draw_prompt(cx - prompt_width("Square reset   X done") / 2, y + 200, "Square reset   X done", C_TEXT);
         frame_end();
     }
 }

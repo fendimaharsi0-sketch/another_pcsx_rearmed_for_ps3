@@ -185,6 +185,8 @@ and press **Circle (copy to HDD)**:
 | In game | **Select + Start** opens the menu |
 | In game | **L3 + R3** toggles the DualShock's analog mode |
 
+Footer prompts (game list, settings, import, pause) show X / Circle / Triangle / Square as monochrome glyphs drawn procedurally at run time — no button image is bundled. D-pad, shoulder and combo names (Up/Down, L1/R1, SELECT+START) stay text.
+
 The in-game menu has these entries:
 
 - Resume
