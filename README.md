@@ -171,6 +171,7 @@ The in-game menu has these entries:
 | Renderer | **RSX 2x**, 3x, 4x, 4.5x, Software (native), RSX 1x (native, drawn by the RSX) | In game, it shows the resolution actually drawn. |
 | Picture filter | **Smoothing on SPUs**, Sharp (nearest), Smooth (bilinear), FXAA (RSX) | |
 | Aspect ratio | **4:3**, 14:9, Zoom 14:9, Zoom 16:9, Stretch to screen | Zoom crops the top and bottom. |
+| Widescreen (GTE 16:9) | **Off**, On (16:9) | GTE widescreen, like DuckStation: in RTPS/RTPT the projected X offset is scaled 3/4 before adding OFX (the screen centre is not scaled), so more of the 3D world fits inside the 4:3 VRAM picture. Pair with Aspect ratio = Stretch to screen on a 16:9 TV, which stretches it back to correct proportions with a wider field of view; at 4:3 it only looks squashed, and Zoom 16:9 is not a substitute (it crops the top and bottom and stretches vertically). Only GTE-projected 3D vertices are affected: sprites, HUD, 2D backgrounds, FMV and CPU-projected polygons keep their coordinates and stretch with the display aspect, and games that cull in world space at 4:3 gain no extra field of view. Default off, per game. Takes effect immediately, no game restart. |
 | Screen size | **100% x 100%** | Shrink or stretch the picture to fit your TV. |
 | Frame skip | **Auto**, Off | Software renderer only. |
 | Dithering | **Off**, On | |

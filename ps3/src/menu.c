@@ -228,6 +228,7 @@ static const item_t settings_items[] = {
     { "Sprite filter", "Texture filter for sprites (textured GP0 sprites and axis-aligned textured polygons, like DuckStation's Sprite Texture Filtering). Nearest keeps small sprites, particles and HUD icons crisp. Same modes as Texture filter. RSX only, upscaled pass only." },
     { "Picture filter", "How the picture is scaled to your TV." },
     { "Aspect ratio", "Zoom keeps the PS1 shape and crops the top and bottom." },
+    { "Widescreen (GTE 16:9)", "GTE widescreen, like DuckStation: 3D vertices projected by the GTE are compressed 3/4, then stretched back by Aspect = Stretch to screen on a 16:9 TV, widening the field of view. Pair with Stretch; at 4:3 it only looks squashed. Sprites, HUD and 2D backgrounds are not compressed, so they stretch with the display. Takes effect immediately, no game restart." },
     { "Screen size", "Press X to shrink or stretch the picture to fit your TV." },
     { "Frame skip", "Auto skips drawing frames in heavy scenes. Software renderer only." },
     { "Dithering", "PS1 dithering (software renderer and RSX)." },
@@ -276,23 +277,24 @@ static void setting_value(int i, char *b, size_t n)
     case 3: snprintf(b, n, "%s", cfg.sprite_texfilter == 2 ? "Bilinear (Performance)" : cfg.sprite_texfilter ? "Bilinear" : "Nearest"); break;
     case 4: snprintf(b, n, "%s", filter_names[cfg.filter]); break;
     case 5: snprintf(b, n, "%s", aspect_names[cfg.aspect]); break;
-    case 6: snprintf(b, n, "%d%% x %d%%", cfg.screen_w, cfg.screen_h); break;
-    case 7: snprintf(b, n, "%s", cfg.frameskip ? "Auto" : "Off"); break;
-    case 8: snprintf(b, n, "%s", cfg.dithering ? "On" : "Off"); break;
-    case 9: snprintf(b, n, "%s", cfg.show_fps ? "On" : "Off"); break;
-    case 10: snprintf(b, n, "%s", cfg.gpu_thread ? "On" : "Off"); break;
-    case 11: snprintf(b, n, "%s", cfg.stick_dpad ? "On" : "Off"); break;
-    case 12: snprintf(b, n, "%s", cfg.stick_buttons ? "On" : "Off"); break;
-    case 13: snprintf(b, n, "%s", cfg.vibration ? "On" : "Off"); break;
-    case 14: snprintf(b, n, "%s", cfg.spu_mdec ? "SPUs" : "PPU"); break;
-    case 15: snprintf(b, n, "%s", cfg.cpu_clock == 2 ? "+75%" : cfg.cpu_clock == 1 ? "+50%" : "Normal"); break;
-    case 16: snprintf(b, n, "%s", cfg.audio_stretch ? "Slow down" : "Keep pitch"); break;
-    case 17: snprintf(b, n, "%s", cfg.skip_intro ? "On" : "Off"); break;
-    case 18: snprintf(b, n, "%s", cfg.pal60 ? "On" : "Off"); break;
-    case 19: snprintf(b, n, "%s", !cfg.boot_logo ? "Off" : hooks_bios_present() ? "On" : "On (no BIOS found)"); break;
-    case 20: snprintf(b, n, "%s", cfg.speed_limit == 1 ? "Strict" : cfg.speed_limit == 2 ? "Off" : "Normal"); break;
-    case 21: snprintf(b, n, "%s", cfg.vram_check ? "On" : "Off"); break;
-    case 22: snprintf(b, n, "%s", cfg.debug_log ? "On" : "Off"); break;
+    case 6: snprintf(b, n, "%s", cfg.widescreen ? "On (16:9)" : "Off"); break;
+    case 7: snprintf(b, n, "%d%% x %d%%", cfg.screen_w, cfg.screen_h); break;
+    case 8: snprintf(b, n, "%s", cfg.frameskip ? "Auto" : "Off"); break;
+    case 9: snprintf(b, n, "%s", cfg.dithering ? "On" : "Off"); break;
+    case 10: snprintf(b, n, "%s", cfg.show_fps ? "On" : "Off"); break;
+    case 11: snprintf(b, n, "%s", cfg.gpu_thread ? "On" : "Off"); break;
+    case 12: snprintf(b, n, "%s", cfg.stick_dpad ? "On" : "Off"); break;
+    case 13: snprintf(b, n, "%s", cfg.stick_buttons ? "On" : "Off"); break;
+    case 14: snprintf(b, n, "%s", cfg.vibration ? "On" : "Off"); break;
+    case 15: snprintf(b, n, "%s", cfg.spu_mdec ? "SPUs" : "PPU"); break;
+    case 16: snprintf(b, n, "%s", cfg.cpu_clock == 2 ? "+75%" : cfg.cpu_clock == 1 ? "+50%" : "Normal"); break;
+    case 17: snprintf(b, n, "%s", cfg.audio_stretch ? "Slow down" : "Keep pitch"); break;
+    case 18: snprintf(b, n, "%s", cfg.skip_intro ? "On" : "Off"); break;
+    case 19: snprintf(b, n, "%s", cfg.pal60 ? "On" : "Off"); break;
+    case 20: snprintf(b, n, "%s", !cfg.boot_logo ? "Off" : hooks_bios_present() ? "On" : "On (no BIOS found)"); break;
+    case 21: snprintf(b, n, "%s", cfg.speed_limit == 1 ? "Strict" : cfg.speed_limit == 2 ? "Off" : "Normal"); break;
+    case 22: snprintf(b, n, "%s", cfg.vram_check ? "On" : "Off"); break;
+    case 23: snprintf(b, n, "%s", cfg.debug_log ? "On" : "Off"); break;
     }
 }
 
@@ -337,23 +339,24 @@ static void setting_change_(int i, int dir, int in_game)
         cfg.aspect = aspect_order[(k + (dir > 0 ? 1 : n - 1)) % n];
         break;
     }
-    case 6: screen_size_page(in_game); break;
-    case 7: cfg.frameskip ^= 1; break;
-    case 8: cfg.dithering ^= 1; break;
-    case 9: cfg.show_fps ^= 1; break;
-    case 10: cfg.gpu_thread ^= 1; break;
-    case 11: cfg.stick_dpad ^= 1; break;
-    case 12: cfg.stick_buttons ^= 1; break;
-    case 13: cfg.vibration ^= 1; break;
-    case 14: cfg.spu_mdec ^= 1; break;
-    case 15: cfg.cpu_clock = (cfg.cpu_clock + (dir > 0 ? 1 : 2)) % 3; break;
-    case 16: cfg.audio_stretch ^= 1; break;
-    case 17: cfg.skip_intro ^= 1; break;
-    case 18: cfg.pal60 ^= 1; break;
-    case 19: cfg.boot_logo ^= 1; break;
-    case 20: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
-    case 21: cfg.vram_check ^= 1; break;
-    case 22: cfg.debug_log ^= 1; break;
+    case 6: cfg.widescreen ^= 1; gte_widescreen = cfg.widescreen; break;
+    case 7: screen_size_page(in_game); break;
+    case 8: cfg.frameskip ^= 1; break;
+    case 9: cfg.dithering ^= 1; break;
+    case 10: cfg.show_fps ^= 1; break;
+    case 11: cfg.gpu_thread ^= 1; break;
+    case 12: cfg.stick_dpad ^= 1; break;
+    case 13: cfg.stick_buttons ^= 1; break;
+    case 14: cfg.vibration ^= 1; break;
+    case 15: cfg.spu_mdec ^= 1; break;
+    case 16: cfg.cpu_clock = (cfg.cpu_clock + (dir > 0 ? 1 : 2)) % 3; break;
+    case 17: cfg.audio_stretch ^= 1; break;
+    case 18: cfg.skip_intro ^= 1; break;
+    case 19: cfg.pal60 ^= 1; break;
+    case 20: cfg.boot_logo ^= 1; break;
+    case 21: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
+    case 22: cfg.vram_check ^= 1; break;
+    case 23: cfg.debug_log ^= 1; break;
     }
 }
 

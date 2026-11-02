@@ -585,6 +585,20 @@ static inline const s16 *v_inorder(const s16 *v, s16 *tmp)
 #define v_inorder(v, tmp) (v)
 #endif
 
+/* DuckStation-style GTE widescreen (16:9 only), set by the frontend
+   (ps3/src, via gte_widescreen): when on, RTPS/RTPT scale the projected X
+   offset by 3/4 before adding OFX, so the offset is measured from the screen
+   centre (OFX itself is NOT scaled). Displayed stretched to 16:9, this widens
+   the field of view with correct proportions; displayed at 4:3 it only looks
+   squashed. Only GTE-projected vertices are affected: sprites, rectangles and
+   CPU-projected polygons keep their coordinates and will stretch with the
+   display aspect. Y, Z, colours and depth cueing are untouched. */
+int gte_widescreen = 0;
+static inline s64 gte_wide_x(s64 proj)
+{
+    return gte_widescreen ? proj * 3 / 4 : proj;
+}
+
 static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 {
 	s32 vx = gteVX0, vy = gteVY0, vz = gteVZ0;
@@ -612,7 +626,7 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 	gteSXY0 = gteSXY1;
 	gteSXY1 = gteSXY2;
 
-	gteSX2 = limG1(&flags, mac0flags(&flags, gteOFX + (s64)gteIR1 * quotient) >> 16);
+	gteSX2 = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)gteIR1 * quotient)) >> 16);
 	gteSY2 = limG2(&flags, mac0flags(&flags, gteOFY + (s64)gteIR2 * quotient) >> 16);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
@@ -648,7 +662,7 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 		sz3 = limD(&flags, sz3);
 		quotient = divide(&flags, h, sz3);
 		fSZ(v) = sz3;
-		fSX(v) = limG1(&flags, mac0flags(&flags, gteOFX + (s64)ir1 * quotient) >> 16);
+		fSX(v) = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)ir1 * quotient)) >> 16);
 		fSY(v) = limG2(&flags, mac0flags(&flags, gteOFY + (s64)ir2 * quotient) >> 16);
 	}
 

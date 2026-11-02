@@ -57,6 +57,7 @@ extern "C" {
 struct psxCP2Regs;
 
 extern const unsigned char gte_cycletab[64];
+extern int gte_widescreen;   /* 1 = GTE widescreen 16:9 (Sx offset scaled 3/4 in RTPS/RTPT), set by the frontend */
 
 void gteCheckStall(u32 op);
 void gteDispatch(psxCP2Regs *regs, u32 code);

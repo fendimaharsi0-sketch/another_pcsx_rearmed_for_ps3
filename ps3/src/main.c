@@ -543,7 +543,7 @@ static void apply_spu_mdec(void)
     spu_mdec_enable(up && cfg.spu_mdec);
 }
 
-void game_settings_changed(void) { vars_dirty = 1; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); }
+void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); }
 
 static void run_game(const char *path)
 {

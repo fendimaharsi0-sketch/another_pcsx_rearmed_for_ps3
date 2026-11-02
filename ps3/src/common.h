@@ -45,6 +45,7 @@ typedef struct {
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
     int sprite_texfilter; /* RSX sprite filter: same 0/1/2 values as texfilter, default nearest; applies to textured GP0 sprites (do_rect) and to textured polygons whose UV mapping is axis-aligned (U only with X, V only with Y, like DuckStation); other polygons keep texfilter */
     int aspect;         /* ASPECT_* */
+    int widescreen;     /* GTE widescreen 16:9: 0 off (default), 1 on — RTPS/RTPT scale the projected X offset 3/4 (see gte_widescreen); pair with Aspect = Stretch to screen on a 16:9 TV */
     int frameskip;      /* 0 off, 1 auto */
     int dithering;
     int show_fps;
@@ -66,6 +67,7 @@ typedef struct {
     char last_dir[512];
 } settings_t;
 extern settings_t cfg;
+extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
 void config_load(void);
 void config_save(void);
 /* per-game settings: configs/<game>.ini (game = ROM file name without extension) */

@@ -13,7 +13,7 @@
 #define GAME_DIR APP_DIR "/configs"
 
 settings_t cfg = {
-    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3,
+    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
     .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .last_dir = "",
 };
 
@@ -27,6 +27,7 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "texfilter", F(texfilter), 0, 2, 1 },
     { "sprite_texfilter", F(sprite_texfilter), 0, 2, 1 },
     { "aspect", F(aspect), 0, ASPECT_COUNT - 1, 1 },
+    { "widescreen", F(widescreen), 0, 1, 1 },
     { "frameskip", F(frameskip), 0, 1, 1 },
     { "dithering", F(dithering), 0, 1, 1 },
     { "show_fps", F(show_fps), 0, 1, 1 },
@@ -130,6 +131,7 @@ void config_game_begin(const char *key)
     config_game_path(key, game_path, sizeof game_path);
     game_on = read_file(game_path, &cfg, 1) > 0;
     if (game_on) logf_("settings: this game's own settings from %s\n", game_path);
+    gte_widescreen = cfg.widescreen;   /* the game's own widescreen, or the global one */
 }
 
 void config_game_end(void)
@@ -140,6 +142,7 @@ void config_game_end(void)
         cfg.screen_w = w; cfg.screen_h = h;     /* for all games: kept */
     }
     game_on = in_game = 0;
+    gte_widescreen = cfg.widescreen;   /* back to the settings for all games */
 }
 
 /* in a game: on = from now on this game has its own settings (the current ones);
@@ -160,6 +163,7 @@ void config_game_enable(int on)
         game_on = 0;
         logf_("settings: this game's own settings removed, the settings for all games apply\n");
     }
+    gte_widescreen = cfg.widescreen;   /* per-game on/off switches the active widescreen */
 }
 
 void config_save(void)
