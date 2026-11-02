@@ -596,56 +596,30 @@ static inline const s16 *v_inorder(const s16 *v, s16 *tmp)
  * rejected by the frame generation + the <1px tolerance check, and the
  * vertex falls back to its integer position. Cache entries are only ever
  * used for the upscaled pass; the native pass stays integer (see hwr).
- * Stage 1 fix (first-writer + ambiguity): the original cache was
- * last-write-wins, so when two different vertices rounded to the same
- * integer pixel, the winner changed frame to frame and the triangle
- * flickered (in NC2: a whole box popping in/out and losing its texture).
- * Now the first writer in a frame wins, and a second, differing push for
- * the same pixel in the same frame marks the pixel ambiguous instead of
- * overwriting it. Lookup of an ambiguous pixel is a miss, so its
- * triangles fall back to integer consistently for the whole frame:
- * contested pixels wobble like the original PS1 instead of flickering.
- * A repeat push with the same value (a vertex shared by neighbouring
- * triangles) is NOT ambiguity. The flag is generation-scoped: a new
- * frame (pgxp_next_frame) makes the next push for that pixel the first
- * writer again. */
+ * Stage 1 (first-writer + ambiguity) is ROLLED BACK: hardware test
+ * 2026-11-02 showed it made texture flicker WORSE, not better, so this
+ * file is back to the pre-Stage 1 last-write-wins cache (commit 54b25e).
+ * Stage 2a (XY-only test): perspective w is REMOVED here on purpose.
+ * pgxp_lookup now always returns *w = 1.0, so the shader interpolates
+ * UV/colour affinely as before and only the XY position is precise.
+ * That isolates the question: if texture flicker disappears with XY
+ * only, the culprit was the w flip (precise w vs w=1, or wrong w);
+ * if flicker persists, it is the XY precise/integer flip itself.
+ * The z>0 guard stays (rejects behind-camera vertices); the old
+ * w range gate is gone because w is now constant. */
 #define PGXP_CACHE_BITS 12
 #define PGXP_CACHE_SIZE (1 << PGXP_CACHE_BITS)
-#define PGXP_AMB_EPS 0.05f
-typedef struct { short sx, sy; unsigned gen; float x, y, z; int amb; } pgxp_entry_t;
+typedef struct { short sx, sy; unsigned gen; float x, y, z; } pgxp_entry_t;
 static pgxp_entry_t pgxp_cache[PGXP_CACHE_SIZE];
 static unsigned pgxp_gen = 1;
 void pgxp_next_frame(void) { if (++pgxp_gen == 0) pgxp_gen = 1; }
 void pgxp_push(int sx, int sy, float x, float y, float z)
 {
 	unsigned h = ((unsigned)sx * 73856093u) ^ ((unsigned)sy * 19349663u);
-	pgxp_entry_t *e;
-	float dx, dy;
 	h &= PGXP_CACHE_SIZE - 1;
-	e = &pgxp_cache[h];
-	/* New frame, or this hash slot currently holds a different pixel
-	 * (a hash collision, not a contest for the same pixel): this push
-	 * is the first writer for its pixel. */
-	if (e->gen != pgxp_gen || e->sx != sx || e->sy != sy) {
-		e->sx = (short)sx; e->sy = (short)sy;
-		e->gen = pgxp_gen;
-		e->x = x; e->y = y; e->z = z; e->amb = 0;
-		return;
-	}
-	/* Same pixel, same frame, already ambiguous: stay ambiguous. */
-	if (e->amb) return;
-	/* Same pixel, same frame, differing value: contest, not a repeat.
-	 * Depth matters as much as XY here: two vertices on the same pixel
-	 * at different depths have wildly different w, and the wrong w is
-	 * what warps the texture, so a z difference alone is ambiguity. */
-	dx = x - e->x; if (dx < 0.0f) dx = -dx;
-	dy = y - e->y; if (dy < 0.0f) dy = -dy;
-	if (dx > PGXP_AMB_EPS || dy > PGXP_AMB_EPS || z != e->z) {
-		e->amb = 1;
-		return;
-	}
-	/* Same value (within epsilon, same depth): a shared vertex, keep
-	 * the first writer. */
+	pgxp_cache[h].sx = (short)sx; pgxp_cache[h].sy = (short)sy;
+	pgxp_cache[h].gen = pgxp_gen;
+	pgxp_cache[h].x = x; pgxp_cache[h].y = y; pgxp_cache[h].z = z;
 }
 int pgxp_lookup(int sx, int sy, float *x, float *y, float *w)
 {
@@ -654,12 +628,11 @@ int pgxp_lookup(int sx, int sy, float *x, float *y, float *w)
 	h &= PGXP_CACHE_SIZE - 1;
 	e = &pgxp_cache[h];
 	if (e->gen != pgxp_gen || e->sx != sx || e->sy != sy) return 0;
-	if (e->amb) return 0;
 	if (e->z <= 0.0f) return 0;
 	if (e->x - (float)sx < -0.02f || e->x - (float)sx > 1.02f) return 0;
 	if (e->y - (float)sy < -0.02f || e->y - (float)sy > 1.02f) return 0;
-	*w = e->z / 32768.0f;
-	if (*w <= 0.0f || *w > 4.0f) return 0;
+	/* Stage 2a XY-only: no perspective w, ever. */
+	*w = 1.0f;
 	*x = e->x; *y = e->y;
 	return 1;
 }
