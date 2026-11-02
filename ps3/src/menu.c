@@ -224,6 +224,7 @@ typedef struct { const char *label; const char *help; } item_t;
 static const item_t settings_items[] = {
     { "CPU", "Dynarec is much faster. 2 threads is experimental and can freeze some games." },
     { "Renderer", "RSX draws 3D at higher resolution on the PS3 GPU (experimental)." },
+    { "Texture filter", "Nearest / Bilinear (manual, all modes) / Bilinear (Performance: hardware 15-bit, manual CLUT). RSX only, upscaled pass only. Native VRAM stays nearest." },
     { "Picture filter", "How the picture is scaled to your TV." },
     { "Aspect ratio", "Zoom keeps the PS1 shape and crops the top and bottom." },
     { "Screen size", "Press X to shrink or stretch the picture to fit your TV." },
@@ -243,7 +244,7 @@ static const item_t settings_items[] = {
     { "Speed limit", "Normal: catches up after a hitch. Strict: never faster. Off: no limit." },
     { "VRAM check (debug)", "Debug: software renderer draws too. Pause menu > Dump VRAM." },
     { "Debug log", "Debug: writes log files (USRDIR/log.txt, USRDIR/logs) and hang reports." },
-    { "Texture filter", "Bilinear filtering for 3D textures, RSX only, upscaled pass only. Native VRAM stays nearest." },
+    { "PGXP (visual)", "Precise GTE vertices + perspective w, upscaled pass only. Visual only: stops PS1 wobble/swimming, no CPU tracking. Native VRAM stays integer." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
@@ -271,26 +272,27 @@ static void setting_value(int i, char *b, size_t n)
             else snprintf(b, n, "%s", name);
         } else snprintf(b, n, "Software (native)");
         break;
-    case 2: snprintf(b, n, "%s", filter_names[cfg.filter]); break;
-    case 3: snprintf(b, n, "%s", aspect_names[cfg.aspect]); break;
-    case 4: snprintf(b, n, "%d%% x %d%%", cfg.screen_w, cfg.screen_h); break;
-    case 5: snprintf(b, n, "%s", cfg.frameskip ? "Auto" : "Off"); break;
-    case 6: snprintf(b, n, "%s", cfg.dithering ? "On" : "Off"); break;
-    case 7: snprintf(b, n, "%s", cfg.show_fps ? "On" : "Off"); break;
-    case 8: snprintf(b, n, "%s", cfg.gpu_thread ? "On" : "Off"); break;
-    case 9: snprintf(b, n, "%s", cfg.stick_dpad ? "On" : "Off"); break;
-    case 10: snprintf(b, n, "%s", cfg.stick_buttons ? "On" : "Off"); break;
-    case 11: snprintf(b, n, "%s", cfg.vibration ? "On" : "Off"); break;
-    case 12: snprintf(b, n, "%s", cfg.spu_mdec ? "SPUs" : "PPU"); break;
-    case 13: snprintf(b, n, "%s", cfg.cpu_clock == 2 ? "+75%" : cfg.cpu_clock == 1 ? "+50%" : "Normal"); break;
-    case 14: snprintf(b, n, "%s", cfg.audio_stretch ? "Slow down" : "Keep pitch"); break;
-    case 15: snprintf(b, n, "%s", cfg.skip_intro ? "On" : "Off"); break;
-    case 16: snprintf(b, n, "%s", cfg.pal60 ? "On" : "Off"); break;
-    case 17: snprintf(b, n, "%s", !cfg.boot_logo ? "Off" : hooks_bios_present() ? "On" : "On (no BIOS found)"); break;
-    case 18: snprintf(b, n, "%s", cfg.speed_limit == 1 ? "Strict" : cfg.speed_limit == 2 ? "Off" : "Normal"); break;
-    case 19: snprintf(b, n, "%s", cfg.vram_check ? "On" : "Off"); break;
-    case 20: snprintf(b, n, "%s", cfg.debug_log ? "On" : "Off"); break;
-    case 21: snprintf(b, n, "%s", cfg.texfilter ? "Bilinear" : "Nearest"); break;
+    case 2: snprintf(b, n, "%s", cfg.texfilter == 2 ? "Bilinear (Performance)" : cfg.texfilter ? "Bilinear" : "Nearest"); break;
+    case 3: snprintf(b, n, "%s", filter_names[cfg.filter]); break;
+    case 4: snprintf(b, n, "%s", aspect_names[cfg.aspect]); break;
+    case 5: snprintf(b, n, "%d%% x %d%%", cfg.screen_w, cfg.screen_h); break;
+    case 6: snprintf(b, n, "%s", cfg.frameskip ? "Auto" : "Off"); break;
+    case 7: snprintf(b, n, "%s", cfg.dithering ? "On" : "Off"); break;
+    case 8: snprintf(b, n, "%s", cfg.show_fps ? "On" : "Off"); break;
+    case 9: snprintf(b, n, "%s", cfg.gpu_thread ? "On" : "Off"); break;
+    case 10: snprintf(b, n, "%s", cfg.stick_dpad ? "On" : "Off"); break;
+    case 11: snprintf(b, n, "%s", cfg.stick_buttons ? "On" : "Off"); break;
+    case 12: snprintf(b, n, "%s", cfg.vibration ? "On" : "Off"); break;
+    case 13: snprintf(b, n, "%s", cfg.spu_mdec ? "SPUs" : "PPU"); break;
+    case 14: snprintf(b, n, "%s", cfg.cpu_clock == 2 ? "+75%" : cfg.cpu_clock == 1 ? "+50%" : "Normal"); break;
+    case 15: snprintf(b, n, "%s", cfg.audio_stretch ? "Slow down" : "Keep pitch"); break;
+    case 16: snprintf(b, n, "%s", cfg.skip_intro ? "On" : "Off"); break;
+    case 17: snprintf(b, n, "%s", cfg.pal60 ? "On" : "Off"); break;
+    case 18: snprintf(b, n, "%s", !cfg.boot_logo ? "Off" : hooks_bios_present() ? "On" : "On (no BIOS found)"); break;
+    case 19: snprintf(b, n, "%s", cfg.speed_limit == 1 ? "Strict" : cfg.speed_limit == 2 ? "Off" : "Normal"); break;
+    case 20: snprintf(b, n, "%s", cfg.vram_check ? "On" : "Off"); break;
+    case 21: snprintf(b, n, "%s", cfg.debug_log ? "On" : "Off"); break;
+    case 22: snprintf(b, n, "%s", cfg.pgxp ? "On" : "Off"); break;
     }
 }
 
@@ -326,31 +328,32 @@ static void setting_change_(int i, int dir, int in_game)
         cfg.gpu_scale = order[k];
         break;
     }
-    case 2: cfg.filter = (cfg.filter + (dir > 0 ? 1 : FILTER_COUNT - 1)) % FILTER_COUNT; break;
-    case 3: {
+    case 2: cfg.texfilter = (cfg.texfilter + (dir > 0 ? 1 : 2)) % 3; break;
+    case 3: cfg.filter = (cfg.filter + (dir > 0 ? 1 : FILTER_COUNT - 1)) % FILTER_COUNT; break;
+    case 4: {
         int k = 0, n = (int)(sizeof aspect_order / sizeof aspect_order[0]);
         while (k < n - 1 && aspect_order[k] != cfg.aspect) k++;
         cfg.aspect = aspect_order[(k + (dir > 0 ? 1 : n - 1)) % n];
         break;
     }
-    case 4: screen_size_page(in_game); break;
-    case 5: cfg.frameskip ^= 1; break;
-    case 6: cfg.dithering ^= 1; break;
-    case 7: cfg.show_fps ^= 1; break;
-    case 8: cfg.gpu_thread ^= 1; break;
-    case 9: cfg.stick_dpad ^= 1; break;
-    case 10: cfg.stick_buttons ^= 1; break;
-    case 11: cfg.vibration ^= 1; break;
-    case 12: cfg.spu_mdec ^= 1; break;
-    case 13: cfg.cpu_clock = (cfg.cpu_clock + (dir > 0 ? 1 : 2)) % 3; break;
-    case 14: cfg.audio_stretch ^= 1; break;
-    case 15: cfg.skip_intro ^= 1; break;
-    case 16: cfg.pal60 ^= 1; break;
-    case 17: cfg.boot_logo ^= 1; break;
-    case 18: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
-    case 19: cfg.vram_check ^= 1; break;
-    case 20: cfg.debug_log ^= 1; break;
-    case 21: cfg.texfilter ^= 1; break;
+    case 5: screen_size_page(in_game); break;
+    case 6: cfg.frameskip ^= 1; break;
+    case 7: cfg.dithering ^= 1; break;
+    case 8: cfg.show_fps ^= 1; break;
+    case 9: cfg.gpu_thread ^= 1; break;
+    case 10: cfg.stick_dpad ^= 1; break;
+    case 11: cfg.stick_buttons ^= 1; break;
+    case 12: cfg.vibration ^= 1; break;
+    case 13: cfg.spu_mdec ^= 1; break;
+    case 14: cfg.cpu_clock = (cfg.cpu_clock + (dir > 0 ? 1 : 2)) % 3; break;
+    case 15: cfg.audio_stretch ^= 1; break;
+    case 16: cfg.skip_intro ^= 1; break;
+    case 17: cfg.pal60 ^= 1; break;
+    case 18: cfg.boot_logo ^= 1; break;
+    case 19: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
+    case 20: cfg.vram_check ^= 1; break;
+    case 21: cfg.debug_log ^= 1; break;
+    case 22: cfg.pgxp ^= 1; break;
     }
 }
 

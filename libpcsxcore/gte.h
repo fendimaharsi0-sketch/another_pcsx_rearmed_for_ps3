@@ -61,6 +61,12 @@ extern const unsigned char gte_cycletab[64];
 void gteCheckStall(u32 op);
 void gteDispatch(psxCP2Regs *regs, u32 code);
 
+/* PGXP visual-only cache (see gte.c): precise positions captured by
+ * RTPS/RTPT, looked up by the renderer by integer screen position. */
+void pgxp_next_frame(void);
+void pgxp_push(int sx, int sy, float x, float y, float z);
+int pgxp_lookup(int sx, int sy, float *x, float *y, float *w);
+
 u32  MFC2(struct psxCP2Regs *regs, int reg);
 void MTC2(struct psxCP2Regs *regs, u32 value, int reg);
 void CTC2(struct psxCP2Regs *regs, u32 value, int reg);

@@ -84,11 +84,14 @@ static struct {
     int vp_cur;                   /* set of the loaded one (-1: unknown) */
     unsigned vp_epoch;            /* video_vp_epoch when it was loaded */
     /* program sets: [fast][filter][prog], filter 1 = bilinear (textured modes
-       only; flat/copy/self entries alias the nearest program). Filter is only
-       chosen for the upscaled pass (see use_prog): the native pass, which
-       writes the VRAM later textures are read from, always stays nearest. */
-    rsxFragmentProgram *fps[2][2][HWR_NPROG]; u32 fps_off[2][2][HWR_NPROG];
-    int ua[2][2][HWR_NPROG], ub[2][2][HWR_NPROG];   /* units of "vram" / "vram16" and "vram8" (-1) */
+       only; flat/copy/self entries alias the nearest program), filter 2 =
+       Bilinear (Performance): mode 3 uses a hardware-LINEAR program, CLUT
+       modes alias the manual bilinear program, the rest alias nearest.
+       Filter is only chosen for the upscaled pass (see use_prog): the native
+       pass, which writes the VRAM later textures are read from, always stays
+       nearest. */
+    rsxFragmentProgram *fps[2][3][HWR_NPROG]; u32 fps_off[2][3][HWR_NPROG];
+    int ua[2][3][HWR_NPROG], ub[2][3][HWR_NPROG];   /* units of "vram" / "vram16" and "vram8" (-1) */
     int fast;                     /* program set in use */
     int draw_native;              /* the draw_ops pass in progress is the native (1x) pass */
     int px, py, pw, ph;           /* displayed VRAM rect of the last presented frame */
@@ -244,6 +247,18 @@ static int alloc_once(void)
         { NULL, hwr_ff1b_fpo, hwr_ff2b_fpo, hwr_ff3b_fpo, NULL, hwr_ff1wb_fpo, hwr_ff2wb_fpo, hwr_ff3wb_fpo,
           NULL, hwr_fmf1b_fpo, hwr_fmf2b_fpo, hwr_fmf3b_fpo, NULL, hwr_fmf1wb_fpo, hwr_fmf2wb_fpo, hwr_fmf3wb_fpo,
           NULL } };
+    /* Performance variants, fast mode 3 only (index = prog, NULL = alias the
+       bilinear entry, which for CLUT modes is manual and for the rest is
+       nearest). build.sh names them with a trailing 'p': ff3p, ff3wp, fmf3p,
+       fmf3wp. The slow row is all NULL on purpose: the byte-decoding
+       fallback has no hardware-LINEAR program and stays manual bilinear. */
+    static const unsigned char *fps_p[2][HWR_NPROG] = {
+        { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+          NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+          NULL },
+        { NULL, NULL, NULL, hwr_ff3p_fpo, NULL, NULL, NULL, hwr_ff3wp_fpo,
+          NULL, NULL, NULL, hwr_fmf3p_fpo, NULL, NULL, NULL, hwr_fmf3wp_fpo,
+          NULL } };
     int s;
     void *tgt, *dep; u32 sz; int i;
     if (R.ok) return 1;
@@ -322,6 +337,16 @@ static int alloc_once(void)
                 /* flat/copy/self: the bilinear entry is the nearest program */
                 R.fps[s][1][i] = R.fps[s][0][i]; R.fps_off[s][1][i] = R.fps_off[s][0][i];
                 R.ua[s][1][i] = R.ua[s][0][i]; R.ub[s][1][i] = R.ub[s][0][i];
+            }
+            if (fps_p[s][i]) {
+                R.fps[s][2][i] = (rsxFragmentProgram *)fps_p[s][i];
+                if (!(R.fps_off[s][2][i] = load_fp(R.fps[s][2][i], s ? "vram16" : "vram", s ? "vram8" : NULL,
+                                                &R.ua[s][2][i], &R.ub[s][2][i]))) return 0;
+            } else {
+                /* no Performance program: CLUT modes fall back to manual
+                   bilinear, the rest to nearest — see the fps_p comment */
+                R.fps[s][2][i] = R.fps[s][1][i]; R.fps_off[s][2][i] = R.fps_off[s][1][i];
+                R.ua[s][2][i] = R.ua[s][1][i]; R.ub[s][2][i] = R.ub[s][1][i];
             }
         }
     }
@@ -475,16 +500,26 @@ static void nat_format(int one)
    self-test, so the test always measures the nearest programs), this is the
    upscaled pass (the native pass writes the VRAM textures are read from, so
    blurring it would double-blur and break exactness), and p is a textured
-   mode (base 1..3, windowed 5..7); flat/copy/self alias nearest anyway. */
-static void use_prog(int p, signed char *bound)
+   mode (base 1..3, windowed 5..7); flat/copy/self alias nearest anyway.
+   Performance (filt 2) is the same selection, except its fast mode-3
+   programs need the vram16 unit on LINEAR: bind_view always sets NEAREST,
+   so the filter is fixed up after it, tracked per unit in boundf (-1
+   unknown) so a switch back to a nearest/manual program restores NEAREST. */
+static void use_prog(int p, signed char *bound, signed char *boundf)
 {
-    int f = R.fast, base = p & 7, filt = 0, a, b;
+    int f = R.fast, base = p & 7, filt = 0, a, b, lin = 0;
     if (cfg.texfilter && R.on && !R.draw_native && (base == 1 || base == 2 || base == 3 || base == 5 || base == 6 || base == 7))
-        filt = 1;
+        filt = cfg.texfilter == 2 ? 2 : 1;
     a = R.ua[f][filt][p]; b = R.ub[f][filt][p];
     rsxLoadFragmentProgramLocation(rsx_ctx, R.fps[f][filt][p], R.fps_off[f][filt][p], GCM_LOCATION_RSX);
-    if (a >= 0 && a < 16 && bound[a] != (f ? 1 : 0)) { bound[a] = (signed char)(f ? 1 : 0); bind_view((u32)a, bound[a]); }
-    if (b >= 0 && b < 16 && bound[b] != 2) { bound[b] = 2; bind_view((u32)b, 2); }
+    if (a >= 0 && a < 16 && bound[a] != (f ? 1 : 0)) { bound[a] = (signed char)(f ? 1 : 0); bind_view((u32)a, bound[a]); boundf[a] = 0; }
+    if (b >= 0 && b < 16 && bound[b] != 2) { bound[b] = 2; bind_view((u32)b, 2); boundf[b] = 0; }
+    lin = filt == 2 && f && (base == 3 || base == 7);
+    if (a >= 0 && a < 16 && boundf[a] != lin) {
+        boundf[a] = (signed char)lin;
+        rsxTextureFilter(rsx_ctx, (u32)a, 0, lin ? GCM_TEXTURE_LINEAR : GCM_TEXTURE_NEAREST,
+                         lin ? GCM_TEXTURE_LINEAR : GCM_TEXTURE_NEAREST, GCM_TEXTURE_CONVOLUTION_QUINCUNX);
+    }
 }
 
 /* how the op's pixels get bit 15 in the native VRAM: 0 they do not (pass 1 = STP=0
@@ -505,7 +540,7 @@ static int op_bit15(const hwr_op *o)
 
 /* the stencil-only draws for the STP bits of opaque textured ops (see draw_ops) */
 static int pend[4096], npend;
-static void flush_stp(const hwr_op *ops, int native, int *prog, signed char *bound, int *sc0, int *sc1, int *sc2, int *sc3)
+static void flush_stp(const hwr_op *ops, int native, int *prog, signed char *bound, signed char *boundf, int *sc0, int *sc1, int *sc2, int *sc3)
 {
     int k, SX = native ? 1 : R.SX;
     float SY = native ? 1.f : R.SY;
@@ -518,7 +553,7 @@ static void flush_stp(const hwr_op *ops, int native, int *prog, signed char *bou
     for (k = 0; k < npend; k++) {
         const hwr_op *o = &ops[pend[k]];
         int p = o->prog >= HWR_PROG_MCHK && o->prog < HWR_PROG_SELF ? HWR_PROG_BASE(o->prog) : o->prog;
-        if (p != *prog) { *prog = p; use_prog(p, bound); }
+        if (p != *prog) { *prog = p; use_prog(p, bound, boundf); }
         if (o->sx0 != *sc0 || o->sy0 != *sc1 || o->sx1 != *sc2 || o->sy1 != *sc3) {
             int y0 = (int)ceilf(o->sy0 * SY - 0.5f), y1 = (int)ceilf(o->sy1 * SY - 0.5f);
             *sc0 = o->sx0; *sc1 = o->sy0; *sc2 = o->sx1; *sc3 = o->sy1;
@@ -540,7 +575,9 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
     float SY = native ? 1.f : R.SY;
     int sc0 = -1, sc1 = -1, sc2 = -1, sc3 = -1;
     signed char bound[16];                  /* view bound on each texture unit (-1 unknown) */
+    signed char boundf[16];                 /* LINEAR (1) or NEAREST (0) on each unit (-1 unknown) */
     memset(bound, -1, sizeof bound);
+    memset(boundf, -1, sizeof boundf);
     int um = R.mask_used;                   /* each surface's own mask plane (stencil) */
     {   /* the vertex program, loaded again only when something else used the RSX's
            vertex program slot; the pass is its "native" constant (cheap to change) */
@@ -591,11 +628,11 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
         if (um && chk) {
             p = HWR_PROG_BASE(p);       /* the stencil does the check: */
             if (npend) {                /* the stencil bits of the draws before it first */
-                flush_stp(ops, native, &prog, bound, &sc0, &sc1, &sc2, &sc3);
+                flush_stp(ops, native, &prog, bound, boundf, &sc0, &sc1, &sc2, &sc3);
                 skey = -1;
             }
         }
-        if (p != prog) { prog = p; use_prog(prog, bound); }
+        if (p != prog) { prog = p; use_prog(prog, bound, boundf); }
         if (o->blend != blend) { blend = o->blend; set_blend(blend); }
         if (o->sx0 != sc0 || o->sy0 != sc1 || o->sx1 != sc2 || o->sy1 != sc3) {
             sc0 = o->sx0; sc1 = o->sy0; sc2 = o->sx1; sc3 = o->sy1;
@@ -624,7 +661,7 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
         if (um && !v && o->pass == 0 && HWR_PROG_BASE(p) != 0 && op_stp[i]) pend[npend++] = i;
         if (native && R.bit15) fix |= op_bit15(o);
     }
-    if (npend) { flush_stp(ops, native, &prog, bound, &sc0, &sc1, &sc2, &sc3); blend = -1; }
+    if (npend) { flush_stp(ops, native, &prog, bound, boundf, &sc0, &sc1, &sc2, &sc3); blend = -1; }
     if (um) {
         rsxSetStencilTestEnable(rsx_ctx, GCM_FALSE);
         if (!native) {
@@ -649,7 +686,7 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
             const hwr_op *o = &ops[i];
             int fp = um && o->prog >= HWR_PROG_MCHK && o->prog < HWR_PROG_SELF ? HWR_PROG_BASE(o->prog) : o->prog;
             if (op_bit15(o) != 1 || !op_stp[i]) continue;   /* (no texel with bit 15: nothing to set) */
-            if (fp != prog) { prog = fp; use_prog(prog, bound); }
+            if (fp != prog) { prog = fp; use_prog(prog, bound, boundf); }
             if (o->sx0 != sc0 || o->sy0 != sc1 || o->sx1 != sc2 || o->sy1 != sc3) {
                 sc0 = o->sx0; sc1 = o->sy0; sc2 = o->sx1; sc3 = o->sy1;
                 rsxSetScissor(rsx_ctx, sc0, sc1, sc2 - sc0, sc3 - sc1);
@@ -669,7 +706,7 @@ static void draw_ops(const hwr_op *ops, int nops, int native)
         rsxSetAlphaTestEnable(rsx_ctx, GCM_FALSE);
         rsxSetDepthFunc(rsx_ctx, GCM_EQUAL);
         rsxSetDepthWriteEnable(rsx_ctx, GCM_FALSE);
-        prog = HWR_PROG_SELF; use_prog(prog, bound);
+        prog = HWR_PROG_SELF; use_prog(prog, bound, boundf);
         for (i = 0; i < nops; i++) {
             const hwr_op *o = &ops[i];
             if (op_bit15(o) != 2) continue;
@@ -734,6 +771,7 @@ static void rsxr_submit_(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx 
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, base + 40, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX3, 0, base + 48, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX4, 0, base + 56, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
+    rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX5, 0, base + 64, st, 4, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_CELL);
     if (!R.mask_used) {
         int i;
         for (i = 0; i < nops; i++)
@@ -1312,6 +1350,7 @@ static int self_test(int full)
 /* the software renderer keeps drawing into the core's VRAM as a reference */
 static int cmd_check(const uint32_t *list, const uint32_t *end)
 {
+    hwr_pgxp = cfg.pgxp;   /* PGXP switch, read fresh so the menu toggle works in-game */
     if (T.on) {                       /* raw words as in PS1 memory (little-endian) */
         const uint32_t *p;
         tr_put(1); tr_put((u32)(end - list));
@@ -1427,6 +1466,7 @@ static int cmd_timed(const uint32_t *list, const uint32_t *end)
 {
     u64 t0;
     int r;
+    hwr_pgxp = cfg.pgxp;   /* PGXP switch, read fresh so the menu toggle works in-game */
     if (!cfg.debug_log) return hwr_cmd(list, end);   /* timed only for the debug log */
     t0 = gpulib_prof_now();
     r = hwr_cmd(list, end);
@@ -1496,7 +1536,9 @@ static void start(void)
     logf_("hwr: GPU renderer on, %dx%s (%dx%d), %s mode\n", R.SX, R.S > HWR_MAXS ? " wide, 4.5x tall" : "", 1024 * R.SX, (int)(512.f * R.SY + 0.5f),
           R.base.full ? (R.check ? "full, with the VRAM check (software renderer draws too)" : "full (the RSX draws everything)")
                       : "hybrid (software renderer + RSX)");
-    logf_("hwr: texture filter %s\n", cfg.texfilter ? "bilinear (upscaled pass only)" : "nearest");
+    logf_("hwr: texture filter %s\n", cfg.texfilter == 2 ? "bilinear (performance: hardware 15-bit, manual CLUT, upscaled pass only)" :
+          cfg.texfilter ? "bilinear (upscaled pass only)" : "nearest");
+    logf_("hwr: PGXP %s\n", cfg.pgxp ? "visual-only (upscaled pass only)" : "off");
 }
 
 static void log_stats(void)

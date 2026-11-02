@@ -585,6 +585,47 @@ static inline const s16 *v_inorder(const s16 *v, s16 *tmp)
 #define v_inorder(v, tmp) (v)
 #endif
 
+/* --- PGXP visual-only cache (prototype, PS3 fork) ---
+ * Full SwanStation PGXP tracks every CPU instruction and keeps a shadow
+ * copy of RAM; that is not ported here. This cache is the lightest thing
+ * that still removes the visible PS1 wobble: RTPS/RTPT store the precise
+ * float position before the >>16 truncation, keyed by the integer screen
+ * position the game will later put in a GP0 word. The renderer looks the
+ * integer position up and, on a hit, draws the precise position instead.
+ * No CPU tracking, no shadow memory: a stale or colliding entry is
+ * rejected by the frame generation + the <1px tolerance check, and the
+ * vertex falls back to its integer position. Cache entries are only ever
+ * used for the upscaled pass; the native pass stays integer (see hwr). */
+#define PGXP_CACHE_BITS 12
+#define PGXP_CACHE_SIZE (1 << PGXP_CACHE_BITS)
+typedef struct { short sx, sy; unsigned gen; float x, y, z; } pgxp_entry_t;
+static pgxp_entry_t pgxp_cache[PGXP_CACHE_SIZE];
+static unsigned pgxp_gen = 1;
+void pgxp_next_frame(void) { if (++pgxp_gen == 0) pgxp_gen = 1; }
+void pgxp_push(int sx, int sy, float x, float y, float z)
+{
+	unsigned h = ((unsigned)sx * 73856093u) ^ ((unsigned)sy * 19349663u);
+	h &= PGXP_CACHE_SIZE - 1;
+	pgxp_cache[h].sx = (short)sx; pgxp_cache[h].sy = (short)sy;
+	pgxp_cache[h].gen = pgxp_gen;
+	pgxp_cache[h].x = x; pgxp_cache[h].y = y; pgxp_cache[h].z = z;
+}
+int pgxp_lookup(int sx, int sy, float *x, float *y, float *w)
+{
+	unsigned h = ((unsigned)sx * 73856093u) ^ ((unsigned)sy * 19349663u);
+	pgxp_entry_t *e;
+	h &= PGXP_CACHE_SIZE - 1;
+	e = &pgxp_cache[h];
+	if (e->gen != pgxp_gen || e->sx != sx || e->sy != sy) return 0;
+	if (e->z <= 0.0f) return 0;
+	if (e->x - (float)sx < -0.02f || e->x - (float)sx > 1.02f) return 0;
+	if (e->y - (float)sy < -0.02f || e->y - (float)sy > 1.02f) return 0;
+	*w = e->z / 32768.0f;
+	if (*w <= 0.0f || *w > 4.0f) return 0;
+	*x = e->x; *y = e->y;
+	return 1;
+}
+
 static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 {
 	s32 vx = gteVX0, vy = gteVY0, vz = gteVZ0;
@@ -614,6 +655,10 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 
 	gteSX2 = limG1(&flags, mac0flags(&flags, gteOFX + (s64)gteIR1 * quotient) >> 16);
 	gteSY2 = limG2(&flags, mac0flags(&flags, gteOFY + (s64)gteIR2 * quotient) >> 16);
+	pgxp_push(gteSX2, gteSY2,
+		(float)((double)gteOFX + (double)gteIR1 * (double)quotient) / 65536.0f,
+		(float)((double)gteOFY + (double)gteIR2 * (double)quotient) / 65536.0f,
+		(float)sz3);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
 	gteIR0 = limH(&flags, mac0 >> 12);
@@ -650,6 +695,10 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 		fSZ(v) = sz3;
 		fSX(v) = limG1(&flags, mac0flags(&flags, gteOFX + (s64)ir1 * quotient) >> 16);
 		fSY(v) = limG2(&flags, mac0flags(&flags, gteOFY + (s64)ir2 * quotient) >> 16);
+		pgxp_push(fSX(v), fSY(v),
+			(float)((double)gteOFX + (double)ir1 * (double)quotient) / 65536.0f,
+			(float)((double)gteOFY + (double)ir2 * (double)quotient) / 65536.0f,
+			(float)sz3);
 	}
 
 	gteMAC1 = mac1;

@@ -5,6 +5,10 @@
 #include <string.h>
 #include "hwr.h"
 
+/* PGXP cache, implemented in libpcsxcore/gte.c (linked via the core lib). */
+void pgxp_next_frame(void);
+int pgxp_lookup(int sx, int sy, float *x, float *y, float *w);
+
 #define VCAP      65536   /* vertices per submit */
 #define SCAP      32768   /* staged second-pass vertices */
 #define OPCAP     4096
@@ -15,13 +19,14 @@
 #define MAXSNAPS  12      /* per frame; beyond this the frame falls back to software */
 
 hwr_stats_t hwr_stats;
+int hwr_pgxp = 0;
 
 static hwr_dev *dev;
 static const uint16_t *vram;
 static void (*sync_cb)(void);
 static int full_mode;                  /* dev->full at attach */
 
-typedef struct { float x, y, u, v, r, g, b; } pv;   /* a primitive's vertex while it is set up */
+typedef struct { float x, y, u, v, r, g, b, px, py, pw; int pvalid; } pv;   /* a primitive's vertex while it is set up; px/py/pw = PGXP precise position + w, pvalid = the cache hit */
 
 static hwr_vtx vb[VCAP], sv[SCAP];
 static int nv, nsv;
@@ -183,6 +188,12 @@ static void put(hwr_vtx *d, const pv *p)
     *d = tmpl;
     d->x = p->x; d->y = p->y; d->u = p->u; d->v = p->v;
     d->r = p->r; d->g = p->g; d->b = p->b;
+    /* PGXP: precise position for the upscaled pass, integer fallback otherwise.
+       Rects/lines/fills never set pvalid, so they stay integer by construction. */
+    d->px = p->pvalid ? p->px : p->x;
+    d->py = p->pvalid ? p->py : p->y;
+    d->pw = p->pvalid ? p->pw : 1.0f;
+    d->pad = 0.0f;
 }
 
 /* p: n vertices forming n/3 triangles */
@@ -480,6 +491,12 @@ static void ps1_sample_shift(pv *t, int n)
         float det = e1x * e2y - e2x * e1y, ix;
         float *pa[5] = { &a->u, &a->v, &a->r, &a->g, &a->b };
         a->x += dx; b->x += dx; c->x += dx; a->y += dy0; b->y += dy0; c->y += dy0;
+        /* PGXP precise positions move with the integer ones, so the upscaled
+           and native passes stay aligned; their gradients are not recomputed
+           (the integer gradient is within a pixel of the precise one). */
+        if (a->pvalid) { a->px += dx; a->py += dy0; }
+        if (b->pvalid) { b->px += dx; b->py += dy0; }
+        if (c->pvalid) { c->px += dx; c->py += dy0; }
         if (det > -0.5f && det < 0.5f) continue;      /* degenerate: nothing is drawn anyway */
         ix = 1.f / det;
         for (i = 0; i < 5; i++) {
@@ -511,6 +528,18 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
         if (l + idx >= end) return;
         xy = le32(l + idx++);
         p[i].x = (float)(sx11(xy) + st.ox); p[i].y = (float)(sx11(xy >> 16) + st.oy);
+        /* PGXP visual-only: look the integer screen position up in the GTE
+           cache before the sample shift moves it. The key is the raw GP0
+           coordinate (before the draw offset), because that is what the
+           GTE produced. */
+        p[i].pvalid = 0;
+        if (hwr_pgxp) {
+            float fx, fy, fw;
+            if (pgxp_lookup(sx11(xy), sx11(xy >> 16), &fx, &fy, &fw)) {
+                p[i].px = fx + (float)st.ox; p[i].py = fy + (float)st.oy;
+                p[i].pw = fw; p[i].pvalid = 1;
+            }
+        }
         if (tex) {
             if (l + idx >= end) return;
             uvw[i] = le32(l + idx++);
@@ -539,6 +568,19 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
        a thin line of the neighbouring tile along polygon seams (Tekken 3 skies) */
     if (umax > umin) umax--;
     if (vmax > vmin) vmax--;
+    /* PGXP: a triangle is either fully precise or fully integer. Mixing
+       precise and integer vertices in one triangle would warp it with a
+       different w per vertex, which looks worse than plain integer. */
+    if (hwr_pgxp) {
+        int all = 1, k;
+        for (k = 0; k < n; k++) if (!p[k].pvalid) all = 0;
+        if (!all) for (k = 0; k < n; k++) p[k].pvalid = 0;
+        /* t[] is a copy of p[] made above, before this check: re-copy. */
+        nt = 0;
+        if (!too_big(&p[0], &p[1], &p[2])) { t[nt++] = p[0]; t[nt++] = p[1]; t[nt++] = p[2]; }
+        if (quad && !too_big(&p[1], &p[2], &p[3])) { t[nt++] = p[1]; t[nt++] = p[2]; t[nt++] = p[3]; }
+        if (!nt) return;
+    }
     ps1_sample_shift(t, nt);
     tex_setup(tex, raw, cx, cy, umin, umax, vmin, vmax, ta, ca);
     if (!prepare(tex, ta[0], ta[1], ta[2], ta[3], ca[0], ca[1], ca[2])) return;
@@ -650,6 +692,7 @@ static void do_rect(const uint32_t *l, const uint32_t *end)
     if (tex) { u0 = uvw & 0xff; v0 = (uvw >> 8) & 0xff; cx = ((uvw >> 16) & 0x3f) * 16; cy = (uvw >> 22) & 0x1ff; }
     for (int i = 0; i < 4; i++) {
         int rx = i & 1, ry = i >> 1;
+        p[i].pvalid = 0;   /* rectangles are never PGXP: integer, by construction */
         p[i].x = x + (rx ? w : 0); p[i].y = y + (ry ? h : 0);
         /* mirrored rectangles step texels downwards from u0/v0: pixel k samples u0-k,
            which with centre sampling means the left edge sits at u0+1 */
@@ -705,6 +748,7 @@ int hwr_present(int x, int y, int w, int h, int bgr24)
 {
     int ok;
     if (!dev) return 0;
+    pgxp_next_frame();   /* the GTE cache belongs to the frame just drawn */
     shown_w = w; shown_h = h;
     close_batch();
     /* areas written only by uploads/fills (FMV, still screens) reach the target here */

@@ -101,6 +101,18 @@ for F in 0 1; do
     c_array "$GEN/hwr_$n.fpo" "hwr_${n}_fpo" >>"$GEN/shaders.h"
   done
 done
+# + Performance variants (PERF=1, names ...p): fast mode 3 only, with and
+# without texture window and mask check (4 programs). The backend needs the
+# texture unit on LINEAR for these (see hwr_rsx.c use_prog); CLUT modes in
+# Performance mode reuse the manual bilinear programs above, and the slow
+# program set has no Performance variant at all (it aliases manual too).
+for v in "3 0 0 f3p" "3 1 0 f3wp" "3 0 1 mf3p" "3 1 1 mf3wp"; do
+  set -- $v
+  n=f$4
+  cpp -P -DMODE=$1 -DTWIN=$2 -DMCHK=$3 -DFAST=1 -DPERF=1 src/shaders/hwr.fcg >"$GEN/hwr_$n.fcg"
+  fpc "$GEN/hwr_$n.fcg" "$GEN/hwr_$n.fpo"
+  c_array "$GEN/hwr_$n.fpo" "hwr_${n}_fpo" >>"$GEN/shaders.h"
+done
 
 echo "== SPU programs"
 # FMV decoding: the core's own MDEC routines (libpcsxcore/mdec_decode.h) on the SPUs

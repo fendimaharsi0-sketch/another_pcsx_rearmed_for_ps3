@@ -3,13 +3,25 @@
 #endif
 
 /* Hardware renderer vertex program: PS1 VRAM coordinates -> clip space.
- * The render target covers all of VRAM (1024x512 native pixels, upscaled). */
+ * The render target covers all of VRAM (1024x512 native pixels, upscaled).
+ *
+ * PGXP visual-only: each vertex also carries a precise position (px, py)
+ * and w (pw) from the GTE cache, in TEXCOORD5. The native pass (uniform
+ * native = 1) always uses the integer position with w = 1, so the native
+ * VRAM stays byte-exact; the upscaled pass uses the precise position and
+ * w, and every varying is multiplied by w so the hardware's perspective
+ * divide restores it correctly (varying * w interpolated, then divided by
+ * interpolated w). Varyings that are constant across a primitive (texpage,
+ * lim, pass weights) survive that divide unchanged. Vertices without a
+ * precise value carry px = x, py = y, pw = 1, and a pw of 0 (self-test
+ * vertices, which are zero-filled) falls back to integer + w = 1 here. */
 void main(float4 pos : POSITION,   /* x, y, u, v */
           float4 col : TEXCOORD0,  /* r, g, b (0..255), depth */
           float4 t1  : TEXCOORD1,  /* texpage x, texpage y, clut x, clut y */
           float4 t2  : TEXCOORD2,  /* mode, raw, window mask x, window mask y */
           float4 t3  : TEXCOORD3,  /* window offset x, window offset y, pass, mask-set flag */
           float4 lim : TEXCOORD4,  /* umin, vmin, umax, vmax */
+          float4 pgxp : TEXCOORD5, /* px, py, pw, pad */
           uniform float native,    /* 1 in the native VRAM pass: colours rounded like the PS1 */
           out float4 oPos : POSITION,
           out float4 oUv  : TEXCOORD0,
@@ -20,24 +32,28 @@ void main(float4 pos : POSITION,   /* x, y, u, v */
           out float4 oLim : TEXCOORD5)
 {
     /* depth orders the primitives of one op in the native pass (see hwr_rsx.c) */
-    oPos = float4(pos.x * (1.0f / 512.0f) - 1.0f, 1.0f - pos.y * (1.0f / 256.0f), col.w, 1.0f);
+    float use_pgxp = (native > 0.5f || pgxp.z <= 0.0f) ? 0.0f : 1.0f;
+    float vx = use_pgxp > 0.5f ? pgxp.x : pos.x;
+    float vy = use_pgxp > 0.5f ? pgxp.y : pos.y;
+    float pw = use_pgxp > 0.5f ? pgxp.z : 1.0f;
+    oPos = float4(vx * pw * (1.0f / 512.0f) - pw, pw - vy * pw * (1.0f / 256.0f), col.w * pw, pw);
     /* .zw: the native VRAM position, for the programs that read the pixel they
        draw over (mask check, bit-15 self copy) */
-    oUv = float4(pos.z, pos.w, pos.x, pos.y);
+    oUv = float4(pos.z * pw, pos.w * pw, vx * pw, vy * pw);
 #if FAST
     /* work the fragment programs would repeat per pixel: colour scaled for the mode
        (flat: /255, textured: /128) with PS1 red moved to .b, texel centres, and the
        pass as weights (drop = w2 + bit15 * (w1 - w2)) */
     float ps = floor(t3.z + 0.5f), w1 = ps == 1.0f ? 1.0f : 0.0f, w2 = ps == 2.0f ? 1.0f : 0.0f;
-    oCol = float4(col.bgr * (t2.x < 0.5f ? 1.0f / 255.0f : 1.0f / 128.0f), t3.w);
-    oT1 = t1 + 0.5f;
-    oT2 = float4(native, t2.yzw);   /* .x: round colours to 5 bits like the PS1 */
-    oT3 = float4(t3.x, t3.y, w2, w1 - w2);
+    oCol = float4(col.bgr * (t2.x < 0.5f ? 1.0f / 255.0f : 1.0f / 128.0f) * pw, t3.w * pw);
+    oT1 = (t1 + 0.5f) * pw;
+    oT2 = float4(native, t2.yzw) * pw;   /* .x: round colours to 5 bits like the PS1 */
+    oT3 = float4(t3.x, t3.y, w2, w1 - w2) * pw;
 #else
-    oCol = float4(col.rgb, t3.w);
-    oT1 = t1;
-    oT2 = float4(native, t2.yzw);   /* .x: round colours to 5 bits like the PS1 */
-    oT3 = float4(t3.xyz, 0.0f);
+    oCol = float4(col.rgb, t3.w) * pw;
+    oT1 = t1 * pw;
+    oT2 = float4(native, t2.yzw) * pw;   /* .x: round colours to 5 bits like the PS1 */
+    oT3 = float4(t3.xyz, 0.0f) * pw;
 #endif
-    oLim = lim;
+    oLim = lim * pw;
 }

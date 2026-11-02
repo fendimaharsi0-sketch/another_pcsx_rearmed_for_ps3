@@ -42,7 +42,8 @@ typedef struct {
     int dynarec_thread; /* Lightrec compiles new code on the PPU's second thread */
     int gpu_scale;      /* 0 = software renderer, 2..4 = RSX renderer at that scale, 5 = 4x wide, 4.5x tall */
     int filter;         /* FILTER_* */
-    int texfilter;      /* RSX texture filter, prototype: 0 = nearest (default), 1 = bilinear (upscaled pass only) */
+    int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
+    int pgxp;           /* PGXP visual-only, prototype: 0 = off (default), 1 = precise GTE vertices + w, upscaled pass only; native VRAM stays integer */
     int aspect;         /* ASPECT_* */
     int frameskip;      /* 0 off, 1 auto */
     int dithering;

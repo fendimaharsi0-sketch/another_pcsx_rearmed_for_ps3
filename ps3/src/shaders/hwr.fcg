@@ -5,11 +5,22 @@
  * texture window; -DMCHK=1 the mask check: pixels whose bit 15 is set in the
  * native VRAM are not drawn (uv.zw = the native position).
  * -DFILT=1 (textured modes 1..3 only, prototype): bilinear texture filtering.
- * The backend (hwr_rsx.c) selects a FILT program only for the upscaled pass;
- * the native pass, the self-test, flat/copy/self programs and the byte-decoding
- * fallback when the fast programs fail all stay nearest, so native VRAM is
- * never blurred. Filtering is bilinear only (4 taps): JINC2/xBR are
- * deliberately not implemented for the RSX.
+ * -DPERF=1 (mode 3 only, fast path only): "Bilinear (Performance)" — the RSX
+ * texture unit does the bilinear interpolation (hardware LINEAR) for 15-bit
+ * direct textures, 1 fetch instead of the manual 4 taps. The backend selects
+ * a PERF program only for mode 3 in the upscaled pass; CLUT modes 1/2 in
+ * Performance mode still use the manual FILT programs (hardware LINEAR would
+ * interpolate CLUT indexes, not colours), and the byte-decoding fallback also
+ * stays manual. Tradeoffs vs manual bilinear, accepted for the performance
+ * name: the interpolated bit-15/STP is a plain average, not a majority vote,
+ * so transparent/STP edges are softer, and a texture-window edge can blend
+ * with the neighbouring tile instead of wrapping (the window is applied to
+ * the integer part only, the fraction carries across it).
+ * The backend (hwr_rsx.c) selects a FILT/PERF program only for the upscaled
+ * pass; the native pass, the self-test, flat/copy/self programs and the
+ * byte-decoding fallback when the fast programs fail all stay nearest, so
+ * native VRAM is never blurred. Filtering is bilinear only (4 taps):
+ * JINC2/xBR are deliberately not implemented for the RSX.
  *
  * Bilinear rules, shared by both paths (SwanStation's FilteredSampleFromVRAM
  * pattern, reimplemented for this VRAM layout):
@@ -39,6 +50,9 @@
 #endif
 #ifndef FILT
 #define FILT 0
+#endif
+#ifndef PERF
+#define PERF 0
 #endif
 
 float wrapf(float a, float m) { return a - m * floor(a / m); }
@@ -170,7 +184,24 @@ half4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2,
     return h4tex2D(vram16, (floor(uv.xy) + 0.5f) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
 #else
     half4 t;
-#if FILT
+#if PERF
+    /* Hardware bilinear, mode 3 only: t1.xy already carries the +0.5 texel
+       centre, so (t1.xy + p) with a fractional p lands between texel centres
+       and the texture unit (LINEAR, set by the backend) interpolates them.
+       The window is applied to the integer part only; the final clamp to lim
+       keeps the sample from blending past the primitive's texel range. The
+       common code below (transparent drop, modulation) runs unchanged. */
+    float2 p = uv.xy - 256.0f * floor(uv.xy * (1.0f / 256.0f));
+    float2 ip = clamp(floor(p), lim.xy, lim.zw);
+#if TWIN
+    ip.x = twin(ip.x, floor(t2.z + 0.5f), floor(t3.x + 0.5f));
+    ip.y = twin(ip.y, floor(t2.w + 0.5f), floor(t3.y + 0.5f));
+    p = ip + (p - floor(p));
+#else
+    p = clamp(ip + (p - floor(p)), lim.xy, lim.zw);
+#endif
+    t = h4tex2D(vram16, (t1.xy + p) * float2(1.0f / 1024.0f, 1.0f / 512.0f));
+#elif FILT
     /* Bilinear: the 4 texels around the texel centre (uv - 0.5). Each tap is
        clamped to lim, then windowed, exactly as the nearest fetch is. */
     float2 pc = uv.xy - 256.0f * floor(uv.xy * (1.0f / 256.0f));
