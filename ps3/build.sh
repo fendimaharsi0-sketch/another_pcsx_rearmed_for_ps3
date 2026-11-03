@@ -146,5 +146,7 @@ cp "$ROOT/data/ICON0.PNG" "$B/pkg/ICON0.PNG"   # the XMB icon (320x176, transpar
 cp "$ROOT/data/PIC1.PNG" "$B/pkg/PIC1.PNG"     # the XMB background (1920x1080)
 cp "$ROOT/data/ps1titles.txt" "$B/pkg/USRDIR/"   # disc titles (tools/make_titles.py, libretro-database, CC BY-SA 4.0)
 cp -r "$ROOT/data/cheats" "$B/pkg/USRDIR/cheats"   # cheat database (duckstation/chtdb, one .cht file per serial; see README)
-pkg --contentid $CID "$B/pkg/" "$B/$NAME.pkg" >/dev/null
+python3 "$PS3DEV/bin/pkg.py" -c $CID "$B/pkg/" "$B/$NAME.pkg" >/dev/null
 ls -la "$B/$NAME.pkg"
+"$PS3DEV/bin/pkg" --list "$B/$NAME.pkg" | grep -q "USRDIR/EBOOT.BIN" || { echo "ERROR: EBOOT.BIN missing from package" >&2; exit 1; }
+"$PS3DEV/bin/pkg" --list "$B/$NAME.pkg" | grep -q "USRDIR/ps1titles.txt" || { echo "ERROR: ps1titles.txt missing from package" >&2; exit 1; }
