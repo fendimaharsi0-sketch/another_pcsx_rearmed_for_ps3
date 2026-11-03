@@ -1,0 +1,14 @@
+; CHTDB: ; [ NCAA GameBreaker 98 (USA) (1997) (Sony Computer Entertainment America) {SCUS-94172} <ncaagb98> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+80102068 00??
+OptionRange = 0:100
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8010206C 00??
+OptionRange = 0:100
+

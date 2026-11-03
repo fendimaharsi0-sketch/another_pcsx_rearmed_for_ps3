@@ -1,0 +1,14 @@
+; CHTDB: ; [ Pitball (Europe) {SLES-00201} ]
+
+[Select Team 1 Score]
+Type = Gameshark
+Activation = EndFrame
+800980CC 000?
+OptionRange = 0:9
+
+[Select Team 2 Score]
+Type = Gameshark
+Activation = EndFrame
+800980D0 000?
+OptionRange = 0:9
+

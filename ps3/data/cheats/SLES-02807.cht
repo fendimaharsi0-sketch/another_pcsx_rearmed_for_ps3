@@ -1,0 +1,14 @@
+; CHTDB: ; [ UEFA Challenge (Europe) {SLES-02807} ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+30140C98 00??
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+30140A80 00??
+OptionRange = 0:9
+

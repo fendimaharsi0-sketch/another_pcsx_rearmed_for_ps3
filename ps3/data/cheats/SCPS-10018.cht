@@ -1,0 +1,38 @@
+; CHTDB: ; [ Motor Toon Grand Prix 2 (Japan) {SCPS-10018 | SCPS-10019} ]
+
+[Infinite Coins]
+Type = Gameshark
+Activation = EndFrame
+800DB976 0300
+
+[Infinite Continues]
+Type = Gameshark
+Activation = EndFrame
+800DC7CC 0003
+
+[Infinite Super Shield]
+Type = Gameshark
+Activation = EndFrame
+800DB988 011E
+
+[Repeat Use Same Item]
+Type = Gameshark
+Activation = EndFrame
+800E2E9C 0007
+
+[Select Any Vehicle (Wait on Selection Screen)]
+Type = Gameshark
+Activation = EndFrame
+8008BB5C 0105
+8008BB68 0106
+8008BB74 0107
+
+[Always Have]
+Type = Gameshark
+Activation = EndFrame
+800E2E80 ????
+Option = Fire Bomb:0x0001
+Option = Pandora's Box:0x000A
+Option = Super Shield:0x000C
+Option = Wonder Clock:0x000E
+

@@ -1,0 +1,58 @@
+; CHTDB: ; [ Azure Dreams (Europe) {SLES-01219} ]
+
+[English\Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+900814B4 05F5E0FF
+
+[English\Infinite Health in Battle]
+Type = Gameshark
+Activation = EndFrame
+800813E0 FFFF
+
+[English\Level 99]
+Type = Gameshark
+Activation = EndFrame
+800813C8 6300
+
+[English\Quick Level Up]
+Type = Gameshark
+Activation = EndFrame
+800813D0 FFFF
+
+[English\Total time 00.00.00]
+Type = Gameshark
+Activation = EndFrame
+8003CBC2 AE20
+
+[French\Infinite Health in Battle]
+Type = Gameshark
+Activation = EndFrame
+80082470 03E7
+
+[French\Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+80082545 E0FF
+80082547 05F5
+
+[French\Level 99]
+Type = Gameshark
+Activation = EndFrame
+80082459 0063
+
+[German\unbegrentz gesundheit im kampf]
+Type = Gameshark
+Activation = EndFrame
+80081B70 FFFF
+
+[German\Level 99]
+Type = Gameshark
+Activation = EndFrame
+80081B58 6300
+
+[German\unbegrenzt geld]
+Type = Gameshark
+Activation = EndFrame
+90081C44 05F5E0FF
+

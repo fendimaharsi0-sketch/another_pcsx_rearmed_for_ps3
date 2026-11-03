@@ -1,0 +1,14 @@
+; CHTDB: ; [ FIFA: Rumbo al Mundial 98 (Spain) {SLES-00918} ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8004F7B4 000?
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8004F7B0 000?
+OptionRange = 0:9
+

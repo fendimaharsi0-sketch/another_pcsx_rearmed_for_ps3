@@ -1,0 +1,25 @@
+; CHTDB: ; [ Inspector Gadget: Gadget's Crazy Maze (Europe) {SLES-03084} ]
+
+[All Levels Unlocked]
+Type = Gameshark
+Activation = EndFrame
+30064A84 0019
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+801A3E74 0063
+
+[Select Character]
+Type = Gameshark
+Activation = EndFrame
+301A4468 ????
+Option = Inspector Gadget:0x0000
+Option = Penny:0x0001
+Option = Brain:0x0002
+Option = Chief Quimby:0x0003
+Option = MAD Agent:0x0004
+Option = Spy:0x0005
+Option = Clown:0x0006
+Option = Cat:0x0007
+

@@ -1,0 +1,56 @@
+; CHTDB: ; [ Armored Core (USA, v1.0) (1997) (Sony Computer Entertainment America) {SCUS-94182} <armcorea> ]
+
+[Game Progress\Credits 9999999]
+Description = Set Credits to 9999999.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+90039CA4 0098967F
+
+[Game Progress\Human PLUS (強化人間)]
+Description = Set Human PLUS (強化人間) stage.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+30039D20 ????
+Option = No Upgrades:0x0000
+Option = Stage 1:0x0001
+Option = Stage 2:0x0004
+Option = Stage 3:0x0006
+
+[Game Progress\Deploy Restricted AC (基準違反機体)]
+Description = Set Deploy Restricted AC (基準違反機体) ability.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+E00B7400 00C8
+30086836 0022
+30039D22 ????
+Option = Disabled:0x0000
+Option = Enabled:0x0001
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+8019F52C FFFF
+
+[Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+80040FBE 6D60
+
+[Infinite Weapon 1]
+Type = Gameshark
+Activation = EndFrame
+8004128A 00C8
+
+[Infinite Weapon 2]
+Type = Gameshark
+Activation = EndFrame
+800412C6 00C8
+
+[Infinite Armor]
+Type = Gameshark
+Activation = EndFrame
+801A2818 7000
+

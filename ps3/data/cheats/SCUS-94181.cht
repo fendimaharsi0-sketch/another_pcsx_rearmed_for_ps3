@@ -1,0 +1,47 @@
+; CHTDB: ; [ I.Q - Intelligent Qube (USA) (1997) (Sony Computer Entertainment America) {SCUS-94181} <iqube> ]
+
+[Takes Zero Moves to Get Rid Of Blocks]
+Type = Gameshark
+Activation = EndFrame
+8006C804 0000
+
+[Start Near The End Of Each Level]
+Type = Gameshark
+Activation = EndFrame
+3006C70C 0003
+
+[Enable Everything]
+Type = Gameshark
+Activation = EndFrame
+8006C810 FFFF
+8006C6F0 FFFF
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+8006C738 ????
+Option = 1:0x0001
+Option = 2:0x0002
+Option = 3:0x0003
+Option = 4:0x0004
+Option = 5:0x0005
+Option = 6:0x0006
+Option = 7:0x0007
+Option = 8:0x0008
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A7097E00 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A7097E00 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A7097E00 10000400
+

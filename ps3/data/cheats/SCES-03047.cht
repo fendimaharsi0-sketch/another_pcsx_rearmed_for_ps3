@@ -1,0 +1,175 @@
+; CHTDB: ; [ The Legend of Dragoon aka The Legend of Dragoon: La Leyenda de los Dragoon (Spain) {SCES-03047 | SCES-13047 | SCES-23047 | SCES-33047} ]
+
+[Infinite Gold]
+Type = Gameshark
+Activation = EndFrame
+900BAF84 0098967F
+
+[Albert\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB300 270F
+800BECA6 270F
+
+[Albert\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB303 03E7
+
+[Albert\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB305 03E7
+
+[Dart\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB224 270F
+800BE986 270F
+
+[Dart\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB226 03E7
+
+[Dart\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB228 03E7
+
+[Haschel\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB2D4 270F
+800BEC06 270F
+
+[Haschel\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB2D6 03E7
+
+[Haschel\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB2D8 03E7
+
+[Kongol\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB358 270F
+800BEDE6 270F
+
+[Kongol\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB35A 03E7
+
+[Kongol\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB35C 03E7
+
+[Lawitz\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB250 270F
+800BEA26 270F
+
+[Lawitz\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB252 03E7
+
+[Meru\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB32C 270F
+800BED46 270F
+
+[Meru\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB32E 03E7
+
+[Meru\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB330 03E7
+
+[Miranda\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB384 270F
+800BEE86 270F
+
+[Miranda\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB386 03E7
+
+[Miranda\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB388 03E7
+
+[Rose\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB2A8 270F
+800BE6B6 270F
+
+[Rose\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB2AA 03E7
+
+[Rose\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB2AC 03E7
+
+[Shanna\Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BB27C 270F
+800BEAC6 270F
+
+[Shanna\Infinite MP]
+Type = Gameshark
+Activation = EndFrame
+800BB27E 03E7
+
+[Shanna\Infinite SP]
+Type = Gameshark
+Activation = EndFrame
+800BB280 03E7
+
+[Save Anywhere]
+Type = Gameshark
+Activation = EndFrame
+8005A690 0001
+
+[No Random Battles]
+Type = Gameshark
+Activation = EndFrame
+800C6E10 0000
+
+[Have All Dragoon Spirits]
+Type = Gameshark
+Activation = EndFrame
+300BB08C 00FF
+
+[Infinite Items (All Slots)]
+Type = Gameshark
+Activation = EndFrame
+8002366E 2400
+80023696 2400
+8002369A 2400
+
+[NTSC Mode]
+Description = Runs NTSC video mode. The timer is going a little fast
+Type = Gameshark
+Activation = EndFrame
+Author = PeterDelta
+A7054998 00010000
+

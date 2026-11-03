@@ -72,6 +72,7 @@ typedef struct {
     char mc2_shared[256]; /* same for slot 2 Shared (default pcsx-card2.mcd) */
     char last_dir[512];
     int turbo_cd;       /* upstream TurboCD: instant CD seeks + faster reads; auto-off during XA audio and FMV */
+    int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
@@ -185,6 +186,23 @@ int menu_ingame(void);
 extern volatile int app_exit_requested;
 void log_memory(const char *when);
 void app_poll_system(void);
+const char *app_game_name(void);   /* ROM file name without extension ("BIOS" for the BIOS menu) */
+int app_game_is_bios(void);        /* the running "game" is the BIOS menu, not a disc/image */
+/* ---- cheats (main.c): feeding the core's dormant cheat engine ---- */
+void cheat_apply_saved(int include_manual);  /* reset + feed enabled codes from the state file; gate, BIOS and serial checked inside */
+void cheat_reset_all(void);                  /* clear all fed codes + pending manual disables */
+void cheat_post_frame(void);                 /* disable manual codes after their first emulated frame */
+int cheat_enabled_count(void);               /* codes currently fed to the engine */
+/* Disk control (stored from env_cb, ext preferred, base as fallback):
+   the Swap disc picker reads the playlist through these and swaps with
+   one eject -> change -> close cycle per call. */
+int disk_iface_available(void);              /* the core delivered an interface */
+unsigned disk_iface_num_images(void);        /* discs in the loaded playlist (1 for a single image) */
+unsigned disk_iface_current_index(void);     /* index of the disc in the drive */
+int disk_iface_label(unsigned i, char *buf, size_t len);  /* 0 ok, -1 unavailable */
+int disk_iface_path(unsigned i, char *buf, size_t len);   /* 0 ok, -1 unavailable */
+int disk_iface_swap_to_index(unsigned i);    /* swap to a playlist disc; 0 ok */
+int disk_iface_swap_to_file(const char *path);  /* replace the drive's disc with an image file; 0 ok */
 
 /* spu_mdec.c: FMV decoding on the SPUs */
 int  spu_mdec_init(int nspu);              /* starts the SPU threads + self-test; 1 = usable */

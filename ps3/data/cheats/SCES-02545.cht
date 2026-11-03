@@ -1,0 +1,24 @@
+; CHTDB: ; [ MediEvil 2 (Europe) {SCES-02545} ]
+
+[Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+800F1124 012C
+
+[Unlock Cheat Menu (Enable All Levels,Invincibility)]
+Type = Gameshark
+Activation = EndFrame
+800D2D3C 0004
+;#### PATCHES LISTED BELOW ####
+
+[Widescreen 16-9]
+Type = Gameshark
+Activation = EndFrame
+A712932C 19991333
+
+[Trampas/Traps]
+Description = In the pause menu the option appears
+Type = Gameshark
+Activation = EndFrame
+A70EF11A 00000001
+

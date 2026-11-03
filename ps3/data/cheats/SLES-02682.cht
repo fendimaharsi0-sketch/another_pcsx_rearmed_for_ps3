@@ -1,0 +1,33 @@
+; CHTDB: ; [ Land Maker aka Landmaker (Europe) {SLES-02682} ]
+
+[P1 Arcade mode Lots of points]
+Type = Gameshark
+Activation = EndFrame
+D0068C8A FFFE
+801DBF54 FFFF
+
+[Puzzle mode always zero retries]
+Type = Gameshark
+Activation = EndFrame
+D0039DC8 0001
+800396DC 0000
+
+[Population 3.000.000.000/Get A+-Rating (Press L1 & L2 & R1 & R2)]
+Type = Gameshark
+Activation = EndFrame
+D0068C8A F0FF
+801FBF0C A300
+D0068C8A F0FF
+801FBF0E 11E1
+
+[Select Highest Area to Unlock]
+Type = Gameshark
+Activation = EndFrame
+80068DBE ????
+Option = Riverfront:0x007F
+Option = Shach:0x00FF
+Option = Bang-Ceng:0x11FF
+Option = Blackwood:0x13FF
+Option = Shing-Shee:0x17FF
+Option = Le Hikat:0x1FFF
+

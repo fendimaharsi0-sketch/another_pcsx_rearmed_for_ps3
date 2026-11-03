@@ -1,0 +1,86 @@
+; CHTDB: ; [ Streak Hoverboard Racing (Europe) {SLES-01437} ]
+
+[Select Character]
+Type = Gameshark
+Activation = EndFrame
+30057654 ????
+Option = Pierce:0x0000
+Option = Havoc:0x0001
+Option = Grooves:0x0002
+Option = Jade:0x0003
+Option = Mogul:0x0004
+Option = Wheels:0x0005
+Option = Fatale:0x0006
+Option = Cat:0x0007
+Option = Sierra:0x0008
+Option = Edge:0x0009
+Option = Skid:0x000A
+Option = Showman:0x000B
+
+[Select Track]
+Type = Gameshark
+Activation = EndFrame
+3005768C ????
+Option = Windway park:0x0000
+Option = Barnum's alley:0x0001
+Option = Agua escudo:0x0002
+Option = St morte's:0x0003
+Option = Skyview high:0x0004
+Option = Arey keep:0x0005
+Option = Rearden forge:0x0006
+Option = Matsuri:0x0007
+Option = Mainline:0x0008
+Option = Darklith falls:0x0009
+Option = Eiswald spitze:0x000A
+Option = Front line:0x000B
+
+[Quick win Press Select - just play until next Checkpoint]
+Type = Gameshark
+Activation = EndFrame
+D01BB362 FFFE
+801B5BD0 000?
+
+[Infinite Turbo boost]
+Type = Gameshark
+Activation = EndFrame
+801B5C3C 4000
+
+[Always condition fine]
+Type = Gameshark
+Activation = EndFrame
+801B5C20 0400
+
+[Have 4999 points Press Select]
+Type = Gameshark
+Activation = EndFrame
+D01BB362 FFFE
+801B5D8C 1387
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A71E9A3C 10000C00
+A71E997C 10000C00
+A71E99DC 10000C00
+A71E985C 10000C00
+A71E98BC 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A71E9A3C 10000900
+A71E997C 10000900
+A71E99DC 10000900
+A71E985C 10000900
+A71E98BC 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A71E9A3C 10000400
+A71E997C 10000400
+A71E99DC 10000400
+A71E985C 10000400
+A71E98BC 10000400
+

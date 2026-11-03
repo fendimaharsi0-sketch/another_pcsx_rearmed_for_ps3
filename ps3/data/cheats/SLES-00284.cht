@@ -1,0 +1,14 @@
+; CHTDB: ; [ Space Jam (Europe) {SLES-00284} ]
+
+[Select Tune Squad Score]
+Type = Gameshark
+Activation = EndFrame
+80078D5C 00??
+OptionRange = 0:99
+
+[Select Monstars Score]
+Type = Gameshark
+Activation = EndFrame
+80078D60 00??
+OptionRange = 0:99
+

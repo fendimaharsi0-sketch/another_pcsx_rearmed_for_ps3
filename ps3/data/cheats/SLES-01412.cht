@@ -1,0 +1,45 @@
+; CHTDB: ; [ O.D.T. (Spain) {SLES-01412} ]
+
+[Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+800A9F78 0063
+
+[Infinite Blue Ammo]
+Type = Gameshark
+Activation = EndFrame
+800AA102 0063
+
+[Infinite Yellow Ammo]
+Type = Gameshark
+Activation = EndFrame
+800AA10A 0063
+
+[Infinite Grey Ammo]
+Type = Gameshark
+Activation = EndFrame
+800AA112 0063
+
+[Infinite Green Ammo]
+Type = Gameshark
+Activation = EndFrame
+800AA11A 0063
+
+[Have 99 gas bottles]
+Type = Gameshark
+Activation = EndFrame
+800ABD1E 0063
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+800A96F4 ????
+Option = 1:0x0000
+Option = 2:0x0001
+Option = 3:0x0002
+Option = 4:0x0003
+Option = 5:0x0004
+Option = 6:0x0005
+Option = 7:0x0006
+Option = 8:0x0007
+

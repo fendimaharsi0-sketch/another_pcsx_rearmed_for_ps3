@@ -1,0 +1,38 @@
+; CHTDB: ; [ Ready 2 Rumble Boxing: Round 2 (Europe) {SLES-02850} ]
+
+[P1 Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+D20B100C 0064
+300B100C 0064
+
+[Infinite Power]
+Type = Gameshark
+Activation = EndFrame
+D20B1010 0064
+300B1010 0064
+
+[Arcade mode Start at final fight]
+Type = Gameshark
+Activation = EndFrame
+D00A1238 0000
+300A1238 000B
+
+[Infinite Continues]
+Type = Gameshark
+Activation = EndFrame
+300A126C 0008
+
+[Select Character]
+Type = Gameshark
+Activation = EndFrame
+Option = Michael Jackson:0x000C
+Option = G.C. Thunder:0x000D
+Option = Shaquille O'Neal:0x000E
+Option = Rocket Samchav:0x000F
+Option = Robox Rese4:0x0010
+Option = First Lady:0x0011
+Option = Mr President:0x0012
+Option = The Boss Rumble:0x0013
+301F13E8 ????
+

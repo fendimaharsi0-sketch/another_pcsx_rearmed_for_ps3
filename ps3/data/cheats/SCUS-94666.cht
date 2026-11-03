@@ -1,0 +1,99 @@
+; CHTDB: ; [ C-12 - Final Resistance (USA) (2002) (Sony Computer Entertainment America) {SCUS-94666} <c12> ]
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+800F38D8 03E8
+
+[Have Shields]
+Type = Gameshark
+Activation = EndFrame
+800F3900 0004
+
+[Infinite Shield]
+Type = Gameshark
+Activation = EndFrame
+800F38E4 03E8
+
+[Walk Through Obstacles/Walls]
+Type = Gameshark
+Activation = EndFrame
+A702D16E 10431000
+A702D13E 10431000
+
+[Pick Up Weapons on Sight]
+Type = Gameshark
+Activation = EndFrame
+A70994BA 14801400
+
+[One Hit Kills]
+Type = Gameshark
+Activation = EndFrame
+A7032AA6 18801000
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+300F1520 ????
+Option = Test Level:0x0000
+Option = CC (doesn't load):0x0001
+Option = TI:0x0002
+Option = 1A:0x0003
+Option = 2A:0x0004
+Option = 2B:0x0005
+Option = 2C:0x0006
+Option = 2D:0x0007
+Option = 3A:0x0008
+Option = 3B:0x0009
+Option = 3C:0x000A
+Option = 3D:0x000B
+Option = 3E:0x000C
+Option = 3F:0x000D
+Option = 3G:0x000E
+Option = 4A:0x000F
+Option = 4B:0x0010
+Option = 4C:0x0011
+Option = 4D:0x0012
+Option = 4E:0x0013
+Option = 5A:0x0014
+Option = 6A:0x0015
+Option = 6B:0x0016
+Option = 6C (final level):0x0017
+
+[Have All Items]
+Type = Gameshark
+Activation = EndFrame
+50000D04 0000
+800F3900 0063
+50000304 0000
+800F3968 0063
+50000E04 0000
+800F3994 0063
+800F39D4 0063
+50000504 0000
+800F39DC 0063
+50000704 0000
+800F3A00 0063
+800F3A40 0063
+800F3A48 0063
+
+[Have All Coms]
+Type = Gameshark
+Activation = EndFrame
+50000D04 0000
+800F3A4C FF00
+50001404 0000
+800F3AB0 FF00
+50000610 0000
+800F3A6E FF00
+
+[Have All Missions Complete]
+Type = Gameshark
+Activation = EndFrame
+50002304 0000
+800F3B3C 00FF
+50000E04 0000
+800F3BD8 00FF
+800F3C3C 00FF
+800F3C40 00FF
+

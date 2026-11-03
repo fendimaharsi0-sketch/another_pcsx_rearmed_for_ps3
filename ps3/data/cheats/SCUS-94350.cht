@@ -1,0 +1,78 @@
+; CHTDB: ; [ Destruction Derby 2 (USA) (1996) (Sony Computer Entertainment America) {SCUS-94350, SCUS-94350-C} <dderby2> ]
+
+[Always place 1st]
+Type = Gameshark
+Activation = EndFrame
+8009568E 0001
+
+[Have 999 Race Points]
+Type = Gameshark
+Activation = EndFrame
+80095692 03E7
+
+[No Damage Left Door]
+Type = Gameshark
+Activation = EndFrame
+8008A368 0000
+
+[No Damage Left Front]
+Type = Gameshark
+Activation = EndFrame
+8008A344 0000
+
+[No Damage Left Rear]
+Type = Gameshark
+Activation = EndFrame
+8008A360 0000
+
+[No Damage Right Door]
+Type = Gameshark
+Activation = EndFrame
+8008A354 0000
+
+[No Damage Right Front]
+Type = Gameshark
+Activation = EndFrame
+8008A34C 0000
+
+[No Damage Right Rear]
+Type = Gameshark
+Activation = EndFrame
+8008A358 0000
+
+[Select Track]
+Type = Gameshark
+Activation = EndFrame
+8007974C ????
+Option = Pine Hills Raceway:0x0000
+Option = Chalk Canyon:0x0001
+Option = SCA Motorplex:0x0002
+Option = Caprio County Speedway:0x0003
+Option = Black Sail Valley:0x0004
+Option = Liberty City:0x0005
+Option = Ultimate Destruction Speedway:0x0006
+Option = Red Pike Arena:0x0007
+Option = The Colosseum:0x0008
+Option = The Pit:0x0009
+Option = Death Bowl (Do not press right on the track select screen or the game will crash):0x000A
+Option = FROZE:0x000B
+
+[Unlock 4 bowl tracks]
+Type = Gameshark
+Activation = EndFrame
+8007975C 0004
+
+[Unlock 7 racing tracks]
+Type = Gameshark
+Activation = EndFrame
+80079758 0007
+
+[Infinite Laps (Triangle Up/Down On/Off)]
+Description = Freezes track count
+Type = Gameshark
+Activation = EndFrame
+D00799E8 00001010
+80040098 00000000
+D00799E8 00001040
+80040098 00000001
+

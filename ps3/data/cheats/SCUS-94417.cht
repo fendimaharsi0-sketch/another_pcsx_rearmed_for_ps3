@@ -1,0 +1,64 @@
+; CHTDB: ; [ Rush Hour (USA) (1997) (Psygnosis) {SCUS-94417} <rushhour> ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+801042BC 0063
+
+[Have Extra Vehicles]
+Type = Gameshark
+Activation = EndFrame
+801074D4 FFFF
+
+[Have Super Championship Mode]
+Type = Gameshark
+Activation = EndFrame
+801074D8 FFFF
+
+[Have Reverse Mode]
+Type = Gameshark
+Activation = EndFrame
+801074D6 FFFF
+
+[P1 Always On Lap 1]
+Type = Gameshark
+Activation = EndFrame
+801022AC 0000
+
+[P1 Starts On Lap 2]
+Type = Gameshark
+Activation = EndFrame
+A61022AC 00000001
+
+[P1 Lap Time Always Under 0'01'00]
+Type = Gameshark
+Activation = EndFrame
+80101F10 0000
+
+[P1 Select Car]
+Type = Gameshark
+Activation = EndFrame
+801CBD4C ????
+Option = Europa Tourer/Ranger:0x0000
+Option = Yellow Thunder/Dune Buggy:0x0001
+Option = Red Flash/Jeepste:0x0002
+Option = Silver Bullet/Dallas Pick-up:0x0003
+Option = Super Blue/HGV:0x0004
+Option = Stock Car/Monster Truck:0x0005
+Option = Hot Hatch/Trooper:0x0006
+Option = My Saloon/Badger:0x0007
+
+[Select Track]
+Type = Gameshark
+Activation = EndFrame
+8000E254 ????
+Option = Atlantic Trail:0x0000
+Option = Country Valley:0x0001
+Option = Yukon Pass:0x0002
+Option = Downtown:0x0003
+Option = Tuscan Gorge:0x0004
+Option = Cub Raceway:0x0005
+Option = Pacific Dream:0x0006
+Option = Golden Sand:0x0007
+Option = Sunken City:0x0008
+

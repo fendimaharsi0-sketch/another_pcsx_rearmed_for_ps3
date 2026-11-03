@@ -1,0 +1,14 @@
+; CHTDB: ; [ Total NBA 98 (Europe) {SCES-01079} ]
+
+[P1 Select Points]
+Type = Gameshark
+Activation = EndFrame
+800C6F24 00??
+OptionRange = 0:100
+
+[P2 Select Points]
+Type = Gameshark
+Activation = EndFrame
+800C6F20 00??
+OptionRange = 0:100
+

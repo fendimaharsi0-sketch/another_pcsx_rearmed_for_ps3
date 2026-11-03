@@ -1,0 +1,14 @@
+; CHTDB: ; [ NFL GameDay 2000 (USA) (1999) (989 Sports) {SCUS-94556} <nflgd2k> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800FCED4 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800FCED8 00??
+OptionRange = 0:99
+

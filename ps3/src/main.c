@@ -15,6 +15,7 @@
 #include "libretro.h"
 #include "common.h"
 #include "core_hooks.h"
+#include "cheatdb.h"
 #include "gpu_hooks.h"
 
 /* lv2 gives the primary thread 64 KiB of stack whatever this asks for (see
@@ -33,7 +34,9 @@ void log_memory(const char *when)
 static int input_blocked;       /* ignore pads until all buttons are released (after menus) */
 static char game_name[256];     /* ROM file name without extension, for save states */
 static int game_is_disc;        /* the game runs from the disc in the console's drive */
+static int game_is_bios;        /* the running "game" is the BIOS menu (no disc, no serial) */
 const char *app_game_name(void) { return game_name; }
+int app_game_is_bios(void) { return game_is_bios; }
 
 /* ---------------- system events (PS button menu, quit from the XMB) ---------------- */
 static void sysutil_cb(u64 status, u64 param, void *user)
@@ -126,6 +129,12 @@ static bool rumble_cb(unsigned port, enum retro_rumble_effect effect, uint16_t s
     return true;
 }
 
+/* Disk control, stored from env_cb (ext preferred, base as fallback).
+   The structs live in the core's statics, so the stored pointers stay
+   valid for the app's lifetime. */
+static const struct retro_disk_control_callback *disk_cb;
+static const struct retro_disk_control_ext_callback *disk_ext_cb;
+
 static bool env_cb(unsigned cmd, void *data)
 {
     app_cb_counts[3]++;
@@ -183,9 +192,97 @@ static bool env_cb(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         ((struct retro_rumble_interface *)data)->set_rumble_state = rumble_cb;
         return true;
+    /* The core offers its disk-control interface from retro_init (ext
+       first when the version query answers >= 1, base otherwise). Store
+       whichever arrives; menu.c reads it for the Swap disc picker. */
+    case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION:
+        *(unsigned *)data = 1;
+        return true;
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE:
+        disk_ext_cb = data;
+        return true;
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
+        disk_cb = data;
+        return true;
     default:
         return false;
     }
+}
+
+/* Disk-control accessors for menu.c (the Swap disc picker). */
+int disk_iface_available(void)
+{
+    return disk_cb != NULL || disk_ext_cb != NULL;
+}
+
+unsigned disk_iface_num_images(void)
+{
+    if (disk_ext_cb && disk_ext_cb->get_num_images) return disk_ext_cb->get_num_images();
+    if (disk_cb && disk_cb->get_num_images) return disk_cb->get_num_images();
+    return 0;
+}
+
+unsigned disk_iface_current_index(void)
+{
+    if (disk_ext_cb && disk_ext_cb->get_image_index) return disk_ext_cb->get_image_index();
+    if (disk_cb && disk_cb->get_image_index) return disk_cb->get_image_index();
+    return 0;
+}
+
+int disk_iface_label(unsigned i, char *buf, size_t len)
+{
+    if (!buf || len < 1) return -1;
+    if (disk_ext_cb && disk_ext_cb->get_image_label && disk_ext_cb->get_image_label(i, buf, len)) return 0;
+    return -1;
+}
+
+int disk_iface_path(unsigned i, char *buf, size_t len)
+{
+    if (!buf || len < 1) return -1;
+    if (disk_ext_cb && disk_ext_cb->get_image_path && disk_ext_cb->get_image_path(i, buf, len)) return 0;
+    return -1;
+}
+
+/* One full swap cycle: open the tray, change the disc, close it. The
+   core signals the change with a lid interrupt + a wall-clock case-open
+   timer, so the game detects the new disc on resume even though no
+   emulated frame ran between the three calls. The tray is closed again
+   even when the change itself fails, so the drive never stays open. */
+int disk_iface_swap_to_index(unsigned i)
+{
+    bool (*eject)(bool) = NULL;
+    bool (*setidx)(unsigned) = NULL;
+    bool ok;
+    if (disk_ext_cb) { eject = disk_ext_cb->set_eject_state; setidx = disk_ext_cb->set_image_index; }
+    if ((!eject || !setidx) && disk_cb) { eject = disk_cb->set_eject_state; setidx = disk_cb->set_image_index; }
+    if (!eject || !setidx) return -1;
+    eject(true);
+    ok = setidx(i);
+    eject(false);
+    return ok ? 0 : -1;
+}
+
+int disk_iface_swap_to_file(const char *path)
+{
+    bool (*eject)(bool) = NULL;
+    bool (*replace)(unsigned, const struct retro_game_info *) = NULL;
+    struct retro_game_info info;
+    unsigned cur;
+    bool ok;
+    if (!path || !*path) return -1;
+    if (disk_ext_cb) { eject = disk_ext_cb->set_eject_state; replace = disk_ext_cb->replace_image_index; }
+    if ((!eject || !replace) && disk_cb) { eject = disk_cb->set_eject_state; replace = disk_cb->replace_image_index; }
+    if (!eject || !replace) return -1;
+    /* Replace the disc currently in the drive, like a physical swap:
+       the running program (a GameShark boot disc, a game waiting for
+       the next disc) keeps running, no reset anywhere in the sequence. */
+    cur = disk_iface_current_index();
+    memset(&info, 0, sizeof info);
+    info.path = path;
+    eject(true);
+    ok = replace(cur, &info);
+    eject(false);
+    return ok ? 0 : -1;
 }
 
 static void video_cb(const void *data, unsigned w, unsigned h, size_t pitch)
@@ -567,6 +664,105 @@ static void apply_controller_type(void)
 
 void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
 
+/* ---- cheats: feeding the core's dormant engine ----
+ * The engine (libpcsxcore/cheat.c) applies fed codes at VBlank and knows
+ * nothing about files or menus. This layer owns the file side: the bundled
+ * database file for the running serial plus the per-game state file.
+ * Protocol: every feed starts with retro_cheat_reset (so the fed list is
+ * exactly the enabled set, in database order), then retro_cheat_set feeds
+ * the enabled codes in order. Gate off, BIOS boot, missing serial or
+ * missing database file all mean "reset and feed nothing": a stale fed
+ * list from a previous game must never write into another game's RAM.
+ * Manual codes are the one exception to "feed at start": they fire on the
+ * user's trigger (the cheat screen's Save), so game start and gate-on
+ * skip them, and the first emulated frame after a Save disables them
+ * again (cheat_post_frame, called after every retro_run). */
+#define CHEAT_MAX_MANUAL 64
+static int cheat_manual_idx[CHEAT_MAX_MANUAL];
+static char *cheat_manual_code[CHEAT_MAX_MANUAL];
+static int n_cheat_manual = 0;
+static int cheat_n_enabled = 0;
+
+static void cheat_clear_manual(void)
+{
+    int i;
+    for (i = 0; i < n_cheat_manual; i++) free(cheat_manual_code[i]);
+    n_cheat_manual = 0;
+}
+
+void cheat_reset_all(void)
+{
+    retro_cheat_reset();
+    cheat_clear_manual();
+    cheat_n_enabled = 0;
+}
+
+int cheat_enabled_count(void) { return cheat_n_enabled; }
+
+void cheat_apply_saved(int include_manual)
+{
+    char dbpath[1200], stpath[1200], serial[32];
+    cht_db db;
+    cht_state *st = NULL;
+    int nst = 0, i, feed = 0;
+
+    cheat_reset_all();   /* the fed list becomes exactly this game's enabled set */
+    if (!cfg.cheat_enable || app_game_is_bios()) return;
+    cht_dashed_serial(hooks_game_serial(), serial, sizeof serial);
+    if (!serial[0]) return;
+    snprintf(dbpath, sizeof dbpath, APP_DIR "/cheats/%s.cht", serial);
+    if (cht_db_load(dbpath, &db) != 0) return;
+    snprintf(stpath, sizeof stpath, APP_DIR "/configs/%s.cheats", serial);
+    cht_state_load(stpath, &st, &nst);   /* missing file: nothing enabled */
+    for (i = 0; i < db.n_codes; i++) {
+        cht_code *c = &db.codes[i];
+        int j, en = 0;
+        uint32_t val = 0;
+        char *sub;
+        if (!c->supported) continue;
+        for (j = 0; j < nst; j++)
+            if (!strcmp(st[j].name, c->name)) { en = 1; val = st[j].value; break; }
+        if (!en) continue;
+        if (c->manual && !include_manual) continue;   /* no trigger, no fire */
+        if (c->has_options) {
+            if (c->is_range) {
+                if (val < c->range_min) val = c->range_min;
+                if (val > c->range_max) val = c->range_max;
+            } else if (c->n_opts > 0) {
+                int k, found = 0;
+                for (k = 0; k < c->n_opts; k++)
+                    if (c->opt_vals[k] == val) { found = 1; break; }
+                if (!found) val = c->opt_vals[0];   /* database changed: fall back to first */
+            } else val = 0;
+        } else val = 0;
+        sub = cht_code_substitute(c, val);
+        if (!sub) continue;
+        retro_cheat_set((unsigned)feed, 1, sub);
+        if (c->manual) {
+            if (n_cheat_manual < CHEAT_MAX_MANUAL) {
+                cheat_manual_idx[n_cheat_manual] = feed;
+                cheat_manual_code[n_cheat_manual] = sub;
+                n_cheat_manual++;
+                sub = NULL;
+            } else logf_("cheat: too many manual codes, one stays on\n");
+        }
+        free(sub);
+        feed++;
+        cheat_n_enabled++;
+    }
+    cht_state_free(st, nst);
+    cht_db_free(&db);
+}
+
+void cheat_post_frame(void)
+{
+    int i;
+    if (!n_cheat_manual) return;
+    for (i = 0; i < n_cheat_manual; i++)
+        retro_cheat_set((unsigned)cheat_manual_idx[i], 0, cheat_manual_code[i]);
+    cheat_clear_manual();
+}
+
 static void run_game(const char *path)
 {
     struct retro_game_info gi = { path, NULL, 0, NULL };
@@ -582,6 +778,7 @@ static void run_game(const char *path)
 
     int is_bios = !strcmp(path, "bios:");   /* game-list Boot BIOS entry: BIOS menu, no disc */
     game_is_disc = !is_bios && !strncmp(path, "cdrom:", 6);
+    game_is_bios = is_bios;
     if (is_bios)
         snprintf(game_name, sizeof game_name, "BIOS");   /* no per-game file exists for it, so global settings stay */
     else {
@@ -627,6 +824,7 @@ static void run_game(const char *path)
     boot_frames = 0;
     if (hwr_boot_hold) logf_("BIOS logo: software renderer until the game starts\n");
     hooks_game_started();
+    cheat_apply_saved(0);   /* gate on: re-feed this game's enabled codes (manual codes do not fire) */
     apply_spu_mdec();
     audio_set_stretch(cfg.audio_stretch);
     log_memory("game started");
@@ -685,6 +883,7 @@ static void run_game(const char *path)
             do {
                 WHERE("emulating (retro_run, no speed limit)");
                 retro_run();
+                cheat_post_frame();   /* manual codes fire for exactly one frame */
                 fmv_track(0);
                 runs++; speed_runs++;
             } while (runs < 12 && sysGetSystemTime() - t_start < 14000 && !combo_held);
@@ -699,6 +898,7 @@ static void run_game(const char *path)
             do {
                 WHERE("emulating (retro_run, skipping a video)");
                 retro_run();
+                cheat_post_frame();   /* manual codes fire for exactly one frame */
                 fmv_track(0);
                 runs++; speed_runs++;
             } while (fmv.skipping && runs < 12 && sysGetSystemTime() - t_start < 14000);
@@ -716,6 +916,7 @@ static void run_game(const char *path)
                 struct frame_snap s0;
                 frame_snap(&s0);
                 retro_run();
+                cheat_post_frame();   /* manual codes fire for exactly one frame */
                 t = sysGetSystemTime() - t0;
                 slow_frame_check(&s0, t);
                 fmv_track(t);
@@ -797,6 +998,7 @@ static void run_game(const char *path)
     app_in_game = 0;
     hooks_game_stopping();
     spu_mdec_enable(0);
+    cheat_reset_all();   /* never let one game's fed codes write into the next game's RAM */
     retro_unload_game();
     input_rumble_stop();
     logf_("game closed\n");

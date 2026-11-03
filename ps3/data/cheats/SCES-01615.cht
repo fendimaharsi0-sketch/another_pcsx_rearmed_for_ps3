@@ -1,0 +1,55 @@
+; CHTDB: ; [ Cool Boarders 3 (Europe) {SCES-01615} ]
+
+[Mega Points]
+Type = Gameshark
+Activation = EndFrame
+8009AEE4 FFFF
+
+[No Time Penalties For Missed Gates]
+Type = Gameshark
+Activation = EndFrame
+8009AFFA 0000
+
+[Stop Timer For First Place]
+Type = Gameshark
+Activation = EndFrame
+8009C7DC 0000
+
+[Open All Courses]
+Type = Gameshark
+Activation = EndFrame
+8006903C 0005
+
+[Select Extra Character]
+Type = Gameshark
+Activation = EndFrame
+800690B0 ????
+Option = Eddie:0x010D
+Option = Mars:0x010E
+Option = Kimber:0x010F
+Option = Irving:0x0110
+Option = Bob:0x0111
+Option = Joshua:0x0112
+Option = Cool:0x0113
+Option = Burg:0x0114
+
+[Have Extra Characters]
+Type = Gameshark
+Activation = EndFrame
+800BDB9C 0015
+
+[Have Extra Free Ride Boards]
+Type = Gameshark
+Activation = EndFrame
+800BE1B0 000A
+
+[Have Extra Free Style Boards]
+Type = Gameshark
+Activation = EndFrame
+800BE2C8 000A
+
+[Have Extra Alpine Boards]
+Type = Gameshark
+Activation = EndFrame
+800BE3E0 0003
+

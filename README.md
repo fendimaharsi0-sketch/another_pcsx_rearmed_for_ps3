@@ -210,7 +210,7 @@ The in-game menu has these entries:
 | Renderer | **RSX 2x**, 3x, 4x, 4.5x, Software (native), RSX 1x (native, drawn by the RSX) | In game, it shows the resolution actually drawn. |
 | Picture filter | **Smoothing on SPUs**, Sharp (nearest), Smooth (bilinear), FXAA (RSX) | |
 | Aspect ratio | **4:3**, 14:9, Zoom 14:9, Zoom 16:9, Stretch to screen | Zoom crops the top and bottom. |
-| Widescreen (GTE 16:9) | **Off**, On (16:9) | GTE widescreen, like DuckStation: in RTPS/RTPT the projected X offset is scaled 3/4 before adding OFX (the screen centre is not scaled), so more of the 3D world fits inside the 4:3 VRAM picture. Pair with Aspect ratio = Stretch to screen on a 16:9 TV, which stretches it back to correct proportions with a wider field of view; at 4:3 it only looks squashed, and Zoom 16:9 is not a substitute (it crops the top and bottom and stretches vertically). Only GTE-projected 3D vertices are affected: sprites, HUD, 2D backgrounds, FMV and CPU-projected polygons keep their coordinates and stretch with the display aspect, and games that cull in world space at 4:3 gain no extra field of view. Default off, per game. Takes effect immediately, no game restart. |
+| Widescreen (GTE Hack 16:9) | **Off**, On (16:9) | GTE widescreen: in RTPS/RTPT the projected X offset is scaled 3/4 before adding OFX (the screen centre is not scaled), so more of the 3D world fits inside the 4:3 VRAM picture. Pair with Aspect ratio = Stretch to screen on a 16:9 TV, which stretches it back to correct proportions with a wider field of view; at 4:3 it only looks squashed, and Zoom 16:9 is not a substitute (it crops the top and bottom and stretches vertically). Only GTE-projected 3D vertices are affected: sprites, HUD, 2D backgrounds, FMV and CPU-projected polygons keep their coordinates and stretch with the display aspect, and games that cull in world space at 4:3 gain no extra field of view. Default off, per game. Takes effect immediately, no game restart. |
 | Screen size | **100% x 100%** | Shrink or stretch the picture to fit your TV. |
 | Frame skip | **Auto**, Off | Software renderer only. |
 | Dithering | **Off**, On | |
@@ -219,7 +219,8 @@ The in-game menu has these entries:
 | Left stick as D-pad | **On**, Off | |
 | Right stick as buttons | **Off**, On | Triangle/X/Square/Circle. |
 | Analog joystick | **On (DualShock)**, Off (digital pad) | Digital pad for games that force another layout with analog on (Moto Racer 2). Quick toggle in the pause menu, after Reset. When on, stick-as-D-pad/buttons are bypassed. No L3+R3 combo: that combination is a real move in Ape Escape (crawl + hide). |
-| Turbo CD | **Off**, On | Upstream TurboCD, already in the core: instant CD seeks + faster reads. Auto-off during XA audio and FMV. Applies on resume in a game; per game. |
+| Turbo CD | **Off**, On | Instant CD seeks + faster reads. Auto-off during XA audio and FMV. Applies on resume in a game; per game. |
+| Enable cheats | **Off**, On | Master switch for cheats (global only). The Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off. See Cheats below. |
 | Vibration | **On**, Off | DualShock 3 vibration in games that use it. |
 | FMV decoding | **SPUs**, PPU | |
 | PS1 CPU speed | **Normal**, +50%, +75% | Some games may glitch. |
@@ -231,12 +232,59 @@ The in-game menu has these entries:
 | VRAM check (debug) | **Off**, On | The software renderer draws too, for comparison. |
 | Debug log | **Off**, On | Writes the log files and hang reports. |
 | Texture filter | **Nearest**, Bilinear, Bilinear (Performance) | Prototype, RSX only, in the upscaled pass only, directly below Renderer in the menu. Bilinear = manual 4-tap for all textured modes. Performance = hardware LINEAR for 15-bit direct textures only (1 fetch), manual bilinear for CLUT modes, so the speedup depends on how much 15-bit texture a game uses; its transparent/STP edges are softer than manual (plain average, not majority vote) and texture-window edges can blend across the window. Native VRAM stays nearest, so it never double-blurs. Takes effect immediately, no game restart. |
-| Sprite filter | **Nearest**, Bilinear, Bilinear (Performance) | Same modes as Texture filter, but for sprites, like DuckStation's Sprite Texture Filtering: textured GP0 sprites (textured rectangles, `do_rect`) plus textured polygons whose UV mapping is axis-aligned (U varies only with X, V only with Y — a 2D, non-rotated, non-skewed quad/triangle; both triangles of a quad must pass). Nearest keeps small sprites, particles and HUD icons crisp. Rotated, skewed or perspective polygons keep Texture filter. RSX only, upscaled pass only. Takes effect immediately, no game restart. |
+| Sprite filter | **Nearest**, Bilinear, Bilinear (Performance) | Same modes as Texture filter, but for sprites: textured GP0 sprites (textured rectangles, `do_rect`) plus textured polygons whose UV mapping is axis-aligned (U varies only with X, V only with Y — a 2D, non-rotated, non-skewed quad/triangle; both triangles of a quad must pass). Nearest keeps small sprites, particles and HUD icons crisp. Rotated, skewed or perspective polygons keep Texture filter. RSX only, upscaled pass only. Takes effect immediately, no game restart. |
 | Memory card 1 | Press X for the picker | Picker, in order: Auto (the game's own card, `saves/<serial>_1.mcd`), the imported cards, None, and the legacy default `saves/pcsx-card1.mcd` when such a file exists. The core reads the chosen card directly from `saves/imported/` at launch, no copy, so switching cards can never lose saves. The other slot cannot pick the same imported file. Per game. Applies on the next launch; Reset alone does not apply it. |
 | Memory card 2 | Press X for the picker | Same picker as slot 1 (Auto = `saves/<serial>_2.mcd`, imported cards, None, legacy default `saves/pcsx-card2.mcd` when it exists). Default is None. The other slot cannot pick the same imported file. Per game. Next launch only. |
 | Import PS3 VMC | Press X | Copies a PS3 virtual card from `savedata/vmc/*.VM1` (read-only there, never written) into the imported library `saves/imported/<name>.mcd`; an existing library copy is backed up as `<name>.mcd.bak`. It does not change the active card or mode: pick it in Memory card 1 or 2 to play with it. One-way only: saves made here go to the library file, never back to XMB. Game list only, never in a game. A PS1 card holds only 15 blocks, so expect many `.VM1` files: the picker sorts them and scrolls. |
 
 Settings for all games are saved in `USRDIR/settings.txt`.
+
+## Cheats
+
+Cheats are GameShark codes written to game memory once per frame by the
+core's own cheat engine (already in the tree, dormant until now). The
+front-end only parses database files and feeds the engine.
+
+- **Enable cheats** (Settings, global, off by default) must be on first.
+  Turning it off mid-game resets every fed code at once; turning it on
+  re-reads the state file. It never deletes the state file.
+- Pause menu > **Cheats** (only shown when the gate is on) opens a
+  full-screen list for the running game: X toggles `[X]`/`[ ]`,
+  Left/Right changes an option value, L1/R1 pages. Triangle saves,
+  Circle discards. Saving writes `USRDIR/configs/<serial>.cheats` (one
+  enabled name per line, `Name<TAB>value` for option codes) and feeds
+  the engine; the next game start re-feeds the same file.
+- Codes the engine cannot run (DuckStation-extended opcodes, Assembly
+  type) are shown as `(unsupported)` and never fed. Manual codes fire
+  once, on the save that enables them, and are not fed at game start.
+- The database is DuckStation's chtdb (`cheats/`, one `.cht` file per
+  serial, bundled as-is, no curation). Patch files are not bundled:
+  patches are a separate feature, not cheats. Database copyright is
+  held by the original cheat authors (chtdb's LICENSE covers only its
+  processing scripts, MIT); the repo's README states the data may be
+  used by other emulators that support GameShark codes.
+- Because a wrong code writes to the wrong address, cheats can crash
+  games or corrupt saves. That is what the gate is for.
+
+## Swap disc
+
+Pause menu > **Swap disc** (above Reset, shown for any running disc
+except the BIOS menu) opens a full-screen picker. It is deliberately
+not locked to multi-disc games:
+
+- **Discs of the loaded playlist** (when the game was launched from an
+  `.m3u`): numbered `Disc 1..N`, the disc in the drive marked
+  `(current)`. Picking one swaps within the playlist.
+- **Every scanned disc image** (`.cue/.chd/.pbp/.ccd/.iso/.img/.bin`
+  from the game-list folders): picking one replaces the disc in the
+  drive with that file. This is the GameShark-era swap: boot the cheat
+  disc, then swap to the game image. Playlist files (`.m3u`) and
+  executables (`.exe`) are not swap targets.
+- Controls: X swaps, L1/R1 pages, Circle goes back without swapping.
+  A swap is one eject -> change -> close cycle with no reset anywhere
+  in it, so the running program keeps running and detects the new disc
+  on resume. The playlist on disk is never modified: relaunching a
+  playlist loads it pristine again.
 
 ## Per-game settings
 

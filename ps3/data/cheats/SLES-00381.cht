@@ -1,0 +1,43 @@
+; CHTDB: ; [ Grid Run (Europe) {SLES-00381} ]
+
+[Always have 5 flags]
+Description = Always a number less than the flags needed in that level disable the code before get a flag and you win the level
+Type = Gameshark
+Activation = EndFrame
+8009C7F3 0005
+
+[Always have 10 flags]
+Description = Always a number less than the flags needed in that level disable the code before get a flag and you win the level
+Type = Gameshark
+Activation = EndFrame
+8009C7F3 000A
+
+[Always have 20 flags]
+Description = Always a number less than the flags needed in that level disable the code before get a flag and you win the level
+Type = Gameshark
+Activation = EndFrame
+8009C7F3 0014
+
+[Always have 30 flags]
+Description = Always a number less than the flags needed in that level disable the code before get a flag and you win the level
+Type = Gameshark
+Activation = EndFrame
+8009C7F3 001E
+
+[Always have 40 flags]
+Description = Always a number less than the flags needed in that level disable the code before get a flag and you win the level
+Type = Gameshark
+Activation = EndFrame
+8009C7F3 0028
+
+[Always have 50 flags]
+Description = Always a number less than the flags needed in that level disable the code before get a flag and you win the level
+Type = Gameshark
+Activation = EndFrame
+8009C7F3 0032
+
+[Enemy = 0 flags]
+Type = Gameshark
+Activation = EndFrame
+8009C82B 0000
+

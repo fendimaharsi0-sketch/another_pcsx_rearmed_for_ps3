@@ -1,0 +1,48 @@
+; CHTDB: ; [ G-Police (Spain) (Platinum) {SLES-00856 | SLES-10856} ]
+
+[Infinite Energy (Activate only during missions)]
+Type = Gameshark
+Activation = EndFrame
+801EEE90 1389
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+30093B48 ????
+Option = 1:0x0000
+Option = 2:0x0001
+Option = 3:0x0002
+Option = 4:0x0003
+Option = 5:0x0004
+Option = 6:0x0005
+Option = 7:0x0006
+Option = 8:0x0007
+Option = 9:0x0008
+Option = 10:0x0009
+Option = 11:0x000A
+Option = 12:0x000B
+Option = 13:0x000C
+Option = 14:0x000D
+Option = 15:0x000E
+Option = 16:0x000F
+Option = 17:0x0010
+Option = 18:0x0011
+Option = 19:0x0012
+Option = 20:0x0013
+Option = 21:0x0014
+Option = 22:0x0015
+Option = 23:0x0016
+Option = 24:0x0017
+Option = 25:0x0018
+Option = 26:0x0019
+Option = 27:0x001A
+Option = 28:0x001B
+Option = 29:0x001C
+Option = 30:0x001D
+Option = 31:0x001E
+Option = 32:0x001F
+Option = 33:0x0020
+Option = 34:0x0021
+Option = 35:0x0022
+Option = 36 credits:0x0023
+

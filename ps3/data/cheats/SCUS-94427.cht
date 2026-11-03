@@ -1,0 +1,75 @@
+; CHTDB: ; [ Tiny Tank (USA) (1999) (Sony Computer Entertainment America) {SCUS-94427} <tinytank> ]
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+800A802E 2400
+
+[Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+8009F832 2400
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+8009F31A 2400
+
+[Infinite Health Underground Recycling Plant (Body Split Battle Only!)]
+Type = Gameshark
+Activation = EndFrame
+8010B126 000C
+D00716E8 1020
+800ACDBE AE42
+D00716E8 4020
+800ACDBE 2400
+
+[Infinite Teeny Weeny]
+Type = Gameshark
+Activation = EndFrame
+800A39CA 2400
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+800714FE ????
+Option = Dead River Canyon:0x0000
+Option = Mortar-Villa Airfield:0x0001
+Option = Underground Recycling Plant 1:0x0002
+Option = Raw Material Nano Mine:0x0003
+Option = Desert Robo-Train:0x0004
+Option = Nanometal Curing + Cooling Center:0x0005
+Option = The Nanometal Mountain:0x0006
+Option = Steel-Earth Plains:0x0007
+Option = Atmospheric Reduction Center:0x0008
+Option = Magneto Synchrotron Transporter:0x0009
+Option = Underground Recycling Plant 2:0x000A
+Option = The Frozen Lake:0x000B
+Option = Mount Mutank:0x000C
+Option = The Rail Gun Launcher:0x000D
+Option = Unknown:0x000E
+Option = The Maze (Final Mission):0x000F
+Option = Mutank Slide:0x0010
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A7083C80 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A7083C80 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A7083C80 10000400
+
+[Widescreen 16-9 (Adjusted)]
+Type = Gameshark
+Activation = EndFrame
+80083C80 0C00
+80083C90 0D00
+

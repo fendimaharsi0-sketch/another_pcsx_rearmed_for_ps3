@@ -1,0 +1,101 @@
+; CHTDB: ; [ Mission: Impossible (Europe) {SLES-01906} ]
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+8008FC0C 0196
+8008FC1C 00FF
+
+[Infinite Ammo]
+Type = Gameshark
+Activation = EndFrame
+301F5812 0063
+
+[Infinite Fire Extinguisher]
+Type = Gameshark
+Activation = EndFrame
+301F5820 00FF
+
+[Infinite Teaser]
+Type = Gameshark
+Activation = EndFrame
+301F5832 0064
+
+[Infinite Blue Spray]
+Type = Gameshark
+Activation = EndFrame
+301F5852 0064
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+8008FD7C 00FF
+
+[Infinite Masks]
+Type = Gameshark
+Activation = EndFrame
+301F5822 0063
+
+[Infinite Ammo After Pickup]
+Type = Gameshark
+Activation = EndFrame
+80045446 3C00
+
+[Select Level]
+Description = Select a new game to start the level
+Type = Gameshark
+Activation = EndFrame
+D008F894 0000
+3008F894 00??
+Option = Lundkwist-Base:0x00
+Option = Submarine Pen (Ice Hit):0x01
+Option = The Embassy:0x02
+Option = The Camp:0x03
+Option = KGB-HQ:0x04
+Option = Security corridor:0x05
+Option = Sewer:0x06
+Option = On the Run:0x07
+Option = On the Run II:0x08
+Option = Fire Alarm:0x09
+Option = The Interrogation:0x0A
+Option = Serum:0x0B
+Option = Medical Room:0x0c
+Option = Rooftops:0x0D
+Option = Terminal Room:0x0E
+Option = Escape the Roof:0x0F
+Option = Waterloo Station:0x10
+Option = IGV:0x11
+Option = IGV II:0x12
+Option = On the Roof:0x13
+Option = Submarine Pen (Ice Storm):0x14
+Option = Tunnel:0x15
+Option = The Base:0x16
+Option = Gunboat:0x17
+
+[Select FMV sequence to view]
+Description = Hold down L1+L2+R1+R2 at the main menu and select new game.
+Type = Gameshark
+Activation = EndFrame
+D008F888 000F
+800E6148 ????
+D008F888 0100
+800E6148 2858
+Option = XAP-Logo:0x3558
+Option = Intro:0x358C
+Option = Menue:0x35C0
+Option = Ice hit briefing:0x35F4
+Option = NOC briefing:0x3628
+Option = Arrested I:0x365C
+Option = Arrested II:0x3690
+Option = Arrested III:0x36C4
+Option = The rooftop:0x36F8
+Option = Falling down:0x372C
+Option = Meeting Candice I:0x3760
+Option = Meeting Candice II:0x3794
+Option = Bomb on board:0x37C8
+Option = The mole escapes:0x37FC
+Option = Ice storm briefing:0x3864
+Option = Tunnel explosion:0x3898
+Option = The end:0x38CC
+Option = Action outro:0x3900
+

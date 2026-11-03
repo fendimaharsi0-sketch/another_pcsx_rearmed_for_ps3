@@ -1,0 +1,14 @@
+; CHTDB: ; [ This Is Football (Europe) {SCES-01700} ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+80088EF0 2D3?
+OptionRange = 0:9
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+80088EF2 003?
+OptionRange = 0:9
+

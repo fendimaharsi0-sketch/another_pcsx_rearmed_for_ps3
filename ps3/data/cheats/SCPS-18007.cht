@@ -1,0 +1,62 @@
+; CHTDB: ; [ Tomoyasu Hotei: Stolen Song (Japan) (VPick Included) {SCPS-18007 | SCPS-18008} ]
+
+[Practice All]
+Type = Gameshark
+Activation = EndFrame
+301E219C 0008
+
+[Challenge Mode BATTLE OF GUITARISTS Score 999]
+Type = Gameshark
+Activation = EndFrame
+801E25E0 03E7
+
+[(I always win) wins score of 0 RIFF1]
+Type = Gameshark
+Activation = EndFrame
+801E2670 0000
+
+[Winning score of 0 RIFF2]
+Type = Gameshark
+Activation = EndFrame
+801E2674 0000
+
+[Easy Scoring]
+Type = Gameshark
+Activation = EndFrame
+801E2670 0000
+801E2674 0000
+
+[Max Gauge]
+Type = Gameshark
+Activation = EndFrame
+801E1734 0019
+
+[Select Scene]
+Type = Gameshark
+Activation = EndFrame
+801E14A4 ????
+Option = Scene 1:0x0001
+Option = Scene 2:0x0002
+Option = Scene 3:0x0003
+Option = Scene 4:0x0004
+Option = Scene 5:0x0005
+Option = Scene 6:0x0006
+Option = Scene 7:0x0007
+Option = Scene 8:0x0008
+Option = Scene 9:0x0009
+Option = Scene 10:0x000A
+Option = Scene 11:0x000B
+Option = Scene 12:0x000C
+
+[GUITAR RACK]
+Type = Gameshark
+Activation = EndFrame
+301E1188 0001
+301E118C 0001
+301E1190 0001
+301E1194 0001
+301E1198 0001
+301E119C 0001
+301E11A0 0001
+301E11A4 0001
+

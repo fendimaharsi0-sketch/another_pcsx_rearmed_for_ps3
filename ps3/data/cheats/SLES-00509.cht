@@ -1,0 +1,57 @@
+; CHTDB: ; [ Soviet Strike (Germany) {SLES-00509} ]
+
+[Infinite Rockets]
+Type = Gameshark
+Activation = EndFrame
+800F5298 0026
+
+[Infinite Missiles]
+Type = Gameshark
+Activation = EndFrame
+800F52B0 0008
+
+[Infinite Guns]
+Type = Gameshark
+Activation = EndFrame
+800F5280 049A
+
+[Infinite Fuel]
+Type = Gameshark
+Activation = EndFrame
+800837F2 6400
+
+[Infinite Armour]
+Type = Gameshark
+Activation = EndFrame
+800836EC 05DC
+
+[Infinite Attempts]
+Type = Gameshark
+Activation = EndFrame
+80074EC8 0002
+
+[Infinite ECM]
+Type = Gameshark
+Activation = EndFrame
+800F52C8 0030
+
+[Infinite Sidewinders]
+Type = Gameshark
+Activation = EndFrame
+800F52C8 0008
+
+[Infinite Fuel Pods]
+Type = Gameshark
+Activation = EndFrame
+800F52C8 0002
+
+[Select Access Campaign]
+Type = Gameshark
+Activation = EndFrame
+30074EC9 ????
+Option = 1:0x0000
+Option = 2:0x0001
+Option = 3:0x0002
+Option = 4:0x0003
+Option = 5:0x0004
+

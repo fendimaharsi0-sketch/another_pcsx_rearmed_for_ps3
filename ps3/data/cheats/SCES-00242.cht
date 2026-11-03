@@ -1,0 +1,57 @@
+; CHTDB: ; [ Ridge Racer Revolution (Europe) {SCES-00242} ]
+
+[Always First]
+Type = Gameshark
+Activation = EndFrame
+8007C750 0001
+
+[Infinite Checkpoint time]
+Type = Gameshark
+Activation = EndFrame
+80194BAC 05DC
+
+[Course select]
+Type = Gameshark
+Activation = EndFrame
+801DCC14 0707
+
+[12 cars]
+Type = Gameshark
+Activation = EndFrame
+801DE564 0028
+
+[Buggies]
+Type = Gameshark
+Activation = EndFrame
+801E65DC 0028
+
+[Time Trial Special Opponent Car Selector]
+Description = This will also fix Time Trial mode in Special tracks after unlocking Extra tracks by replacing non-existent special opponent car with the specified car. However, the player will not unlock any car in those tracks, and this will not affect the unlocked car in the other tracks.
+Type = Gameshark
+Activation = EndFrame
+Option = F/A Racing:00
+Option = RT Ryukyu:01
+Option = RT Yellow Solvalou:02
+Option = RT Blue Solvalou:03
+Option = RT Pink Mappy:04
+Option = RT Blue Mappy:05
+Option = Galaga RT Prid's:06
+Option = Galaga RT Carrot:07
+Option = RT Bosconian:08
+Option = RT Nebulasray:09
+Option = RT Xevious Red:10
+Option = RT Xevious Green:11
+Option = 13th Racing:12
+Option = 13th Racing Kid:13
+Option = White Angel:14
+301F75DE 00??
+
+[Race on Special courses]
+Type = Gameshark
+Activation = EndFrame
+Option = Special 1:0x03
+Option = Special 2:0x04
+Option = Extra Special 1:0x0B
+Option = Extra Special 2:0x0C
+301DCCD4 00??
+

@@ -1,0 +1,14 @@
+; CHTDB: ; [ FIFA: Road to World Cup 98 (Europe) {SLES-00914} ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8004F7B4 000?
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8004F7B0 000?
+OptionRange = 0:9
+

@@ -1,0 +1,14 @@
+; CHTDB: ; [ NBA Shoot Out (USA) (1996) (Sony Computer Entertainment America) {SCUS-94500} <nbaso> ]
+
+[P1 Select Score]
+Type = Gameshark
+Activation = EndFrame
+80096ED0 00??
+OptionRange = 0:100
+
+[P2 Select Score]
+Type = Gameshark
+Activation = EndFrame
+80096ED4 00??
+OptionRange = 0:100
+

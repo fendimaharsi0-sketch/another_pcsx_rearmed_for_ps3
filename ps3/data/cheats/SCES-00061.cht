@@ -1,0 +1,50 @@
+; CHTDB: ; [ Twisted Metal (Europe) {SCES-00061} ]
+
+[P1 Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+8018F7FC 0003
+
+[P1 Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801A2140 0080
+
+[P1 Infinite Turbo]
+Type = Gameshark
+Activation = EndFrame
+801A21F8 0005
+
+[P1 Infinite Specials]
+Type = Gameshark
+Activation = EndFrame
+801A2442 0015
+
+[Select Perm Level]
+Type = Gameshark
+Activation = EndFrame
+8018F530 ????
+Option = Arena Duel:0x0000
+Option = Warehouse:0x0001
+Option = Freeway:0x0002
+Option = Park:0x0003
+Option = Cyburbia (1P Mode Only):0x0004
+Option = Rooftop:0x0005
+Option = Arena:0x0006
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A71747C0 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A71747C0 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A71747C0 10000400
+

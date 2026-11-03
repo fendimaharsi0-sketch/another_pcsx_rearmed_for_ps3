@@ -1,0 +1,14 @@
+; CHTDB: ; [ MLB 2000 (USA) (1999) (989 Sports) {SCUS-94359} <mlb2k> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+3001D416 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+3001D458 00??
+OptionRange = 0:99
+

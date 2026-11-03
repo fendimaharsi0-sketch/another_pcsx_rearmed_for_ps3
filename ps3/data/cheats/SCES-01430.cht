@@ -1,0 +1,26 @@
+; CHTDB: ; [ LiberoGrande (Europe) {SCES-01430} ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+801287A0 000?
+OptionRange = 0:9
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+801287A4 000?
+OptionRange = 0:9
+
+[Unlock Extra Players]
+Type = Gameshark
+Activation = EndFrame
+50000502 0000
+800E4B08 0101
+
+[Unlock All Challenges]
+Type = Gameshark
+Activation = EndFrame
+5000031A 0000
+800C4850 03FF
+

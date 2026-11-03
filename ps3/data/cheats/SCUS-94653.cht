@@ -1,0 +1,14 @@
+; CHTDB: ; [ MLB 2003 (USA) (2002) (Sony Computer Entertainment America) {SCUS-94653} <mlb2k3> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+3001D495 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+3001D453 00??
+OptionRange = 0:99
+

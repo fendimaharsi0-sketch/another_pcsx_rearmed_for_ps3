@@ -10,6 +10,7 @@
 #include "common.h"
 #include "core_hooks.h"
 #include "cover.h"
+#include "cheatdb.h"
 #include "hwr/hwr.h"
 
 #define MAX_GAMES 2000
@@ -357,10 +358,10 @@ static const item_t settings_items[] = {
     { "CPU", "Dynarec is much faster. 2 threads is experimental and can freeze some games." },
     { "Renderer", "RSX draws 3D at higher resolution on the PS3 GPU (experimental)." },
     { "Texture filter", "Nearest / Bilinear (manual, all modes) / Bilinear (Performance: hardware 15-bit, manual CLUT). RSX only, upscaled pass only. Native VRAM stays nearest." },
-    { "Sprite filter", "Texture filter for sprites (textured GP0 sprites and axis-aligned textured polygons, like DuckStation's Sprite Texture Filtering). Nearest keeps small sprites, particles and HUD icons crisp. Same modes as Texture filter. RSX only, upscaled pass only." },
+    { "Sprite filter", "Texture filter for sprites (textured GP0 sprites and axis-aligned textured polygons). Nearest keeps small sprites, particles and HUD icons crisp. Same modes as Texture filter. RSX only, upscaled pass only." },
     { "Picture filter", "How the picture is scaled to your TV." },
     { "Aspect ratio", "Zoom keeps the PS1 shape and crops the top and bottom." },
-    { "Widescreen (GTE 16:9)", "GTE widescreen, like DuckStation: 3D vertices projected by the GTE are compressed 3/4, then stretched back by Aspect = Stretch to screen on a 16:9 TV, widening the field of view. Pair with Stretch; at 4:3 it only looks squashed. Sprites, HUD and 2D backgrounds are not compressed, so they stretch with the display. Takes effect immediately, no game restart." },
+    { "Widescreen (GTE Hack 16:9)", "GTE widescreen: 3D vertices projected by the GTE are compressed 3/4, then stretched back by Aspect = Stretch to screen on a 16:9 TV, widening the field of view. Pair with Stretch; at 4:3 it only looks squashed. Sprites, HUD and 2D backgrounds are not compressed, so they stretch with the display. Takes effect immediately, no game restart." },
     { "Screen size", "Press X to shrink or stretch the picture to fit your TV." },
     { "Frame skip", "Auto skips drawing frames in heavy scenes. Software renderer only." },
     { "Dithering", "PS1 dithering (software renderer and RSX)." },
@@ -381,15 +382,16 @@ static const item_t settings_items[] = {
     { "Memory card 1", "X opens the card picker: Auto = this game's own card (saves/SCUS-12345_1.mcd), then the imported cards, then None. The other slot cannot pick the same imported file. Next launch only; Reset alone does not apply it." },
     { "Memory card 2", "X opens the card picker: Auto = this game's own card (saves/SCUS-12345_2.mcd), then the imported cards, then None. The other slot cannot pick the same imported file. Default is None. Next launch only." },
     { "Import PS3 VMC", "Press X to copy a PS3 virtual card from savedata/vmc/ into the imported library (saves/imported/). It does not change the active card or mode: pick it in Memory card 1 or 2 to play with it. One-way: saves made here never appear in XMB. Game list only, never in a game." },
-    { "Analog joystick", "DualShock analog sticks on, or a digital pad. Some games force another layout with analog on (Moto Racer 2): turn it off. When on, Left stick as D-pad and Right stick as buttons are bypassed (the stick and D-pad stay independent)." },
-    { "Turbo CD", "Faster CD loads: instant seeks + quicker reads (upstream TurboCD). Auto-off during XA audio and FMV." },
+    { "Analog joystick", "DualShock analog sticks on, or a digital pad. When on, Left stick as D-pad and Right stick as buttons are bypassed (the stick and D-pad stay independent)." },
+    { "Turbo CD", "Faster CD loads: instant seeks + quicker reads. Auto-off during XA audio and FMV." },
+    { "Enable cheats", "Master switch for cheats. The Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off. Cheats write to game memory every frame and can crash games or corrupt saves." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 29 settings are grouped into 5 pages, flipped with L1/R1 (top row).
+   The 30 settings are grouped into 5 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -403,10 +405,10 @@ static const int set_page_items[NPAGES][9] = {
     { 1, 2, 3, 4, 5, 6, 7, 9, 10 },          /* Picture: Renderer, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
-    { 19, 20, 22, 23, 24, 25, 26 },          /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC */
+    { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 7 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 7 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8 };
+typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -475,6 +477,7 @@ static void setting_value(int i, char *b, size_t n)
     case 26: snprintf(b, n, "%s", cfg.vmc_source[0] ? cfg.vmc_source : "Press X to import"); break;
     case 27: snprintf(b, n, "%s", cfg.analog ? "On (DualShock)" : "Off (digital pad)"); break;
     case 28: snprintf(b, n, "%s", cfg.turbo_cd ? "On" : "Off"); break;
+    case 29: snprintf(b, n, "%s", cfg.cheat_enable ? "On" : "Off"); break;
     }
 }
 
@@ -544,6 +547,17 @@ static void setting_change_(int i, int dir, int in_game)
     case 26: if (!in_game) vmc_import_page(); break;   /* import writes a card file: game list only, never in a game */
     case 27: cfg.analog ^= 1; break;
     case 28: cfg.turbo_cd ^= 1; break;
+    case 29: cfg.cheat_enable ^= 1;
+        /* The gate cuts application, not just menu visibility: turning it
+           off mid-game resets every fed code at once, turning it on
+           re-reads the state file (manual codes do not fire: there was no
+           trigger, the same as at game start). From the game list there is
+           no engine to touch; the value is saved on panel exit. */
+        if (in_game) {
+            if (cfg.cheat_enable) cheat_apply_saved(0);
+            else cheat_reset_all();
+        }
+        break;
     }
 }
 
@@ -1494,11 +1508,324 @@ extern int game_dump_vram(void);
 extern void game_reset(void);
 extern void game_settings_changed(void);
 
+/* ---------------- cheats: full-screen selection ----------------
+ * The pause quick menu is only the entry point: this screen lists one
+ * game's codes (the bundled database file for its serial), paged like the
+ * game list, so even a thousand-entry list (FFIX) fits. Checkboxes are
+ * ASCII "[X]"/"[ ]": the overlay font has no glyphs.
+ * Toggles only change the pending selection. Triangle saves: the state
+ * file is written and the engine is fed (manual codes fire once, on this
+ * save). Circle discards everything pending: the game was never touched,
+ * so there is nothing to undo. Unsupported codes show their reason and
+ * cannot be toggled; the state file keeps names, never indices. */
+#define CHT_ROWS 12
+static int cheat_screen(void)
+{
+    char dbpath[1200], stpath[1200], serial[32];
+    cht_db db;
+    cht_state *st = NULL;
+    int nst = 0, n, i, sel = 0, top = 0, saved = 0;
+    int *enabled, *opt_idx;
+    uint32_t *opt_val;
+    const char *msg = NULL;
+    static int held_frames;
+
+    cht_dashed_serial(hooks_game_serial(), serial, sizeof serial);
+    if (!serial[0]) {
+        vmc_message("Cheats", "No disc serial", "Cheats need a disc serial to look up.", NULL);
+        return 0;
+    }
+    snprintf(dbpath, sizeof dbpath, APP_DIR "/cheats/%s.cht", serial);
+    snprintf(stpath, sizeof stpath, APP_DIR "/configs/%s.cheats", serial);
+    if (cht_db_load(dbpath, &db) != 0) {
+        char a[128];
+        snprintf(a, sizeof a, "No cheat database file for %s.", serial);
+        vmc_message("Cheats", "No cheats for this game", a, "The bundled database has no file for this serial.");
+        return 0;
+    }
+    cht_state_load(stpath, &st, &nst);   /* missing file: nothing enabled */
+    n = db.n_codes;
+    enabled = (int *)calloc(n > 0 ? (size_t)n : 1, sizeof(int));
+    opt_idx = (int *)malloc(sizeof(int) * (size_t)(n > 0 ? n : 1));
+    opt_val = (uint32_t *)malloc(sizeof(uint32_t) * (size_t)(n > 0 ? n : 1));
+    if (!enabled || !opt_idx || !opt_val) {
+        free(enabled); free(opt_idx); free(opt_val);
+        cht_state_free(st, nst);
+        cht_db_free(&db);
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        cht_code *c = &db.codes[i];
+        int j, found = -1;
+        opt_idx[i] = 0;
+        if (c->is_range) opt_val[i] = c->range_min;
+        else if (c->n_opts > 0) opt_val[i] = c->opt_vals[0];
+        else opt_val[i] = 0;
+        if (!c->supported) continue;   /* a stale state entry for an unsupported code is pruned on save */
+        for (j = 0; j < nst; j++)
+            if (!strcmp(st[j].name, c->name)) { found = j; break; }
+        if (found < 0) continue;
+        enabled[i] = 1;
+        if (!st[found].has_value) continue;
+        if (c->is_range) {
+            opt_val[i] = st[found].value;
+            if (opt_val[i] < c->range_min) opt_val[i] = c->range_min;
+            if (opt_val[i] > c->range_max) opt_val[i] = c->range_max;
+        } else if (c->n_opts > 0) {
+            int k;
+            for (k = 0; k < c->n_opts; k++)
+                if (c->opt_vals[k] == st[found].value) { opt_idx[i] = k; break; }
+            opt_val[i] = c->opt_vals[opt_idx[i]];
+        }
+    }
+    cht_state_free(st, nst);
+
+    logf_("menu: cheat screen (%s, %d codes)\n", serial, n);
+    while (!app_exit_requested) {
+        uint32_t p;
+        int r;
+        frame_begin(0);
+        p = input_pressed();
+        {   /* a held direction repeats after a moment (same as the VMC picker) */
+            uint32_t h = (input_pad(0)->buttons | input_pad(1)->buttons) & (PAD_UP | PAD_DOWN);
+            held_frames = h ? held_frames + 1 : 0;
+            if (held_frames > 20 && held_frames % 3 == 0) p |= h;
+        }
+        if (n > 0) {
+            if (p & PAD_UP) sel = (sel + n - 1) % n;
+            if (p & PAD_DOWN) sel = (sel + 1) % n;
+            if (p & PAD_L1) sel = sel > CHT_ROWS ? sel - CHT_ROWS : 0;
+            if (p & PAD_R1) sel = sel + CHT_ROWS < n ? sel + CHT_ROWS : n - 1;
+            if (sel < top) top = sel;
+            if (sel >= top + CHT_ROWS) top = sel - CHT_ROWS + 1;
+        }
+        if ((p & (PAD_LEFT | PAD_RIGHT)) && n > 0) {
+            cht_code *c = &db.codes[sel];
+            int dir = (p & PAD_LEFT) ? -1 : 1;
+            if (c->supported && c->has_options) {
+                if (c->is_range) {
+                    int v = (int)opt_val[sel] + dir;
+                    if (v < (int)c->range_min) v = (int)c->range_min;
+                    if (v > (int)c->range_max) v = (int)c->range_max;
+                    opt_val[sel] = (uint32_t)v;
+                } else if (c->n_opts > 0) {
+                    opt_idx[sel] = (opt_idx[sel] + dir + c->n_opts) % c->n_opts;
+                    opt_val[sel] = c->opt_vals[opt_idx[sel]];
+                }
+                msg = NULL;
+            }
+        }
+        if ((p & PAD_CROSS) && n > 0) {
+            if (!db.codes[sel].supported) msg = "This code is not supported by the PS1 cheat engine";
+            else { enabled[sel] ^= 1; msg = NULL; }
+        }
+        if (p & PAD_CIRCLE) break;
+        if (p & PAD_TRIANGLE) {
+            /* The configs dir exists once any game has its own settings;
+               a cheat-only game may not have it yet. */
+            mkdir(APP_DIR "/configs", 0777);
+            if (cht_state_save(stpath, db.codes, enabled, opt_val, n) != 0) {
+                msg = "Could not write the cheat state file";
+            } else {
+                cheat_apply_saved(1);   /* this save is the manual codes' trigger */
+                saved = 1;
+                break;
+            }
+        }
+        header("Cheats", serial);
+        if (n == 0) {
+            ovl_text(MARGIN, 90, "No cheats in this file.", C_DIM);
+        }
+        for (r = 0; r < CHT_ROWS; r++) {
+            int idx = top + r, y = 90 + r * 44;
+            cht_code *c;
+            char line[300], opt[128];
+            uint32_t col;
+            int optw = 0;
+            if (idx >= n) break;
+            c = &db.codes[idx];
+            if (idx == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            col = !c->supported ? C_DIM : idx == sel ? C_ACCENT : C_TEXT;
+            ovl_text(MARGIN, y, enabled[idx] ? "[X]" : "[ ]", col);
+            if (c->has_options && c->supported) {
+                if (c->is_range) snprintf(opt, sizeof opt, "%u", opt_val[idx]);
+                else if (c->n_opts > 0) snprintf(opt, sizeof opt, "%s", c->opt_names[opt_idx[idx]]);
+                else opt[0] = 0;
+                optw = ovl_text_width(opt);
+                ovl_text(OVL_W - MARGIN - optw, y, opt, C_DIM);
+            }
+            if (!c->supported) snprintf(line, sizeof line, "%s (unsupported)", c->name);
+            else if (c->manual) snprintf(line, sizeof line, "%s (manual)", c->name);
+            else snprintf(line, sizeof line, "%s", c->name);
+            text_fit_r(MARGIN + 72, y, line, col, OVL_W - MARGIN - optw - (optw ? 24 : 0));
+        }
+        if (msg) ovl_text(MARGIN, 618, msg, C_ACCENT);
+        footer("X toggle   L1 R1 page   Left/Right option   Triangle save   Circle back");
+        frame_end();
+    }
+    free(enabled); free(opt_idx); free(opt_val);
+    cht_db_free(&db);
+    return saved;
+}
+
+#define DSWAP_ROWS 12
+
+/* One picker row: either a disc of the loaded playlist (index into the
+   core's image list) or a disc image file from the scanned game list. */
+typedef struct {
+    int is_playlist;
+    unsigned index;      /* playlist rows only */
+    const char *path;    /* file rows only: pointer into games[] (untouched while in-game) */
+    char label[256];
+} dswap_entry;
+
+/* Full-screen disc picker, opened from the pause menu. Returns 1 when a
+   swap ran, with the swapped disc's label in out_label; 0 on back or
+   when nothing could be swapped. The pause menu is the gateway only:
+   the swap itself runs here, and the game resumes from the pause menu. */
+static int disc_swap_screen(char *out_label, size_t out_len)
+{
+    dswap_entry *list;
+    int n = 0, sel = 0, top = 0, swapped = 0, i;
+    unsigned num = 0, cur = 0;
+    char curpath[1200], curlabel[256];
+    const char *msg = NULL;
+    static int held_frames;
+
+    if (!disk_iface_available()) {
+        vmc_message("Swap disc", "Disk control not available", "The core did not offer its disk-control interface.", NULL);
+        return 0;
+    }
+    num = disk_iface_num_images();
+    cur = disk_iface_current_index();
+    curpath[0] = 0;
+    disk_iface_path(cur, curpath, sizeof curpath);
+    if (disk_iface_label(cur, curlabel, sizeof curlabel) != 0)
+        snprintf(curlabel, sizeof curlabel, "%s", app_game_name());
+
+    /* Count first, then fill: one malloc, no realloc failure paths. */
+    if (num > 1) n = (int)num;
+    for (i = 0; i < ngames; i++) {
+        const char *p = games[i];
+        if (!is_ext(p, "cue") && !is_ext(p, "chd") && !is_ext(p, "pbp") &&
+            !is_ext(p, "ccd") && !is_ext(p, "iso") && !is_ext(p, "img") &&
+            !is_ext(p, "bin"))
+            continue;
+        if (curpath[0] && !strcmp(p, curpath)) continue;
+        n++;
+    }
+    if (n == 0) {
+        vmc_message("Swap disc", "No discs to swap to", "No other disc image was found in the scanned folders.", NULL);
+        return 0;
+    }
+    list = (dswap_entry *)malloc(sizeof *list * (size_t)n);
+    if (!list) return 0;
+    n = 0;
+    /* Section 1: the loaded playlist's discs, only when there is more
+       than one (a single image has nothing to swap to within itself). */
+    if (num > 1) {
+        for (i = 0; (unsigned)i < num; i++) {
+            dswap_entry *e = &list[n++];
+            e->is_playlist = 1;
+            e->index = (unsigned)i;
+            e->path = NULL;
+            if (disk_iface_label((unsigned)i, e->label, sizeof e->label) != 0)
+                snprintf(e->label, sizeof e->label, "Disc %u", (unsigned)i + 1);
+        }
+    }
+    /* Section 2: every scanned disc image. NOT locked to the playlist:
+       this is what a GameShark-style boot disc swaps to, and it also
+       covers swapping a single-disc game to any other image. Playlist
+       files (.m3u) and executables (.exe) are not disc targets; the
+       disc already in the drive is excluded (it is section 1's
+       "(current)" row, or the game itself for a single image). */
+    for (i = 0; i < ngames; i++) {
+        dswap_entry *e;
+        const char *p = games[i];
+        if (!is_ext(p, "cue") && !is_ext(p, "chd") && !is_ext(p, "pbp") &&
+            !is_ext(p, "ccd") && !is_ext(p, "iso") && !is_ext(p, "img") &&
+            !is_ext(p, "bin"))
+            continue;
+        if (curpath[0] && !strcmp(p, curpath)) continue;
+        e = &list[n++];
+        e->is_playlist = 0;
+        e->index = 0;
+        e->path = p;
+        snprintf(e->label, sizeof e->label, "%s", base_name(p));
+    }
+    logf_("menu: swap disc screen (%d entries, %u playlist discs)\n", n, num);
+    while (!app_exit_requested) {
+        uint32_t p;
+        int r;
+        frame_begin(0);
+        p = input_pressed();
+        {   /* a held direction repeats after a moment (same as the VMC picker) */
+            uint32_t h = (input_pad(0)->buttons | input_pad(1)->buttons) & (PAD_UP | PAD_DOWN);
+            held_frames = h ? held_frames + 1 : 0;
+            if (held_frames > 20 && held_frames % 3 == 0) p |= h;
+        }
+        if (p & PAD_UP) sel = (sel + n - 1) % n;
+        if (p & PAD_DOWN) sel = (sel + 1) % n;
+        if (p & PAD_L1) sel = sel > DSWAP_ROWS ? sel - DSWAP_ROWS : 0;
+        if (p & PAD_R1) sel = sel + DSWAP_ROWS < n ? sel + DSWAP_ROWS : n - 1;
+        if (sel < top) top = sel;
+        if (sel >= top + DSWAP_ROWS) top = sel - DSWAP_ROWS + 1;
+        if (p & PAD_CIRCLE) break;
+        if (p & PAD_CROSS) {
+            dswap_entry *e = &list[sel];
+            int ok;
+            if (e->is_playlist && e->index == cur) {
+                msg = "That disc is already in the drive";
+            } else {
+                /* The drive now holds the new disc; the picker closes
+                   and the game resumes from the pause menu. */
+                ok = e->is_playlist ? disk_iface_swap_to_index(e->index)
+                                    : disk_iface_swap_to_file(e->path);
+                if (ok == 0) {
+                    if (out_label && out_len) snprintf(out_label, out_len, "%s", e->label);
+                    swapped = 1;
+                    break;
+                }
+                msg = "Swap failed";
+            }
+        }
+        header("Swap disc", curlabel);
+        for (r = 0; r < DSWAP_ROWS; r++) {
+            int idx = top + r, y = 90 + r * 44;
+            dswap_entry *e;
+            char line[300];
+            uint32_t col;
+            if (idx >= n) break;
+            e = &list[idx];
+            if (idx == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            col = (e->is_playlist && e->index == cur) ? C_DIM : idx == sel ? C_ACCENT : C_TEXT;
+            if (e->is_playlist) {
+                if (e->index == cur) snprintf(line, sizeof line, "Disc %u: %s (current)", e->index + 1, e->label);
+                else snprintf(line, sizeof line, "Disc %u: %s", e->index + 1, e->label);
+            } else snprintf(line, sizeof line, "%s", e->label);
+            text_fit_r(MARGIN, y, line, col, OVL_W - MARGIN);
+        }
+        if (msg) ovl_text(MARGIN, 618, msg, C_ACCENT);
+        footer("X swap   L1 R1 page   Circle back");
+        frame_end();
+    }
+    free(list);
+    return swapped;
+}
+
 int menu_ingame(void)
 {
-    static const char *items[] = { "Resume", "Save state", "Load state", "Reset", "Analog joystick", "Settings", "Own settings for this game",
+    static const char *items[] = { "Resume", "Save state", "Load state", "Swap disc", "Reset", "Joystick mode", "Settings", "Cheats", "Own settings for this game",
                                    "Quit to game list", "Dump VRAM (debug)" };
-    int N = cfg.vram_check ? 9 : 8;
+    /* Action ids are the items[] indexes. Swap disc sits above Reset and
+       is shown for any running disc (not the BIOS): it is NOT gated on
+       the playlist size, so a GameShark-style boot disc (a single image)
+       can swap to any scanned image. The Cheats row only exists when
+       the global gate is on (and the running game has a serial); the Dump
+       row only when VRAM check is on. qitems maps display rows to action
+       ids, rebuilt every frame so a gate toggle in the settings page below
+       takes effect when returning here. */
+    int qitems[11], N = 0;
     static int slot;             /* kept while the app runs */
     int sel = 0, settings = 0, ssel = 0, cpu_entry = -1;
     const char *msg = NULL;
@@ -1509,6 +1836,14 @@ int menu_ingame(void)
     while (!app_exit_requested) {
         uint32_t p;
         int i;
+        N = 0;
+        qitems[N++] = 0; qitems[N++] = 1; qitems[N++] = 2;
+        if (!app_game_is_bios()) qitems[N++] = 3;
+        qitems[N++] = 4; qitems[N++] = 5; qitems[N++] = 6;
+        if (cfg.cheat_enable && !app_game_is_bios() && hooks_game_serial()[0]) qitems[N++] = 7;
+        qitems[N++] = 8; qitems[N++] = 9;
+        if (cfg.vram_check) qitems[N++] = 10;
+        if (sel >= N) sel = N - 1;
         frame_begin(!settings);          /* the settings page covers the whole screen */
         p = input_pressed();
         if (settings) {
@@ -1566,32 +1901,49 @@ int menu_ingame(void)
         }
         if (p & PAD_CIRCLE) { menu_name = "game list"; logf_("menu: resume\n"); return 0; }
         if (p & PAD_CROSS) {
-            switch (sel) {
+            switch (qitems[sel]) {
             case 0: menu_name = "game list"; logf_("menu: resume\n"); return 0;
             case 1:
                 msg = game_save_state(slot) ? "State saved" : "Saving failed";
                 game_state_info(slot, info, sizeof info);
                 break;
             case 2: if (game_load_state(slot)) return 0; msg = "This slot is empty"; break;
-            case 3: game_reset(); return 0;
-            case 4:
+            case 3: {
+                static char sm[280];
+                char lbl[256];
+                if (disc_swap_screen(lbl, sizeof lbl)) {
+                    snprintf(sm, sizeof sm, "Swapped to %s", lbl);
+                    msg = sm;
+                } else msg = NULL;
+                break;
+            }
+            case 4: game_reset(); return 0;
+            case 5:
                 cfg.analog ^= 1;
                 game_settings_changed();   /* applies the port type immediately */
                 config_save();             /* persist now: per-game if Own on, else global */
-                msg = cfg.analog ? "Analog joystick on" : "Analog joystick off";
+                msg = cfg.analog ? "Joystick mode: analog" : "Joystick mode: digital";
                 break;
             /* finish this frame (the paused menu) first: starting another one without
                presenting this one made the screen blink */
-            case 5: settings = 1; ssel = 0; cpu_entry = cfg.dynarec;
+            case 6: settings = 1; ssel = 0; cpu_entry = cfg.dynarec;
                     for (i = 0; i < NPAGES; i++) set_page_row[i] = 0;
                     break;
-            case 6:
+            case 7: {
+                static char cm[64];
+                if (cheat_screen()) {
+                    snprintf(cm, sizeof cm, "Cheats saved (%d on)", cheat_enabled_count());
+                    msg = cm;
+                } else msg = NULL;
+                break;
+            }
+            case 8:
                 config_game_enable(!config_game_active());
                 game_settings_changed();
                 msg = config_game_active() ? "Changes now apply to this game only" : "This game uses the settings for all games";
                 break;
-            case 7: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
-            case 8: {
+            case 9: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
+            case 10: {
                 static char dm[64];
                 int n = game_dump_vram();
                 if (n) snprintf(dm, sizeof dm, "Dump %d written to USRDIR/dumps", n);
@@ -1604,11 +1956,17 @@ int menu_ingame(void)
         ovl_text(320, 132, "Paused", C_ACCENT);
         for (i = 0; i < N; i++) {
             int y = 180 + i * 46;
+            int a = qitems[i];
             char line[80];
-            if (i == 1 || i == 2) snprintf(line, sizeof line, "%s   < slot %d >", items[i], slot);
-            else if (i == 4) snprintf(line, sizeof line, "%s: %s", items[i], cfg.analog ? "On" : "Off");
-            else if (i == 6) snprintf(line, sizeof line, "%s: %s", items[i], config_game_active() ? "On" : "Off");
-            else snprintf(line, sizeof line, "%s", items[i]);
+            if (a == 1 || a == 2) snprintf(line, sizeof line, "%s   < slot %d >", items[a], slot);
+            else if (a == 5) snprintf(line, sizeof line, "%s: %s", items[a], cfg.analog ? "analog" : "digital");
+            else if (a == 7) {
+                int n = cheat_enabled_count();
+                if (n > 0) snprintf(line, sizeof line, "%s: %d on", items[a], n);
+                else snprintf(line, sizeof line, "%s", items[a]);
+            }
+            else if (a == 8) snprintf(line, sizeof line, "%s: %s", items[a], config_game_active() ? "On" : "Off");
+            else snprintf(line, sizeof line, "%s", items[a]);
             if (i == sel) ovl_fill(305, y - 7, 670, 42, C_SEL);
             ovl_text(330, y, line, i == sel ? C_ACCENT : C_TEXT);
         }

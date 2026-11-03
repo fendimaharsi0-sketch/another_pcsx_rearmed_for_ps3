@@ -1,0 +1,14 @@
+; CHTDB: ; [ NBA Live 2002 (Spain) {SLES-03722} ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800A8B40 00??
+OptionRange = 0:100
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800A9194 00??
+OptionRange = 0:100
+

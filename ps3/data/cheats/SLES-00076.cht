@@ -1,0 +1,14 @@
+; CHTDB: ; [ Slam 'n Jam '96 featuring Magic & Kareem aka Slam 'n Jam '96 featuring Magic & Kareem: Signature Edition (Europe) {SLES-00076} ]
+
+[P1 Select Score]
+Type = Gameshark
+Activation = EndFrame
+800EB520 00??
+OptionRange = 0:99
+
+[P2 Select Score]
+Type = Gameshark
+Activation = EndFrame
+800EB704 00??
+OptionRange = 0:99
+

@@ -1,0 +1,129 @@
+; CHTDB: ; [ Crash Bash (USA) (2000) (Sony Computer Entertainment America) {SCUS-94570} <crashbsh> ]
+
+[Only Need 1 Trophy To Win]
+Type = Gameshark
+Activation = EndFrame
+A605A6E0 00000002
+
+[Infinite Ball Points]
+Type = Gameshark
+Activation = EndFrame
+8009D57C 000F
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+8009D562 0014
+
+[Infinite Tank Health]
+Type = Gameshark
+Activation = EndFrame
+800CAD50 0006
+
+[Have All Treasures]
+Type = Gameshark
+Activation = EndFrame
+50004302 0000
+8005A6F8 0202
+
+[Warp Room 2 Unlocked]
+Type = Gameshark
+Activation = EndFrame
+3005A780 0001
+
+[Warp Room 3 Unlocked]
+Type = Gameshark
+Activation = EndFrame
+3005A792 0001
+
+[Warp Room 4 Unlocked]
+Type = Gameshark
+Activation = EndFrame
+3005A785 0001
+
+[Warp Room 5 Unlocked]
+Type = Gameshark
+Activation = EndFrame
+3005A79B 0001
+
+[Select Crash Bash Arena Background]
+Type = Gameshark
+Activation = EndFrame
+90078CEA 2403????
+Option = 01. [Crate Crush] Jungle Bash:0x0024
+Option = 02. [Crate Crush] Jungle Bash (Crystal):0x0025
+Option = 03. [Crate Crush] Space Bash:0x0022
+Option = 04. [Crate Crush] Space Bash (Crystal):0x0023
+Option = 05. [Crate Crush] Snow Bash:0x0026
+Option = 06. [Crate Crush] Snow Bash (Crystal):0x0027
+Option = 07. [Crate Crush] Drain Bash:0x0028
+Option = 08. [Crate Crush] Drain Bash (Crystal):0x0029
+Option = 09. [Crate Crush] Tie Breaker (Has a Purple Skybox for some reason):0x002A
+Option = 10. [Polar Push] Polar Panic:0x0083
+Option = 11. [Polar Push] Polar Panic (Crystal):0x0086
+Option = 12. [Polar Push] Tilt Panic:0x007F
+Option = 13. [Polar Push] Tilt Panic (Crystal):0x0093
+Option = 14. [Polar Push] Melt Panic:0x0084
+Option = 15. [Polar Push] Melt Panic (Crystal):0x0097
+Option = 16. [Polar Push] Manic Panic:0x0086
+Option = 17. [Polar Push] Manic Panic (Crystal):0x0096
+Option = 18. [Pogo Pandemonium] Pogo Painter:0x0047
+Option = 19. [Pogo Pandemonium] Pogo Painter (Crystal):0x004B
+Option = 20. [Pogo Pandemonium] Pogo-A-Gogo:0x0048
+Option = 21. [Pogo Pandemonium] Pogo-A-Gogo (Crystal):0x004C
+Option = 22. [Pogo Pandemonium] El Pogo Loco:0x0049
+Option = 23. [Pogo Pandemonium] El Pogo Loco (Crystal):0x004D
+Option = 24. [Pogo Pandemonium] Pogo Padlock:0x004A
+Option = 25. [Pogo Pandemonium] Pogo Padlock (Crystal):0x004E
+Option = 26. [Ballistix] CrashBall:0x006A
+Option = 27. [Ballistix] CrashBall (Crystal):0x006B
+Option = 28. [Ballistix] Beach Ball:0x006C
+Option = 29. [Ballistix] Beach Ball (Crystal):0x006D
+Option = 30. [Ballistix] N. Ballism:0x006E
+Option = 31. [Ballistix] N. Ballism (Crystal):0x006F
+Option = 32. [Ballistix] Sky Balls:0x0070
+Option = 33. [Ballistix] Sky Balls (Crystal):0x0071
+Option = 34. [Desert Fox] Desert Fox:0x002F
+Option = 35. [Desert Fox] Desert Fox (Crystal):0x0034
+Option = 36. [Desert Fox] Metal Fox:0x0031
+Option = 37. [Desert Fox] Metal Fox (Crystal):0x0036
+Option = 38. [Desert Fox] Jungle Fox:0x0030
+Option = 39. [Desert Fox] Jungle Fox (Crystal):0x0035
+Option = 40. [Desert Fox] Swamp Fox:0x002E
+Option = 41. [Desert Fox] Swamp Fox (Crystal):0x0033
+Option = 42. [Crash Dash] Dot Dash:0x00A1
+Option = 43. [Crash Dash] Dot Dash (Crystal):0x00B8
+Option = 44. [Crash Dash] Toxic Dash:0x00A7
+Option = 45. [Crash Dash] Toxic Dash (Crystal):0x00B6
+Option = 46. [Crash Dash] Splash Dash:0x00A8
+Option = 47. [Crash Dash] Splash Dash (Crystal):0x00B9
+Option = 48. [Crash Dash] Dante's Dash:0x00A9
+Option = 49. [Crash Dash] Dante's Dash (Crystal):0x00B7
+Option = 50. [Medieval Mayhem]Ring Ding:0x007D
+Option = 51. [Medieval Mayhem]Ring Ding (Crystal):0x007E
+Option = 52. [Medieval Mayhem]Dragon Drop:0x00C3
+Option = 53. [Medieval Mayhem]Dragon Drop (Crystal):0x00BA
+Option = 54. [Medieval Mayhem]Mallet Mash:0x0051
+Option = 55. [Medieval Mayhem]Mallet Mash (Crystal):0x0052
+Option = 56. [Medieval Mayhem]Keg Kaboom:0x005F
+Option = 57. [Medieval Mayhem]Keg Kaboom (Crystal):0x0060
+Option = 58. [Boss] Papu Pummel:0x002B
+Option = 59. [Boss] Bearminator (Glitchy):0x008D
+Option = 60. [Boss] Big Bad Fox:0x0032
+Option = 61. [Boss] Oxide Ride (Crash):0x005C
+Option = 62. [Misc] Tournament Stand (Glitchy):0x00CD
+Option = 63. [Misc] Warp Room 1 (Glitchy):0x00CE
+Option = 64. [Misc] Warp Room 2 (Glitchy):0x00CF
+Option = 65. [Misc] Warp Room 3 (Crash):0x00D0
+Option = 66. [Misc] Warp Room 4 (Infinite Loading):0x00D1
+Option = 67. [Misc] Warp Room 5 (Crash):0x00D2
+Option = 68. [Misc] Demo Warp Room:0x00D3
+Option = 69. [Misc] No Background:0x00C5
+;#### PATCHES LISTED BELOW ####
+
+[Widescreen 16-9]
+Type = Gameshark
+Activation = EndFrame
+8001443C 0900
+8001443E 2402
+

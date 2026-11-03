@@ -1,0 +1,14 @@
+; CHTDB: ; [ NHL FaceOff 99 (USA) (1998) (989 Sports) {SCUS-94235} <nhlfce99> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800D4926 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800D4928 00??
+OptionRange = 0:99
+

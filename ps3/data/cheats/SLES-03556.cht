@@ -1,0 +1,139 @@
+; CHTDB: ; [ Mega Man Legends 2 (Europe) {SLES-03556} ]
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+3008C110 00A0
+
+[Max Health]
+Type = Gameshark
+Activation = EndFrame
+3008C112 00A0
+
+[Water Pressure at Max]
+Type = Gameshark
+Activation = EndFrame
+8008C23A 0100
+
+[Time 00.00.00]
+Type = Gameshark
+Activation = EndFrame
+8009C808 0000
+
+[Have All Buster Parts]
+Type = Gameshark
+Activation = EndFrame
+50001002 0202
+8008C24C 0201
+3008C26A 001F
+
+[Have All Helmets/Armor/Shoes]
+Type = Gameshark
+Activation = EndFrame
+300985AF 00FF
+300985B0 000F
+300985B1 00FF
+
+[Have all items]
+Type = Gameshark
+Activation = EndFrame
+900985B8 FFF07F1F
+900985BC F03FFFFF
+800985C0 FFFF
+
+[Have All Key Items]
+Type = Gameshark
+Activation = EndFrame
+800985B2 07FF
+900985B4 0F8FFFF2
+
+[Moon Jump (Press X, then L2)]
+Type = Gameshark
+Activation = EndFrame
+D009BEC2 BEFF
+8008C0DA FF20
+
+[Have All Special Weapons]
+Type = Gameshark
+Activation = EndFrame
+800985A8 FFFF
+300985AA 0003
+
+[Max Zenny]
+Type = Gameshark
+Activation = EndFrame
+9009C810 98967F
+
+[Select Weapon Slot 1]
+Type = Gameshark
+Activation = EndFrame
+3008C22E 00??
+Option = Lifter:0x00
+Option = Kick:0x01
+Option = Mega Buster:0x02
+Option = Crusher:0x03
+Option = Buster Cannon:0x04
+Option = Hyper Shell:0x05
+Option = Homing Missile:0x06
+Option = Ground Crawler:0x07
+Option = Vacuum Arm:0x08
+Option = Reflector Arm:0x09
+Option = Shield Arm:0x0A
+Option = Blade Arm:0x0B
+Option = Shining Laser:0x0C
+Option = Machine Gun Arm:0x0D
+Option = Spread Buster:0x0E
+Option = Aqua Blaster:0x0F
+Option = Hunter Seeker:0x10
+Option = Drill Arm:0x11
+
+[Select Weapon Slot 2]
+Type = Gameshark
+Activation = EndFrame
+3008C22F 00??
+Option = Lifter:0x00
+Option = Kick:0x01
+Option = Mega Buster:0x02
+Option = Crusher:0x03
+Option = Buster Cannon:0x04
+Option = Hyper Shell:0x05
+Option = Homing Missile:0x06
+Option = Ground Crawler:0x07
+Option = Vacuum Arm:0x08
+Option = Reflector Arm:0x09
+Option = Shield Arm:0x0A
+Option = Blade Arm:0x0B
+Option = Shining Laser:0x0C
+Option = Machine Gun Arm:0x0D
+Option = Spread Buster:0x0E
+Option = Aqua Blaster:0x0F
+Option = Hunter Seeker:0x10
+Option = Drill Arm:0x11
+
+[Set Karma]
+Description = Affects how citizens talk to Mega Man, shop prices, etc.
+Type = Gameshark
+Activation = EndFrame
+Author = JukePlz
+8009C828 ????
+Option = Liked:32767
+Option = Neutral:0
+Option = Hated:32768
+
+[Set Roll's Affection]
+Description = Needs the Flutter repaired, and an affection change to trigger Roll's event.
+Type = Gameshark
+Activation = EndFrame
+Author = JukePlz
+8009C82A ????
+Option = Liked:32767
+Option = Neutral:0
+Option = Hated:32768
+
+[Room Select]
+Description = Room 0 (debug room) was removed from PAL version.
+Type = Gameshark
+Activation = EndFrame
+8009C7F8 ????
+OptionRange = 1:9999
+

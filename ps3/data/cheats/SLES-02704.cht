@@ -1,0 +1,21 @@
+; CHTDB: ; [ UEFA Euro 2000 (Europe) {SLES-02704} ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8003C29C 00??
+OptionRange = 0:15
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8003C2A0 00??
+OptionRange = 0:15
+
+[Crazy Keepers]
+Type = Gameshark
+Activation = EndFrame
+80128F2C 007F
+801283D8 001D
+80129276 00C5
+

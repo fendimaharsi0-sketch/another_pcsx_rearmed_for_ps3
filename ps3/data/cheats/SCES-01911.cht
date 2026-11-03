@@ -1,0 +1,8 @@
+; CHTDB: ; [ Syphon Filter (France) {SCES-01911} ]
+
+;#### PATCHES LISTED BELOW ####
+[Widescreen 16-9]
+Type = Gameshark
+Activation = EndFrame
+3012DE01 000C
+

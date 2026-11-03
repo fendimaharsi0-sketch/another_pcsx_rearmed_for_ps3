@@ -1,0 +1,14 @@
+; CHTDB: ; [ FIFA 2001 (Europe) {SLES-03140} ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+80037EE0 00??
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+80037EDC 00??
+OptionRange = 0:9
+

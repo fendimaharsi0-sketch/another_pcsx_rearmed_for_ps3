@@ -1,0 +1,14 @@
+; CHTDB: ; [ World League Soccer '98 (Europe) {SLES-00717} ]
+
+[Select Team 1 Score]
+Type = Gameshark
+Activation = EndFrame
+800ED5A4 00??
+OptionRange = 0:9
+
+[Select Team 2 Score]
+Type = Gameshark
+Activation = EndFrame
+800ED5A6 00??
+OptionRange = 0:9
+

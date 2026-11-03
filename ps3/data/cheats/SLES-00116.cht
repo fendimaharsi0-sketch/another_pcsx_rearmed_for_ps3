@@ -1,0 +1,19 @@
+; CHTDB: ; [ FIFA Soccer 96 (Europe) {SLES-00116} ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+80016CC0 0000
+
+[P1 Select Score]
+Type = Gameshark
+Activation = EndFrame
+80016CD2 000?
+OptionRange = 0:10
+
+[P2 Select Score]
+Type = Gameshark
+Activation = EndFrame
+80016CD4 000?
+OptionRange = 0:10
+

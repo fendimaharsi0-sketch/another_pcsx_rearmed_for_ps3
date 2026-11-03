@@ -1,0 +1,14 @@
+; CHTDB: ; [ NFL GameDay 98 (USA) (1997) (Sony Computer Entertainment America) {SCUS-94173} <nflgd98> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800F47C4 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800F47C8 00??
+OptionRange = 0:99
+

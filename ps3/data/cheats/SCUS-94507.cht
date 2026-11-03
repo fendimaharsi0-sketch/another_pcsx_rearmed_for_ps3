@@ -1,0 +1,16 @@
+; CHTDB: ; [ MLB Pennant Race (USA) (1996) (Sony Computer Entertainment America) {SCUS-94507} <mlbpenrc> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+300121DC 00??
+300121E2 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+3001221E 00??
+30012224 00??
+OptionRange = 0:99
+

@@ -1,0 +1,91 @@
+; CHTDB: ; [ Rockman Dash 2 - Episode 2 - Ooinaru Isan (Japan) {SLPM-86813} ]
+
+[Have All Buster Parts]
+Type = Gameshark
+Activation = EndFrame
+50001F01 0001
+3008C504 0001
+
+[Have All Helmets/Armor/Shoes]
+Type = Gameshark
+Activation = EndFrame
+30098867 00FF
+30098868 000F
+30098869 00FF
+
+[Have All Items]
+Type = Gameshark
+Activation = EndFrame
+80098870 7F1F
+80098872 FFF0
+80098874 FFFF
+80098876 F03F
+80098878 FFFF
+
+[Have All Key Items]
+Type = Gameshark
+Activation = EndFrame
+8009886A 07FF
+8009886C FFF2
+8009886E 0F8F
+
+[Have All Special Weapons]
+Type = Gameshark
+Activation = EndFrame
+80098860 FFFF
+80098862 FFF3
+80098864 FFFF
+80098866 F707
+80098868 3F0F
+
+[Invincible]
+Type = Gameshark
+Activation = EndFrame
+8008C444 0001
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+3008C4EB 0063
+
+[Max Zenny]
+Type = Gameshark
+Activation = EndFrame
+9009CAC8 98967F
+
+[Unlock All Extra Modes]
+Type = Gameshark
+Activation = EndFrame
+8009CABC 0003
+
+[Debug Room]
+Description = Loads on new game
+Type = Gameshark
+Activation = EndFrame
+30078FC4 0000
+30078FC5 0000
+
+[Set Karma]
+Description = Affects how citizens talk to Rock, shop prices, etc.
+Type = Gameshark
+Activation = EndFrame
+8009CAE0 ????
+Option = Neutral:0
+Option = Liked:32767
+Option = Hated:32768
+
+[Set Roll's Affection]
+Description = Needs the Flutter repaired, and an affection change to trigger Roll's event.
+Type = Gameshark
+Activation = EndFrame
+8009CAE2 ????
+Option = Neutral:0
+Option = Liked:32767
+Option = Hated:32768
+
+[Time is 00.00.00]
+Type = Gameshark
+Activation = EndFrame
+8009CAC0 0000
+8009CAC2 0000
+

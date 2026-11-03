@@ -1,0 +1,29 @@
+; CHTDB: ; [ NHL Face Off (USA) (1996) (Sony Computer Entertainment America) {SCUS-94504} <nhlface> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800E7820 00??
+OptionRange = 0:9
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800E77BC 00??
+OptionRange = 0:9
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+800F6956 3B09
+
+[Infinite Powerplay Time (Home Team)]
+Type = Gameshark
+Activation = EndFrame
+800AAC1E 00FF
+
+[Infinite Powerplay Time (Away Team)]
+Type = Gameshark
+Activation = EndFrame
+800AAC12 00FF
+

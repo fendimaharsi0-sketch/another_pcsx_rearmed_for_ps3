@@ -1,0 +1,132 @@
+; CHTDB: ; [ Wip3out (Europe) {SCES-01909} ]
+
+[Have A Total Of 99 Points In Tournament Mode]
+Type = Gameshark
+Activation = EndFrame
+E01879C8 0000
+301879C8 0063
+
+[Venom Class Tournament Open]
+Type = Gameshark
+Activation = EndFrame
+30187839 0001
+
+[Rapier Class Tournament Open]
+Type = Gameshark
+Activation = EndFrame
+30187842 0001
+
+[Phantom Class Tournament Open]
+Type = Gameshark
+Activation = EndFrame
+3018784B 0001
+
+[Have All Challenges Completed]
+Type = Gameshark
+Activation = EndFrame
+C1000000 6000
+50001002 0000
+801876EC 0303
+
+[Have Autopilot (Press Left+Square)]
+Type = Gameshark
+Activation = EndFrame
+D018E092 8080
+301F611E 0001
+D018E092 8080
+301F611F 0001
+D018E092 8080
+301F6120 0001
+
+[Have Invisibility (Press Up+Square)]
+Type = Gameshark
+Activation = EndFrame
+D018E092 8010
+301F611E 0001
+D018E092 8010
+301F611F 0002
+D018E092 8010
+301F6120 0002
+
+[Have Multiplerockets (Press L1+Left)]
+Type = Gameshark
+Activation = EndFrame
+D018E092 0480
+301F611E 0001
+D018E092 0480
+301F611F 0007
+D018E092 0480
+301F6120 0007
+
+[Have Reflector (Press L1+Right)]
+Type = Gameshark
+Activation = EndFrame
+D018E092 0420
+301F611E 0001
+D018E092 0420
+301F611F 000B
+D018E092 0420
+301F6120 000B
+
+[Have Energy Withdraw (Press R1+Left)]
+Type = Gameshark
+Activation = EndFrame
+D018E092 0880
+301F611E 0001
+D018E092 0880
+301F611F 0003
+D018E092 0880
+301F6120 0003
+
+[Have Powerwall (Press R1+Right)]
+Type = Gameshark
+Activation = EndFrame
+D018E092 0820
+301F611E 0001
+D018E092 0820
+301F611F 0004
+D018E092 0820
+301F6120 0004
+
+[P1 Select Infinite Item]
+Type = Gameshark
+Activation = EndFrame
+801F611E ????
+Option = Auto-Pilot:0x0101
+Option = Cloak:0x0201
+Option = Energy Drain:0x0301
+Option = Force Wall:0x0401
+Option = Gravity Shield:0x0501
+Option = Mines:0x0601
+Option = Multi-Missiles:0x0701
+Option = Plasma Bolt:0x0801
+Option = Quake Disrupter:0x0A01
+Option = Reflector:0x0B01
+Option = Rocket:0x0C01
+
+[P1 Always Have Full Shield Energy]
+Type = Gameshark
+Activation = EndFrame
+801E5B94 0000
+
+[P2 Select Infinite Item]
+Type = Gameshark
+Activation = EndFrame
+801F628A ????
+Option = Auto-Pilot:0x0101
+Option = Cloak:0x0201
+Option = Energy Drain:0x0301
+Option = Force Wall:0x0401
+Option = Gravity Shield:0x0501
+Option = Mines:0x0601
+Option = Multi-Missiles:0x0701
+Option = Plasma Bolt:0x0801
+Option = Quake Disrupter:0x0A01
+Option = Reflector:0x0B01
+Option = Rocket:0x0C01
+
+[P2 Always Have Full Shield Energy]
+Type = Gameshark
+Activation = EndFrame
+801E5B98 0000
+

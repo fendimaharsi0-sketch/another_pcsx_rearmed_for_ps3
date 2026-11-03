@@ -1,0 +1,25 @@
+; CHTDB: ; [ NBA Pro 99 (Europe) {SLES-01970} ]
+
+[P1 Select Score]
+Type = Gameshark
+Activation = EndFrame
+30091BFC 00??
+OptionRange = 0:100
+
+[P2 Select Score]
+Type = Gameshark
+Activation = EndFrame
+300919C8 00??
+OptionRange = 0:100
+
+[Infinite Shot Clock]
+Type = Gameshark
+Activation = EndFrame
+80091812 04BC
+
+[Infinite Rest Points Select+L1]
+Type = Gameshark
+Activation = EndFrame
+D00917EE 0104
+80101510 0063
+

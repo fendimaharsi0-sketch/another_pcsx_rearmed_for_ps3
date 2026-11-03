@@ -143,5 +143,6 @@ sfo --title "PCSX-ReARMed for PS3" --appid PCSR00001 -f "$PS3DEV/bin/sfo.xml" "$
 cp "$ROOT/data/ICON0.PNG" "$B/pkg/ICON0.PNG"   # the XMB icon (320x176, transparent background)
 cp "$ROOT/data/PIC1.PNG" "$B/pkg/PIC1.PNG"     # the XMB background (1920x1080)
 cp "$ROOT/data/ps1titles.txt" "$B/pkg/USRDIR/"   # disc titles (tools/make_titles.py, libretro-database, CC BY-SA 4.0)
+cp -r "$ROOT/data/cheats" "$B/pkg/USRDIR/cheats"   # cheat database (duckstation/chtdb, one .cht file per serial; see README)
 pkg --contentid $CID "$B/pkg/" "$B/$NAME.pkg" >/dev/null
 ls -la "$B/$NAME.pkg"

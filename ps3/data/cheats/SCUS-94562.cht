@@ -1,0 +1,16 @@
+; CHTDB: ; [ NCAA Final Four 2000 (USA) (1999) (989 Sports) {SCUS-94562} <ncaaff2k> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+80067E7C 00??
+800DE42C 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+80068994 00??
+800DE430 00??
+OptionRange = 0:99
+

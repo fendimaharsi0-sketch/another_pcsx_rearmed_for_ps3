@@ -1,0 +1,16 @@
+; CHTDB: ; [ NFL GameDay 99 (USA, v1.0) (1998) (989 Sports) {SCUS-94234} <nflgd99a> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+80108456 00??
+801088F0 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+80108458 00??
+801088F4 00??
+OptionRange = 0:99
+

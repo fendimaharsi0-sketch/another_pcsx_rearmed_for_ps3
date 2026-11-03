@@ -1,0 +1,14 @@
+; CHTDB: ; [ NHL 99 (Europe) {SLES-01445} ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800426B6 00??
+OptionRange = 0:9
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800426F0 00??
+OptionRange = 0:9
+

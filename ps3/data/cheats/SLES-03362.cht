@@ -1,0 +1,14 @@
+; CHTDB: ; [ NBA Hoopz (Europe) {SLES-03362} ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800A0214 00??
+OptionRange = 0:100
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800A0234 00??
+OptionRange = 0:100
+
