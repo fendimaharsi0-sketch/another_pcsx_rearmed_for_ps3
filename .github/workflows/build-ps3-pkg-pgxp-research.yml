@@ -77,7 +77,7 @@ jobs:
       - name: Checkout prototype (branch ps3)
         uses: actions/checkout@v4
         with:
-          ref: ps3
+          ref: pgxp-research
 
       - name: Install host dependencies
         run: |
