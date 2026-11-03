@@ -1,0 +1,154 @@
+; CHTDB: ; [ Mega Man 8 (USA) (1997) (Capcom Entertainment) {SLUS-00453, SLUS-00453GH} <megaman8> ]
+
+[Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+8015E282 2800
+
+[Invincibility]
+Type = Gameshark
+Activation = EndFrame
+8015E2AA 2D00
+
+[1-Hit Death To Bosses]
+Type = Gameshark
+Activation = EndFrame
+8015B1BA 0100
+
+[One Hit Kills]
+Type = Gameshark
+Activation = EndFrame
+801074BE 2400
+
+[Warp To Last Stage]
+Type = Gameshark
+Activation = EndFrame
+C00FFC8C 0840
+900FFC98 2403000A
+900FFCC0 24020000
+00000000 FFFF
+
+[Wily's Stage\Select Level]
+Type = Gameshark
+Activation = EndFrame
+301C336D ????
+Option = Intro Stage 00 Intro Stage:0x0000
+Option = Frost Man:0x0001
+Option = Clown Man Stage:0x0002
+Option = Tengu Man Stage:0x0003
+Option = Grenade Stage:0x0004
+Option = Sword Man Stage:0x0005
+Option = Aqua Man Stage:0x0006
+Option = Astro Man Stage:0x0007
+Option = Search Man Stage:0x0008
+Option = Duo Stage:0x0009
+Option = Wily Tower 1 Stage:0x000A
+Option = Wily Tower 2 Stage:0x000B
+Option = Wily Tower 3 Stage:0x000C
+Option = Wily Tower 4 Stage:0x000D
+
+[Always Have Mega Ball]
+Type = Gameshark
+Activation = EndFrame
+801B1EB0 0001
+
+[Infinite Mega Balls]
+Type = Gameshark
+Activation = EndFrame
+801B1EB2 2D00
+
+[Always Have Flash Bomb]
+Type = Gameshark
+Activation = EndFrame
+801B1EB4 0001
+
+[Infinite Flash Bombs]
+Type = Gameshark
+Activation = EndFrame
+801B1EB6 2D00
+
+[Always Have Thunder Claw]
+Type = Gameshark
+Activation = EndFrame
+801B1EB8 0001
+
+[Infinite Thunder Claws]
+Type = Gameshark
+Activation = EndFrame
+801B1EBA 2D00
+
+[Always Have Ice Wave]
+Type = Gameshark
+Activation = EndFrame
+801B1EBC 0001
+
+[Infinite Ice Waves]
+Type = Gameshark
+Activation = EndFrame
+801B1EBE 2D00
+
+[Always Have Tornado Hold]
+Type = Gameshark
+Activation = EndFrame
+801B1EC0 0001
+
+[Infinite Tornado Holds]
+Type = Gameshark
+Activation = EndFrame
+801B1EC2 2D00
+
+[Always Have Water Balloon]
+Type = Gameshark
+Activation = EndFrame
+801B1EC4 0001
+
+[Infinite Water Balloons]
+Type = Gameshark
+Activation = EndFrame
+801B1EC6 2D00
+
+[Always Have Flame Sword]
+Type = Gameshark
+Activation = EndFrame
+801B1EC8 0001
+
+[Infinite Flame Swords]
+Type = Gameshark
+Activation = EndFrame
+801B1ECA 2D00
+
+[Always Have Homing Sniper]
+Type = Gameshark
+Activation = EndFrame
+801B1ECC 0001
+
+[Infinite Homing Snipers]
+Type = Gameshark
+Activation = EndFrame
+801B1ECE 2D00
+
+[Always Have Astro Crush]
+Type = Gameshark
+Activation = EndFrame
+801B1ED0 0001
+
+[Infinite Astro Crushes]
+Type = Gameshark
+Activation = EndFrame
+801B1ED2 2D00
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+801C3370 0005
+
+[Infinite Bolts]
+Type = Gameshark
+Activation = EndFrame
+8016D2F0 0009
+
+[Infinite Rush Energy]
+Type = Gameshark
+Activation = EndFrame
+801B2990 0027
+

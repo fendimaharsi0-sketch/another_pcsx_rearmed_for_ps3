@@ -1,0 +1,50 @@
+; CHTDB: ; [ Re-Loaded - The Hardcore Sequel (USA) (1996) (Interplay Productions) {SLUS-00382} <reloaded> ]
+
+[Infinite Continues]
+Type = Gameshark
+Activation = EndFrame
+800EEC08 0009
+
+[Infinite Ammo]
+Type = Gameshark
+Activation = EndFrame
+90081D9C 00000000
+
+[Infinite Bombs]
+Type = Gameshark
+Activation = EndFrame
+90081780 00000000
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+90081500 00000000
+
+[Select Perm Level]
+Type = Gameshark
+Activation = EndFrame
+80056538 ????
+Option = Gettin' Started:0x0001
+Option = Smashing Pacifists:0x0002
+Option = Goin' Underground:0x0003
+Option = Keep Cool:0x0004
+Option = Gettin' Hot:0x0005
+Option = Make Some Noize:0x0006
+Option = Hear No Evil:0x0007
+Option = Saving Clones:0x0008
+Option = Cheb's Island:0x0009
+Option = The House On The Hill:0x000A
+Option = Bunsen And The Labs:0x000B
+Option = Kickin' Some Ass:0x000C
+Option = Happy?End:0x000D
+
+[Cheat Modifier All Cheats]
+Type = Gameshark
+Activation = EndFrame
+800A57F4 003F
+
+[Fwank Unlocked]
+Type = Gameshark
+Activation = EndFrame
+3005659C 0080
+

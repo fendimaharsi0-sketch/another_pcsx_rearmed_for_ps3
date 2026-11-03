@@ -1,0 +1,78 @@
+; CHTDB: ; [ Armored Core: Master of Arena (Japan) (1999) (From Software) {SLPS-01855 / SLPS-01856} ]
+
+[Game Progress\Credits 9999999]
+Description = Set Credits to 9999999.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+9003EA98 0098967F
+
+[Game Progress\Human PLUS (強化人間)]
+Description = Set Human PLUS (強化人間) stage.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+3003EAE8 ????
+Option = No Upgrades:0x0000
+Option = Stage 1:0x0001
+Option = Stage 2:0x0004
+Option = Stage 3:0x0006
+
+[Game Progress\Deploy Restricted AC (基準違反機体)]
+Description = Set Deploy Restricted AC (基準違反機体) ability.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+3003EAEA ????
+Option = Disabled:0x0000
+Option = Enabled:0x0001
+
+[Max Credits]
+Type = Gameshark
+Activation = EndFrame
+9003EA98 05F5E0FF
+
+[Scenario Ap Max]
+Type = Gameshark
+Activation = EndFrame
+D007B006 1040
+801E6BB8 9C3B
+
+[Scenario Time]
+Type = Gameshark
+Activation = EndFrame
+D0052726 2462
+800A0DCC 5000
+
+[Arena Ap Max]
+Type = Gameshark
+Activation = EndFrame
+D007B3E2 1040
+801D8590 9C3B
+
+[Arena Enemy Ap 0]
+Type = Gameshark
+Activation = EndFrame
+D007B3E2 1040
+801D8708 0000
+
+[Booster Max]
+Type = Gameshark
+Activation = EndFrame
+800451CE EA60
+
+[Bullet 1000]
+Type = Gameshark
+Activation = EndFrame
+8004549E 03E8
+800454A0 03E8
+900454DC 03E803E8
+8004551A 03E8
+8004551C 03E8
+
+[All Options]
+Type = Gameshark
+Activation = EndFrame
+D0084708 002A
+8003EA94 FFFF
+

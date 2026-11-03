@@ -1,0 +1,29 @@
+; CHTDB: ; [ Triple Play 97 (USA) (1996) (Electronic Arts) {SLUS-00237} <tplay97> ]
+
+[Infinite Balls]
+Type = Gameshark
+Activation = EndFrame
+3001E7D0 0000
+
+[Infinite Strikes]
+Type = Gameshark
+Activation = EndFrame
+3001E7D1 0000
+
+[Infinite Outs]
+Type = Gameshark
+Activation = EndFrame
+3001E7D2 0000
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+3001E56C 00??
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+3001E560 00??
+OptionRange = 0:9
+

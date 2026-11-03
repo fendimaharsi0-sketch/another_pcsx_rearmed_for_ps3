@@ -1,0 +1,70 @@
+; CHTDB: ; [ Trap Gunner (Japan) {SLPS-01494} ]
+
+[P1 1000 Stamina]
+Type = Gameshark
+Activation = EndFrame
+801256E2 03E8
+
+[P2 1000 Stamina]
+Type = Gameshark
+Activation = EndFrame
+801260EA 03E8
+
+[P2 0 Stamina]
+Type = Gameshark
+Activation = EndFrame
+801260EA 0000
+
+[Invincibility]
+Type = Gameshark
+Activation = EndFrame
+80125706 0020
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+80109280 311A
+
+[P1 Infinite Weapons]
+Type = Gameshark
+Activation = EndFrame
+901256C8 63020163
+801256CE 0563
+801256D0 6307
+901256D4 630A0F63
+
+[P2 Infinite Weapons]
+Type = Gameshark
+Activation = EndFrame
+801260CE 6302
+901260D0 63040463
+901260D4 06630404
+
+[All 99 trapped 1P]
+Type = Gameshark
+Activation = EndFrame
+801256C6 6300
+901256C8 63630163
+901256CC 03636302
+901256D0 63046363
+901256D4 63630563
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+30124D60 ????
+Option = Van Raily:0x0000
+Option = John Bishous:0x0001
+Option = Lou Riche:0x0002
+Option = Tico:0x0003
+Option = Abdoll Rerin):0x0004
+Option = Ugetsu Tenrou:0x0005
+Option = REM:0x0006
+Option = DYN:0x0007
+Option = ERG:0x0008
+
+[Death blow]
+Type = Gameshark
+Activation = EndFrame
+A6049A1E 00430000
+

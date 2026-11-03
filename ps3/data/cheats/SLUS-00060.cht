@@ -1,0 +1,24 @@
+; CHTDB: ; [ NBA Live 96 (USA) (1996) (Electronic Arts) {SLUS-00060} <nbaliv96> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8001A49E 00??
+OptionRange = 0:100
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8001A55A 00??
+OptionRange = 0:100
+
+[Stops The Clock]
+Type = Gameshark
+Activation = EndFrame
+800E0400 296B
+
+[Infinite Shot Clock]
+Type = Gameshark
+Activation = EndFrame
+800E34D4 04DB
+

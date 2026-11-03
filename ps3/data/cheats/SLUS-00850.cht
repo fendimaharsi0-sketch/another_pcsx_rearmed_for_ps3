@@ -1,0 +1,14 @@
+; CHTDB: ; [ Interplay Sports Baseball 2000 (USA) (1999) (Interplay Entertainment) {SLUS-00850} <isb2000> ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800798A6 00??
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800798A4 00??
+OptionRange = 0:9
+

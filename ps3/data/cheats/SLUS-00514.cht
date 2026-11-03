@@ -1,0 +1,14 @@
+; CHTDB: ; [ NCAA Football 98 (USA) (1997) (Electronic Arts) {SLUS-00514} <ncaa98> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800A5E1C 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800A7FDC 00??
+OptionRange = 0:99
+

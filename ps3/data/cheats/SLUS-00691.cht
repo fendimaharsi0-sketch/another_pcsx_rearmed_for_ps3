@@ -1,0 +1,212 @@
+; CHTDB: ; [ Tomb Raider III - Adventures of Lara Croft (USA, v1.0) (1998) (Eidos Interactive) {SLUS-00691} <traid3b> ]
+
+[Infinite Oxygen]
+Type = Gameshark
+Activation = EndFrame
+8009914E 0708
+
+[Jungle\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801D301A 03E8
+
+[Temple Ruins\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+80097AD0 0002
+
+[The River Ganges\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801D3C8A 03E8
+
+[Caves of Kaliya\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+8017B7AE 03E8
+
+[Coastal Village\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801D6E9E 03E8
+
+[Crash Site\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801DC7DE 03E8
+
+[Madubu Gorge\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801DABFA 03E8
+
+[Temple of Puna\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+8018E152 03E8
+
+[Thames Wharf\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801E1FE2 03E8
+
+[Aldwych\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801D6A12 03E8
+
+[Lud's Gate\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801E26D6 03E8
+
+[City\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801927C2 03E8
+
+[Nevada Desert\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801D65F6 03E8
+
+[High Security Compound\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801DF996 03E8
+
+[Area 51\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801DF6C2 03E8
+
+[Antarctica\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801D9866 03E8
+
+[Heat In Water Antarctica\Infinite Body]
+Type = Gameshark
+Activation = EndFrame
+8009B044 0258
+
+[Rx-Tech Mines\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801DCBA2 03E8
+
+[Heat In Water Rx-Tech Mines\Infinite Body]
+Type = Gameshark
+Activation = EndFrame
+8009B044 0258
+
+[Lost City of Tinnos\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801D8A32 03E8
+
+[Meteorite Cavern\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801A5BDA 03E8
+
+[Meteorite Cavern\One Hit Knockdown Boss]
+Type = Gameshark
+Activation = EndFrame
+801A5CEA 0000
+
+[All Hollows\Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+80196EC2 03E8
+
+[Have All Special Items]
+Type = Gameshark
+Activation = EndFrame
+8009758C 000C
+
+[Infinite Desert Eagle Ammo]
+Type = Gameshark
+Activation = EndFrame
+80099208 00FF
+
+[Infinite Flares]
+Type = Gameshark
+Activation = EndFrame
+80097504 7FFF
+
+[Infinite Grenade Launcher Ammo]
+Type = Gameshark
+Activation = EndFrame
+9009921C 0098967F
+
+[Infinite Harpoon Ammo]
+Type = Gameshark
+Activation = EndFrame
+90099214 0098967F
+
+[Infinite Large Medi Packs]
+Type = Gameshark
+Activation = EndFrame
+80097506 7FFF
+
+[Infinite MP5 Ammo]
+Type = Gameshark
+Activation = EndFrame
+90099220 0098967F
+
+[Infinite Rocket Launcher Ammo]
+Type = Gameshark
+Activation = EndFrame
+80099218 00FF
+
+[Infinite Savegame Crystals]
+Type = Gameshark
+Activation = EndFrame
+8009750A 7FFF
+
+[Infinite Shotgun Ammo]
+Type = Gameshark
+Activation = EndFrame
+80099210 00FF
+
+[Infinite Small Medi Packs]
+Type = Gameshark
+Activation = EndFrame
+80097508 7FFF
+
+[Infinite Sprint]
+Type = Gameshark
+Activation = EndFrame
+80099228 0078
+
+[Infinite Uzi Ammo]
+Type = Gameshark
+Activation = EndFrame
+8009920C 00FF
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+80097AD0 ????
+Option = Jungle:0x0001
+Option = Temple Ruins:0x0002
+Option = The River Ganges:0x0003
+Option = Caves of Kaliya:0x0004
+Option = Coastal Village:0x0005
+Option = Crash Site:0x0006
+Option = Madubu Gorge:0x0007
+Option = Temple of Puna:0x0008
+Option = Thames Wharf:0x0009
+Option = Aldwych:0x000A
+Option = Lud's Gate:0x000B
+Option = City:0x000C
+Option = Nevada Desert:0x000D
+Option = High Security Compound:0x000E
+Option = Area 51:0x000F
+Option = Antarctica:0x0010
+Option = Rx-Tech Mines:0x0011
+Option = Lost City of Tinnos:0x0012
+Option = Meteorite Cavern:0x0013
+Option = All Hollows:0x0014
+

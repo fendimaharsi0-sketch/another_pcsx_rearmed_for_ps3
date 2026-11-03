@@ -1,0 +1,88 @@
+; CHTDB: ; [ Roll Away (USA) (1998) (Psygnosis) {SLUS-00724} <rollaway> ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+800A33F8 1250
+800A573C 1250
+
+[Roll Over Gaps]
+Description = Note, if you jump you may still fall and some blocks are completely 3D
+Type = Gameshark
+Activation = EndFrame
+A702F8FA 04411000
+A702F946 04411000
+A70302DA 14401000
+A702F6B2 14401000
+900BA18C 00000000
+
+[Roll Over Spikes]
+Type = Gameshark
+Activation = EndFrame
+A703B036 14621000
+
+[Have All Fruit]
+Type = Gameshark
+Activation = EndFrame
+800A5664 00FF
+
+[Max Score]
+Type = Gameshark
+Activation = EndFrame
+900A53C8 0098967F
+
+[Quick Score Gain]
+Type = Gameshark
+Activation = EndFrame
+800A53C8 FFFF
+
+[Start At Level 151]
+Type = Gameshark
+Activation = EndFrame
+800A3454 0001
+
+[High Score]
+Type = Gameshark
+Activation = EndFrame
+800A5E84 FFFF
+
+[Negative Time In Time Attack]
+Type = Gameshark
+Activation = EndFrame
+800A5584 0000
+
+[Select Ball Type]
+Type = Gameshark
+Activation = EndFrame
+300A553C ????
+Option = Type 01 (Default):0x00
+Option = Type 02:0x01
+Option = Type 03:0x02
+Option = Type 04:0x03
+Option = Type 05:0x04
+Option = Type 06:0x05
+Option = Type 07:0x06
+Option = Type 08:0x07
+Option = Type 09:0x08
+Option = Type 10:0x09
+Option = Type 11:0x0A
+Option = Type 12:0x0B
+Option = Type 13:0x0C
+Option = Type 14:0x0D
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A70A33D8 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A70A33D8 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A70A33D8 10000400
+

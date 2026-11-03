@@ -1,0 +1,70 @@
+; CHTDB: ; [ Dynasty Warriors (USA) (1997) (Koei) {SLUS-00438} <dynwarr> ]
+
+[P1 Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+800B2CDC 00C8
+
+[P1 1-Hit Death]
+Type = Gameshark
+Activation = EndFrame
+A60B2CDC 00C80001
+
+[P2 1-Hit Death]
+Type = Gameshark
+Activation = EndFrame
+A60B364C 00C80001
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+800B81C6 ????
+Option = Zhao Yun:0x0000
+Option = Zhao Yun (alternate costume):0x0001
+Option = Guan Yu:0x0002
+Option = Guan Yu (alternate costume):0x0003
+Option = Zhang Fei:0x0004
+Option = Zhang Fei (alternate costume):0x0005
+Option = Xia Hou Dun:0x0006
+Option = Xia Hou Dun (alternate costume):0x0007
+Option = Dian Wei:0x0008
+Option = Dian Wei (alternate costume):0x0009
+Option = Xu Zhu:0x000A
+Option = Xu Zhu (alternate costume):0x000B
+Option = Zhou Yu:0x000C
+Option = Zhou Yu (alternate costume):0x000D
+Option = Luxun:0x000E
+Option = Luxun (alternate costume):0x000F
+Option = Taishi Ci:0x0010
+Option = Taishi Ci (alternate costume):0x0011
+Option = Dia Chan:0x0012
+Option = Dia Chan (alternate costume):0x0013
+Option = Zhuge Liang:0x0014
+Option = Zhuge Liang (alternate costume):0x0015
+Option = Cao Cao:0x0016
+Option = Cao Cao (alternate costume):0x0017
+Option = Lu Bu:0x0018
+Option = Lu Bu (alternate costume):0x0019
+Option = Sun Shang Xiang:0x001A
+Option = Sun Shang Xiang (alternate costume):0x001B
+Option = Nobunaga:0x001C
+Option = Nobunaga (alternate costume):0x001D
+Option = Toukichi:0x001E
+Option = Toukichi (alternate costume):0x001F
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A70BBB94 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A70BBB94 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A70BBB94 10000400
+

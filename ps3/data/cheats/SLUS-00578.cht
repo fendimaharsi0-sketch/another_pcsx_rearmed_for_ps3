@@ -1,0 +1,122 @@
+; CHTDB: ; [ Pandemonium 2 (USA) (1997) (Midway Home Entertainment) {SLUS-00578} <pandemn2> ]
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+800ABD74 0403
+
+[Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+800ABD76 0004
+
+[Infinite Coins]
+Type = Gameshark
+Activation = EndFrame
+8008B70C 03E7
+
+[Infinite Coins (ALT)]
+Type = Gameshark
+Activation = EndFrame
+800ABD78 01F8
+
+[Invincibility]
+Description = When using these cheats with this Invincibility code, turn off the shark to fire the Weapons
+Type = Gameshark
+Activation = EndFrame
+800EA79A 0200
+
+[Always have Fireball]
+Type = Gameshark
+Activation = EndFrame
+800ABD7C 0100
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+8008A43C ????
+Option = 01:0x0000
+Option = 02:0x0001
+Option = 03:0x0002
+Option = 04:0x0003
+Option = 05:0x0004
+Option = 06:0x0005
+Option = 07:0x0006
+Option = 08:0x0007
+Option = 09:0x0008
+Option = 10:0x0009
+Option = 11:0x000A
+Option = 12:0x000B
+Option = 13:0x000C
+Option = 14:0x000D
+Option = 15:0x000E
+Option = 16:0x000F
+Option = 17:0x0010
+Option = 18:0x0011
+Option = 19:0x0012
+
+[Moon Jump]
+Type = Gameshark
+Activation = EndFrame
+D7200000 00000040
+900ABD88 00000001
+
+[Invincibility (Alt)]
+Type = Gameshark
+Activation = EndFrame
+A7051016 10401000
+
+[Set any password to unlock all levels]
+Type = Gameshark
+Activation = EndFrame
+A706BA5A 14402400
+
+[Uncapped Fireball]
+Type = Gameshark
+Activation = EndFrame
+300ABD9C 0000
+
+[Rapid Fireball]
+Type = Gameshark
+Activation = EndFrame
+A7051A34 01003000
+A7051A36 3C050C00
+A7051A38 10240000
+A7051A3A 00650000
+9000C000 27BDFFE8
+9000C004 AFA80010
+9000C008 3C08800A
+9000C00C 91085C2B
+9000C014 00084027
+9000C018 31080080
+9000C01C 11000002
+9000C024 27FF0004
+9000C028 3C050100
+9000C02C 00651024
+9000C030 8FA80010
+9000C034 27BD0018
+9000C038 03E00008
+;#### PATCHES LISTED BELOW ####
+
+[Widescreen 16-9]
+Type = Gameshark
+Activation = EndFrame
+80008200 0000
+80008202 8C88
+80008204 8001
+80008206 3C1B
+80008208 0180
+8000820A 237B
+8000820C 0002
+8000820E 1764
+80008212 2400
+80008214 0C00
+80008216 2408
+80008218 FA0F
+8000821A 0801
+8000821E 2400
+8007E834 2080
+8007E836 0800
+80064414 0C00
+80064416 240C
+

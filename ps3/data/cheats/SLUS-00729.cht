@@ -1,0 +1,44 @@
+; CHTDB: ; [ Madden NFL 99 (USA) (1998) (Electronic Arts) {SLUS-00729} <madden99> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8006A32E 00??
+OptionRange = 0:99
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8006CDEE 00??
+OptionRange = 0:99
+
+[Infinite Creation Points]
+Type = Gameshark
+Activation = EndFrame
+80095CAA 2400
+
+[Max Agility]
+Type = Gameshark
+Activation = EndFrame
+8015FF3E 0064
+
+[Max Speed]
+Type = Gameshark
+Activation = EndFrame
+8015FF40 0064
+
+[Max Awareness]
+Type = Gameshark
+Activation = EndFrame
+8015FF42 0064
+
+[Max Throw Power]
+Type = Gameshark
+Activation = EndFrame
+8015FF44 0064
+
+[Max Throw Accuracy]
+Type = Gameshark
+Activation = EndFrame
+8015FF46 0064
+

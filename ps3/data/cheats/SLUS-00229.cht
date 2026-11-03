@@ -1,0 +1,41 @@
+; CHTDB: ; [ Tokyo Highway Battle (USA) (1996) (Jaleco USA) {SLUS-00229} <tokyohw> ]
+
+[Infinite Funds]
+Type = Gameshark
+Activation = EndFrame
+8006DEBC FFFF
+
+[Triangle Button Turbo Boost]
+Type = Gameshark
+Activation = EndFrame
+D006E2C0 0010
+800C3FEA 000F
+
+[Laptime 0.00.00 + always first]
+Type = Gameshark
+Activation = EndFrame
+3006DF28 0000
+
+[Infinite Lap Time]
+Type = Gameshark
+Activation = EndFrame
+8004CF34 0CBA
+8004CF48 0CBA
+8004D560 0DAA
+8006752C 7124
+80060A04 0E9A
+8006DF2C 05CE
+8006DF30 05CE
+8006DF34 05CE
+
+[Select Car Type]
+Type = Gameshark
+Activation = EndFrame
+30184AA4 00??
+OptionRange = 1:24
+
+[More Speed .Press Brake-Button]
+Type = Gameshark
+Activation = EndFrame
+30184AA5 0040
+

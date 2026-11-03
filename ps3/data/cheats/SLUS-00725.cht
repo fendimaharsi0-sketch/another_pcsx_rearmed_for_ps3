@@ -1,0 +1,71 @@
+; CHTDB: ; [ Bust-A-Move '99 (USA) (1999) (Acclaim Entertainment) {SLUS-00725} <bam99> ]
+
+[P1 Always Have Guide]
+Type = Gameshark
+Activation = EndFrame
+A6056B88 00020082
+
+[P2 Always Have Guide]
+Type = Gameshark
+Activation = EndFrame
+A6056B8C 00020082
+
+[Infinite Continue Time]
+Type = Gameshark
+Activation = EndFrame
+80056E4C 0009
+
+[P1 Max Score]
+Type = Gameshark
+Activation = EndFrame
+8009D790 9999
+
+[P2 Max Score]
+Type = Gameshark
+Activation = EndFrame
+8009D87C 9999
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+800AC440 ????
+Option = Bub:0x0000
+Option = Chinkula:0x0004
+Option = Giant Green Dragon:0x0009
+Option = Jack:0x0006
+Option = Little Boy in Dragon Costume:0x0008
+Option = Luna Luna:0x0005
+Option = Malissa:0x0003
+Option = Monkey:0x000A
+Option = Musashi:0x0001
+Option = Pulichio:0x0002
+Option = Sonic Blast Man:0x0007
+Option = The Furbee's:0x000B
+
+[P2 Select Character]
+Type = Gameshark
+Activation = EndFrame
+800AC442 ????
+Option = Bub:0x0000
+Option = Chinkula:0x0004
+Option = Giant Green Dragon:0x0009
+Option = Jack:0x0006
+Option = Little Boy in Dragon Costume:0x0008
+Option = Luna Luna:0x0005
+Option = Malissa:0x0003
+Option = Monkey:0x000A
+Option = Musashi:0x0001
+Option = Pulichio:0x0002
+Option = Sonic Blast Man:0x0007
+Option = The Furbee's:0x000B
+
+[Extra Worlds]
+Type = Gameshark
+Activation = EndFrame
+80056CE8 0001
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+80056E46 0009
+

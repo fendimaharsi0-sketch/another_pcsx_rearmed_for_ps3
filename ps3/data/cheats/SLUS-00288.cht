@@ -1,0 +1,95 @@
+; CHTDB: ; [ Contra - Legacy of War (USA) (1996) (Konami of America) {SLUS-00288} <contralw> ]
+
+[Infinite Continues]
+Type = Gameshark
+Activation = EndFrame
+800DEC92 0009
+
+[Infinite Bamboo]
+Description = This Cheat is for the cheat mode in the game - press L2, L1, DOWN, UP, R1, R2 to access
+Type = Gameshark
+Activation = EndFrame
+8008C950 0005
+
+[P1 Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+800DC784 0009
+
+[P1 Invincibility]
+Type = Gameshark
+Activation = EndFrame
+8008C9D4 0065
+
+[P1 2nd Weapon Slot - Flame Gun]
+Type = Gameshark
+Activation = EndFrame
+3008BC15 0004
+
+[P1 Select 3rd Weapon Slot]
+Type = Gameshark
+Activation = EndFrame
+3008BC16 ????
+Option = Red Laser:0x0009
+Option = 1-Shot To Spread:0x0008
+Option = Spread:0x0003
+Option = Blue Pulse:0x0000
+
+[P1 Select 4th Weapon Slot]
+Type = Gameshark
+Activation = EndFrame
+3008BC17 ????
+Option = 3-Shot Spread:0x0005
+Option = Homing Blue Missiles:0x0006
+Option = Homing Laser:0x0001
+Option = Homing Missiles:0x0007
+
+[P2 Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+800DC7AC 0009
+
+[P2 Invincibility]
+Type = Gameshark
+Activation = EndFrame
+8008CA9C 0065
+
+[P2 2nd Weapon Slot - Flame Gun]
+Type = Gameshark
+Activation = EndFrame
+3008BC19 0004
+
+[P2 Select 3rd Weapon Slot]
+Type = Gameshark
+Activation = EndFrame
+3008BC1A ????
+Option = Red Laser:0x0009
+Option = 1-Shot To Spread:0x0008
+Option = Spread:0x0003
+Option = Blue Pulse:0x0000
+
+[P2 Select 4th Weapon Slot]
+Type = Gameshark
+Activation = EndFrame
+3008BC1B ????
+Option = Homing Laser:0x0001
+Option = 3-Shot Spread:0x0005
+Option = Homing Blue Missiles:0x0006
+Option = Homing Missiles:0x0007
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A70DCA08 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A70DCA08 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A70DCA08 10000400
+

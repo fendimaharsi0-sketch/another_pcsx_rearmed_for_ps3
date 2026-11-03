@@ -1,0 +1,184 @@
+; CHTDB: ; [ Herc's Adventures (USA) (1997) (LucasArts Entertainment Company) {SLUS-00298} <hercsadv> ]
+
+[Walk through Walls]
+Type = Gameshark
+Activation = EndFrame
+A707EB66 14401000
+A707EC22 14401000
+
+[Walk through Water]
+Type = Gameshark
+Activation = EndFrame
+A707B5F2 10401000
+
+[No Biting Fish]
+Type = Gameshark
+Activation = EndFrame
+A7076466 14401400
+
+[P1\Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+800C4AE0 0032
+
+[P1\Infinite Strength]
+Type = Gameshark
+Activation = EndFrame
+800C4AE4 0046
+
+[P1\Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+800C4AE8 0063
+
+[P1\Infinite Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4B3A 0063
+
+[P1\Infinite A Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4B40 0001
+
+[P1\Infinite B Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4B42 0001
+
+[P1\Infinite D Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4B44 0001
+
+[P1\Infinite H Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4B3C 0001
+
+[P1\Infinite U Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4B3E 0001
+
+[P2\Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+800C4B4A 0032
+
+[P2\Infinite Strength]
+Type = Gameshark
+Activation = EndFrame
+800C4B4E 0046
+
+[P2\Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+800C4B52 0063
+
+[P2\Infinite Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4BA4 0063
+
+[P2\Infinite H Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4BA6 0001
+
+[P2\Infinite U Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4BA8 0001
+
+[P2\Infinite A Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4BAA 0001
+
+[P2\Infinite P Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4BAC 0001
+
+[P2\Infinite D Keys]
+Type = Gameshark
+Activation = EndFrame
+800C4BAE 0001
+
+[P1\Have All Items Set One]
+Type = Gameshark
+Activation = EndFrame
+800C4AF0 0063
+800C4AF2 0063
+800C4AF4 0063
+800C4AF6 0063
+800C4AF8 0063
+800C4AFC 0063
+800C4AFE 0063
+800C4B00 0063
+800C4B02 0063
+800C4B04 0063
+800C4B06 0063
+800C4B08 0063
+800C4B0A 0063
+800C4B0C 0063
+800C4B0E 0063
+
+[P1\Have All Items Set Two]
+Type = Gameshark
+Activation = EndFrame
+800C4B1A 0063
+800C4B1C 0063
+800C4B1E 0063
+800C4B20 0063
+800C4B22 0063
+800C4B24 0063
+800C4B26 0063
+800C4B28 0063
+800C4B2A 0063
+800C4B2C 0063
+800C4B2E 0063
+800C4B30 0063
+800C4B32 0063
+800C4B34 0063
+800C4B36 0063
+
+[P2\Have All Items Set One]
+Type = Gameshark
+Activation = EndFrame
+800C4B5A 0063
+800C4B5C 0063
+800C4B5E 0063
+800C4B60 0063
+800C4B62 0063
+800C4B66 0063
+800C4B68 0063
+800C4B6A 0063
+800C4B6C 0063
+800C4B6E 0063
+800C4B70 0063
+800C4B72 0063
+800C4B74 0063
+800C4B76 0063
+800C4B78 0063
+
+[P2\Have All Items Set Two]
+Type = Gameshark
+Activation = EndFrame
+800C4B84 0063
+800C4B86 0063
+800C4B88 0063
+800C4B8A 0063
+800C4B8C 0063
+800C4B8E 0063
+800C4B90 0063
+800C4B92 0063
+800C4B94 0063
+800C4B96 0063
+800C4B98 0063
+800C4B9A 0063
+800C4B9C 0063
+800C4B9E 0063
+800C4BA0 0063
+

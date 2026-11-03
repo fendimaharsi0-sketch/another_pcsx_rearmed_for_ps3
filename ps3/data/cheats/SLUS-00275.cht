@@ -1,0 +1,18 @@
+; CHTDB: ; [ Theme Hospital (USA) (1998) (Electronic Arts) {SLUS-00275} <themehos> ]
+
+[Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+8013B338 FFFF
+
+[High Reputation]
+Type = Gameshark
+Activation = EndFrame
+8013C060 0400
+
+[Select Perm Level]
+Type = Gameshark
+Activation = EndFrame
+300F4B34 000?
+OptionRange = 1:12
+

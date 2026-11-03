@@ -1,0 +1,23 @@
+; CHTDB: ; [ Saban's Power Rangers Zeo - Full Tilt Battle Pinball (USA) (1996) (Bandai America) {SLUS-00256} <przeopb> ]
+
+[Infinite Balls]
+Type = Gameshark
+Activation = EndFrame
+800884F0 0009
+
+[Select Perm Level]
+Type = Gameshark
+Activation = EndFrame
+80076C74 ????
+Option = USA Level 2:0x0001
+Option = USA Level 3:0x0002
+Option = Asia Level 1:0x0003
+Option = Asia Level 2:0x0004
+Option = Africa Level 1:0x0005
+Option = Africa Level 2:0x0006
+Option = Europe Level 1:0x0007
+Option = Europe Level 2:0x0008
+Option = North Pole Level 1:0x0009
+Option = North Pole Level 2:0x000A
+Option = North Pole Level 3:0x000B
+

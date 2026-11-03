@@ -1,0 +1,70 @@
+; CHTDB: ; [ Super Puzzle Fighter II Turbo (USA) (1996) (Capcom Entertainment) {SLUS-00418} <spf2t> ]
+
+[P1 Score Modifier]
+Type = Gameshark
+Activation = EndFrame
+801AE550 FFFF
+
+[P2 P1 Drops 99 Blocks on]
+Type = Gameshark
+Activation = EndFrame
+801AE72A 0064
+
+[P2 Never Wins]
+Type = Gameshark
+Activation = EndFrame
+801AE81C 0000
+
+[P1 Needs 1 Win to Win]
+Type = Gameshark
+Activation = EndFrame
+A61AE570 00000100
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+801D4F10 ????
+Option = Morrigan:0x0000
+Option = Chun-Li:0x0001
+Option = Ryu:0x0002
+Option = Ken:0x0003
+Option = Asien-Ko:0x0004
+Option = Donovan:0x0005
+Option = Felicia:0x0006
+Option = Sakura:0x0007
+Option = Devilot:0x0008
+Option = Akuma:0x0009
+
+[P1 Select Character (Super Puzzle Mode)]
+Type = Gameshark
+Activation = EndFrame
+301BAAC5 ????
+Option = Morrigan:0x0000
+Option = Chun-Li:0x0001
+Option = Ryu:0x0002
+Option = Ken:0x0003
+Option = Asien-Ko:0x0004
+Option = Donovan:0x0005
+Option = Felicia:0x0006
+Option = Sakura:0x0007
+Option = Devilot:0x0008
+Option = Akuma:0x0009
+Option = Dan:0x000A
+
+[Super puzzle mode Open All Prizes]
+Type = Gameshark
+Activation = EndFrame
+8016CAE4 FFFF
+8016CAE8 FFFF
+8016CAEC FFFF
+8016CAF0 FFFF
+8016CAF4 FFFF
+9016CAF8 FFFFFFFF
+9016CAFC FFFFFFFF
+
+[Super puzzle mode Press Square To Get A Diamond]
+Type = Gameshark
+Activation = EndFrame
+D01BF09A 0080
+301AE5F0 0005
+

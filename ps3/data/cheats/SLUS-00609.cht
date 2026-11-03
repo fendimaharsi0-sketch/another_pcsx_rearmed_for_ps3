@@ -1,0 +1,57 @@
+; CHTDB: ; [ Test Drive Off-Road 2 (USA) (1998) (Accolade) {SLUS-00609} <tdoffr2> ]
+
+[High Player Credits]
+Type = Gameshark
+Activation = EndFrame
+9006A7CC 0FFFFFFF
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+800890A0 4800
+
+[Select Car]
+Type = Gameshark
+Activation = EndFrame
+80064294 ????
+Option = Hummer:0x0000
+Option = Ram:0x0001
+Option = Wrangler:0x0002
+Option = Defender 90:0x0003
+Option = Explorer:0x0004
+Option = Chenowth Dr2:0x0005
+Option = F-150:0x0006
+Option = Cherokee:0x0007
+Option = Hummer Turbo Diesel:0x0008
+Option = Ram V 10:0x0009
+Option = Wrangler Sportr:0x000A
+Option = Defender 90 Upgrade:0x000B
+Option = Explorer V8:0x000C
+Option = Chenowth Dr2 Upgrade:0x000D
+Option = F-150 V8:0x000E
+Option = Grand Cherokee:0x000F
+Option = Military Hummer:0x0010
+Option = T-Rex:0x0011
+Option = Saleen Explorer:0x0012
+Option = Fast Attack Vehicle:0x0013
+Option = Range Rover:0x0014
+Option = School Bus (Hidden Vehicle):0x0015
+Option = Black And Red Grand Cherokee (Hidden Vehicle):0x0016
+Option = Ice.Cream Truck (Hidden Vehicle):0x0017
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A7074E28 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A7074E28 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A7074E28 10000400
+

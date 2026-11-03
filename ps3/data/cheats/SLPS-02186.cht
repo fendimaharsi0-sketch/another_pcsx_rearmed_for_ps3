@@ -1,0 +1,31 @@
+; CHTDB: ; [ Street Scooters (Japan) {SLPS-02186} ]
+
+[Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800F5EF6 4000
+
+[Stop Grand Prix Timer]
+Type = Gameshark
+Activation = EndFrame
+80107398 0C00
+
+[Always Place First]
+Type = Gameshark
+Activation = EndFrame
+800F5EBA 0001
+
+[Have All Gold Training Medals & Unlock Cat Hopping Mode]
+Type = Gameshark
+Activation = EndFrame
+800F5B66 FF01
+
+[Select Character]
+Type = Gameshark
+Activation = EndFrame
+800A1E92 ????
+Option = Aiko:0x0005
+Option = Jack:0x0007
+Option = Ryo:0x0006
+Option = Yuki:0x0004
+

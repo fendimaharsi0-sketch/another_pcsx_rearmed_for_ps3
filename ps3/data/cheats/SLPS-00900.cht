@@ -1,0 +1,51 @@
+; CHTDB: ; [ Armored Core (Japan) (1997) (From Software) {SLPS-00900} ]
+
+[Game Progress\Credits 9999999]
+Description = Set Credits to 9999999.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+90039CCC 0098967F
+
+[Game Progress\Human PLUS (強化人間)]
+Description = Set Human PLUS (強化人間) stage.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+30039D50 ????
+Option = No Upgrades:0x0000
+Option = Stage 1:0x0001
+Option = Stage 2:0x0004
+Option = Stage 3:0x0006
+
+[Game Progress\Deploy Restricted AC (基準違反機体)]
+Description = Set Deploy Restricted AC (基準違反機体) ability.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+E00B5FD8 00C8
+30085BFA 0022
+30039D52 ????
+Option = Disabled:0x0000
+Option = Enabled:0x0001
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+8019F3F4 FFFF
+
+[Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+90039CCC 00FFFFFF
+
+[Infinite Power]
+Type = Gameshark
+Activation = EndFrame
+80041016 6D60
+
+[Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+801A26E0 8000
+

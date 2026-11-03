@@ -1,0 +1,62 @@
+; CHTDB: ; [ Deep Freeze (Japan) {SLPS-01817} ]
+
+[Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+900A202C 03E703E7
+
+[Infinite Ammo]
+Type = Gameshark
+Activation = EndFrame
+800A2032 1010
+
+[Infinite Item]
+Type = Gameshark
+Activation = EndFrame
+900A2038 09090909
+
+[Infinite HP Partner]
+Type = Gameshark
+Activation = EndFrame
+900A341C 03E703E7
+
+[Infinite Item Partner]
+Type = Gameshark
+Activation = EndFrame
+800A3428 0909
+300A342A 0009
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+80074B2C 1940
+
+[Change Partner to]
+Description = Use on Select Screen.(This natively can be used from one stage)
+Type = Gameshark
+Activation = EndFrame
+8000E2FC ????
+Option = Harry:0x0000
+Option = Sicily:0x0000
+Option = Maria:0x0000
+Option = Bagel:0x0000
+Option = Sniper:0x0004
+Option = Nay:0x0005
+
+[Main Character Invincibility]
+Type = Gameshark
+Activation = EndFrame
+D00A2082 0000
+300A2082 00FF
+
+[Partner Invincibility]
+Type = Gameshark
+Activation = EndFrame
+D00A3472 0000
+300A3472 00FF
+
+[Open Expert & Training Mode]
+Type = Gameshark
+Activation = EndFrame
+8009BE98 0300
+

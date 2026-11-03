@@ -1,0 +1,24 @@
+; CHTDB: ; [ NBA in the Zone (USA) (1995) (Konami of America) {SLUS-00048} <nbazone> ]
+
+[P1 Select Score]
+Type = Gameshark
+Activation = EndFrame
+800DEA50 00??
+OptionRange = 0:100
+
+[P2 Select Score]
+Type = Gameshark
+Activation = EndFrame
+800DEAE4 00??
+OptionRange = 0:100
+
+[Stop The Clock]
+Type = Gameshark
+Activation = EndFrame
+800DEA0C A8C0
+
+[Stop The Shot Clock]
+Type = Gameshark
+Activation = EndFrame
+800DEA10 05A1
+

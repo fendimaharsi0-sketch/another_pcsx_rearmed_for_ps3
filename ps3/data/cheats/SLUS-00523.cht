@@ -1,0 +1,19 @@
+; CHTDB: ; [ NBA Live 98 (USA) (1997) (Electronic Arts) {SLUS-00523} <nbaliv98> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8007E114 00??
+OptionRange = 0:100
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8007F578 00??
+OptionRange = 0:100
+
+[Enable Secrets Menu + All Cheats Enabled]
+Type = Gameshark
+Activation = EndFrame
+80087FBE 0FFF
+

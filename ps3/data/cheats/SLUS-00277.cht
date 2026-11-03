@@ -1,0 +1,61 @@
+; CHTDB: ; [ Populous - The Beginning (USA) (1999) (Electronic Arts) {SLUS-00277} <populous> ]
+
+[Have All Shamen Spells]
+Type = Gameshark
+Activation = EndFrame
+801DC2C2 FFFF
+901DC2C4 FFFFFFFF
+901DC2C8 FFFFFFFF
+901DC2CC FFFFFFFF
+901DC2D0 FFFFFFFF
+
+[Max Spell Charge Rate]
+Type = Gameshark
+Activation = EndFrame
+801DC2AC 0000
+
+[Have All Build Options]
+Type = Gameshark
+Activation = EndFrame
+801DC2B0 FFFF
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+801E5F70 0384
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+800D8BA4 ????
+Option = The Journey Begins:0x0000
+Option = Night Falls:0x0001
+Option = Crisis of Faith:0x0002
+Option = Combined Forces:0x0003
+Option = Death From Above:0x0004
+Option = Building Bridges:0x0005
+Option = Unseen Enemy:0x0006
+Option = Continental Divide:0x0007
+Option = Fire In The Mists:0x0008
+Option = From The Depth's:0x0009
+Option = Treachrous Souls:0x000A
+Option = An Easy Target:0x000B
+Option = Aerial Bombardment:0x000C
+Option = Attacked On All Sides:0x000D
+Option = Incarcerated:0x000E
+Option = Bloodlust:0x000F
+Option = Middle Ground:0x0010
+Option = Head Hunter:0x0011
+Option = Unlikely Allies:0x0012
+Option = Archipelago:0x0013
+Option = Fractured Earth:0x0014
+Option = Solo:0x0015
+Option = Inferno:0x0016
+Option = Journey's End:0x0017
+Option = Journey's End 2:0x0018
+
+[All levels selectable]
+Type = Gameshark
+Activation = EndFrame
+800D8BA4 0019
+

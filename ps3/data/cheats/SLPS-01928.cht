@@ -1,0 +1,39 @@
+; CHTDB: ; [ Yuukyuu no Eden - The Eternal Eden (Jpn) (1999) (ASCII) {SLPS-01928} <etereden> ]
+
+[Infinite Energy boy]
+Type = Gameshark
+Activation = EndFrame
+80085872 03E7
+80085874 03E7
+
+[Stats Max Boy]
+Type = Gameshark
+Activation = EndFrame
+90085864 03E703E7
+90085868 03E703E7
+
+[Infinite Energy cat girl]
+Type = Gameshark
+Activation = EndFrame
+800859BC 03E7
+
+[Important item all]
+Type = Gameshark
+Activation = EndFrame
+301831FF 00FF
+
+[Select Profile]
+Type = Gameshark
+Activation = EndFrame
+801834A2 ????
+Option = Lodi Light:0x0002
+Option = Daisy Light:0x0004
+Option = Hazel nut Albero:0x0008
+Option = Violet Meer:0x0010
+Option = root Pisutiru:0x0000
+Option = R-7:0x0040
+Option = Orchid Grace:0x0080
+Option = anemone:0x0100
+Option = Mantis root:0x0200
+Option = Lady Bird Rouge:0x0400
+

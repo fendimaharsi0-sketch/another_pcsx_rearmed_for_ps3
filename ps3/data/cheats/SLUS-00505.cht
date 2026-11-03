@@ -1,0 +1,30 @@
+; CHTDB: ; [ San Francisco Rush - Extreme Racing (USA) (1998) (Midway Home Entertainment) {SLUS-00505} <sfrush> ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+800B2814 001E
+
+[Always Place First]
+Type = Gameshark
+Activation = EndFrame
+800B3388 0000
+
+[Max Speed]
+Type = Gameshark
+Activation = EndFrame
+80101218 0329
+
+[Select Car]
+Type = Gameshark
+Activation = EndFrame
+800B2738 ????
+Option = Beginner Car:0x0000
+Option = Advanced Car:0x0001
+Option = Expert Car:0x0002
+Option = Extreme Car:0x0003
+Option = Secret Car A (Bus):0x0004
+Option = Secret Car B:0x0005
+Option = Secret Car C (Beetle):0x0006
+Option = Secret Car D:0x0007
+

@@ -1,0 +1,232 @@
+; CHTDB: ; [ Pilot ni Narou! (Japan) {SLPS-01600} ]
+
+[9999999 pocket]
+Type = Gameshark
+Activation = EndFrame
+901A8A68 0098967F
+
+[Select Part-time Job]
+Type = Gameshark
+Activation = EndFrame
+300C48D0 ????
+Option = 01:0x0000
+Option = 02:0x0001
+Option = 03:0x0002
+Option = 04:0x0003
+Option = 05:0x0004
+Option = 06:0x0005
+Option = 07:0x0006
+Option = 08:0x0007
+Option = 09:0x0008
+Option = 10:0x0009
+Option = 11:0x000A
+Option = 12:0x000B
+Option = 13:0x000C
+Option = 14:0x000D
+Option = 15:0x000E
+Option = 16:0x000F
+
+[Select Aircraft]
+Type = Gameshark
+Activation = EndFrame
+300C4738 ????
+Option = ULTRA LIGHT PLANE:0x0000
+Option = CESSNA C172RG:0x0001
+Option = EMB312 TUCANO:0x0002
+Option = F4U4 CORSAIR:0x0003
+Option = A1H SKYRAIDER:0x0004
+Option = J2M3 RAIDEN:0x0005
+Option = MOSQUITO FB.MK6:0x0006
+Option = XF2R-1 DARK SHARK:0x0007
+Option = CESSNA T37 TWEET:0x0008
+Option = KAWASAKI T4:0x0009
+Option = F16B FIGHTING FALCON:0x000A
+Option = A-10 THUNDERBOLT II:0x000B
+Option = F/A18 HORNET:0x000C
+Option = MIG-29 FULCRUM:0x000D
+Option = EFA EUROFIGHTER2000:0x000E
+Option = SPITFIRE MK5:0x000F
+Option = MESSERSCHM ITT BF109E:0x0010
+Option = OV-10A BRONCO:0x0011
+Option = F5E TIGER II:0x0012
+Option = F4E PHANTOM:0x0013
+Option = JAS39 GRIPEN:0x0014
+Option = SU-35 FLANKER:0x0015
+Option = C130 HERCULES:0x0016
+Option = AN72 COALER:0x0017
+Option = B17:0x0018
+Option = E4B:0x0019
+Option = C130 HERCULES (Alt):0x001A
+Option = E4B?:0x001B
+Option = SUPER SHIMADA 3C:0x001C
+
+[Reciprocating supplemental training 1-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A76 0064
+
+[Reciprocating supplemental training 1-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A77 0064
+
+[Reciprocating supplemental training 1-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A78 0064
+
+[Reciprocating supplemental training 1-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A79 0064
+
+[Reciprocating supplemental training 1-5 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A7A 0064
+
+[Reciprocating supplemental training 2-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A7C 0064
+
+[Reciprocating supplemental training 2-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A7D 0064
+
+[Reciprocating supplemental training 2-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A7E 0064
+
+[Reciprocating supplemental training 2-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A7F 0064
+
+[Reciprocating supplemental training 3-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A82 0064
+
+[Reciprocating supplemental training 3-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A83 0064
+
+[Reciprocating supplemental training 3-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A84 0064
+
+[Reciprocating supplemental training 3-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A85 0064
+
+[Reciprocating supplemental training 4-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A88 0064
+
+[Reciprocating supplemental training 4-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A89 0064
+
+[Reciprocating supplemental training 4-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A8A 0064
+
+[Reciprocating supplemental training 4-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A8B 0064
+
+[Jet Training 1-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A8E 0064
+
+[Jet Training 1-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A8F 0064
+
+[Jet Training 1-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A90 0064
+
+[Jet Training 1-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A91 0064
+
+[Jet Training 1-5 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A92 0064
+
+[Jet Training 2-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A94 0064
+
+[Jet Training 2-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A95 0064
+
+[Jet Training 2-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A96 0064
+
+[Jet Training 2-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A97 0064
+
+[Jet Training 3-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A9A 0064
+
+[Jet Training 3-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A9B 0064
+
+[Jet Training 3-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A9C 0064
+
+[Jet Training 3-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8A9D 0064
+
+[Jet Training 4-1 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8AA0 0064
+
+[Jet Training 4-2 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8AA1 0064
+
+[Jet Training 4-3 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8AA2 0064
+
+[Jet Training 4-4 100 points]
+Type = Gameshark
+Activation = EndFrame
+301A8AA3 0064
+

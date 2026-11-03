@@ -1,0 +1,48 @@
+; CHTDB: ; [ Shin Masoukishin - Panzer Warfare (Jpn) (1999) (Banpresto) {SLPS-02319} <panzerwf> ]
+
+[Infinite Energy Main Character]
+Type = Gameshark
+Activation = EndFrame
+801785FA 270F
+8017868A 270F
+
+[Level 99 Main Character]
+Type = Gameshark
+Activation = EndFrame
+301786C0 0063
+
+[Infinite Energy Character 2 (Girl)]
+Type = Gameshark
+Activation = EndFrame
+801786EA 270F
+8017877A 270F
+
+[Mortal blow]
+Type = Gameshark
+Activation = EndFrame
+D0178528 0101
+800CA1B6 1400
+D0178528 0102
+800CA1B6 1400
+
+[Infinite Behavior]
+Type = Gameshark
+Activation = EndFrame
+A60DC356 A062A060
+A60BD61A A045A040
+D0178528 0104
+800C2AFE A080
+D0178528 0108
+800C2AFE A082
+
+[Rest point 99]
+Type = Gameshark
+Activation = EndFrame
+801784D6 0063
+
+[Select Scenario]
+Type = Gameshark
+Activation = EndFrame
+801775E4 000?
+OptionRange = 1:9
+

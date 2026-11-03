@@ -1,0 +1,16 @@
+; CHTDB: ; [ NHL Powerplay 98 (USA) (1997) (Virgin Interactive Entertainment) {SLUS-00528} <nhlpp98> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+D0072FA4 00D8
+80072FAC 000?
+OptionRange = 0:9
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+D0072FB8 00DC
+80072FC0 000?
+OptionRange = 0:9
+

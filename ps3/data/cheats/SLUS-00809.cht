@@ -1,0 +1,143 @@
+; CHTDB: ; [ Ehrgeiz - God Bless the Ring (USA) (1999) (Square Electronic Arts) {SLUS-00809} <ehrgeiz> ]
+
+[RPG Mode Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+801E84D0 0080
+
+[RPG Mode Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+801F37D0 FFFF
+
+[P1 Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+8011EADE 00B8
+
+[P1 Infinite Special Energy]
+Type = Gameshark
+Activation = EndFrame
+8011F7D6 00D0
+
+[Time is Always 0.00.01]
+Type = Gameshark
+Activation = EndFrame
+800F6C30 0000
+
+[Enable All Characters]
+Type = Gameshark
+Activation = EndFrame
+901F19FC FFFFFFFF
+
+[Enable All Endings]
+Type = Gameshark
+Activation = EndFrame
+801F1A00 FFFF
+
+[Infinite Time To Choose Character]
+Type = Gameshark
+Activation = EndFrame
+800F69EE 0EB2
+
+[Infinite Battle Time]
+Type = Gameshark
+Activation = EndFrame
+800F6C94 0930
+
+[P1 No Special Energy]
+Type = Gameshark
+Activation = EndFrame
+8011F7D6 0000
+
+[P2 Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+801228F2 00B8
+
+[P2 1 Hit Death]
+Type = Gameshark
+Activation = EndFrame
+A61228F2 00B80000
+
+[P2 Infinite Special Energy]
+Type = Gameshark
+Activation = EndFrame
+801235EA 00D0
+
+[P2 No Special Energy]
+Type = Gameshark
+Activation = EndFrame
+801235EA 0000
+
+[Box Always On]
+Type = Gameshark
+Activation = EndFrame
+800F7FD4 0001
+
+[Box Always Off]
+Type = Gameshark
+Activation = EndFrame
+800F7FD4 0000
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+800F69FC ????
+Option = Rio:0x0000
+Option = Han Daehan:0x0001
+Option = Godhand:0x0002
+Option = Lee Shuwen:0x0003
+Option = Dasher Inoba:0x0004
+Option = ?:0x0005
+Option = Sasuke:0x0006
+Option = Prince Naseem:0x0007
+Option = YoYo Yoko:0x0008
+Option = Jo:0x0009
+Option = Cloud Strife:0x000A
+Option = Tifa Lockhart:0x000B
+Option = Django:0x000C
+Option = Sephiroth:0x000D
+Option = Koji Masuda:0x000E
+Option = Clair Andrews:0x000F
+Option = Yuffie Kisaragi:0x0010
+Option = Vincent Valentine:0x0011
+Option = Zax:0x0013
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+D0057A9A AC64
+80057A88 2080
+D0057A9A AC64
+80057A8A 0C00
+D0057A9A AC64
+80057A8C 0000
+D0057A9A AC64
+80057A8E 8C44
+90008200 24050003
+90008204 00850019
+90008208 00002012
+9000820C 00042083
+90008210 03E00008
+90008214 8C450004
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+D0057A9A AC64
+80057A88 2080
+D0057A9A AC64
+80057A8A 0C00
+D0057A9A AC64
+80057A8C 0000
+D0057A9A AC64
+80057A8E 8C44
+90008200 24050009
+90008204 00850019
+90008208 00002012
+9000820C 00042103
+90008210 03E00008
+90008214 8C450004
+

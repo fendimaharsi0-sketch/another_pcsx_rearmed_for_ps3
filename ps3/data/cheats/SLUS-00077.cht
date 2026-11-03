@@ -1,0 +1,169 @@
+; CHTDB: ; [ Doom (USA) (1995) (Williams Entertainment) {SLUS-00077} <doom> ]
+
+[Invincibility v.1.0]
+Type = Gameshark
+Activation = EndFrame
+800A85FC 0001
+800A85F4 00C7
+800A85F0 0064
+
+[Invincibility v.1.1]
+Type = Gameshark
+Activation = EndFrame
+800A881C 0001
+800A8814 0001
+800A8810 0064
+
+[Infinite Ammo]
+Type = Gameshark
+Activation = EndFrame
+50000404 0000
+800A8664 0064
+
+[999% Armor]
+Type = Gameshark
+Activation = EndFrame
+800A8814 03E7
+
+[999% Health]
+Type = Gameshark
+Activation = EndFrame
+800A8810 03E7
+8017899C 03E7
+
+[God Mode]
+Type = Gameshark
+Activation = EndFrame
+810A868C 0002
+
+[X-Ray Vision]
+Type = Gameshark
+Activation = EndFrame
+810A868C 0080
+
+[Always have All Guns]
+Type = Gameshark
+Activation = EndFrame
+50000704 0000
+800A8648 0001
+
+[Always have B.F.G. 9000]
+Type = Gameshark
+Activation = EndFrame
+800A865C 0001
+
+[Always have Blue Key]
+Type = Gameshark
+Activation = EndFrame
+800A8618 0001
+
+[Always have Chaingun]
+Type = Gameshark
+Activation = EndFrame
+800A8650 0001
+
+[Always have Chainsaw]
+Type = Gameshark
+Activation = EndFrame
+800A8660 0001
+
+[Always have Double Barrel-Shotgun]
+Type = Gameshark
+Activation = EndFrame
+800A864C 0001
+
+[Always have Plasma Rifle]
+Type = Gameshark
+Activation = EndFrame
+800A8658 0001
+
+[Always have Red Key]
+Type = Gameshark
+Activation = EndFrame
+800A8614 0001
+
+[Always have Rocket Launcher]
+Type = Gameshark
+Activation = EndFrame
+800A8654 0001
+
+[Always have Shotgun]
+Type = Gameshark
+Activation = EndFrame
+800A8648 0001
+
+[Always have Yellow Key]
+Type = Gameshark
+Activation = EndFrame
+800A861C 0001
+
+[Always have IMP Weapon]
+Type = Gameshark
+Activation = EndFrame
+800A86CE 0005
+
+[Mega Rapid Fire]
+Type = Gameshark
+Activation = EndFrame
+800A86C0 0001
+
+[More Light]
+Type = Gameshark
+Activation = EndFrame
+800A8612 0001
+
+[Night Vision On]
+Type = Gameshark
+Activation = EndFrame
+800A8610 0001
+
+[Poison Suit ON]
+Type = Gameshark
+Activation = EndFrame
+800A882A 000A
+
+[Poison Suit]
+Type = Gameshark
+Activation = EndFrame
+800A860A 000A
+
+[Red Mode]
+Type = Gameshark
+Activation = EndFrame
+800A86A4 0006
+
+[Very Red Mode]
+Type = Gameshark
+Activation = EndFrame
+800A86A4 05FF
+
+[Turn On Level Map]
+Type = Gameshark
+Activation = EndFrame
+800A860C 0001
+
+[White mode]
+Type = Gameshark
+Activation = EndFrame
+800A86AA 0006
+;#### PATCHES LISTED BELOW ####
+
+[Widescreen 16-9]
+Type = Gameshark
+Activation = EndFrame
+80030724 2082
+80030726 0800
+90008208 84226534
+9000820C 00000000
+90008210 0002D883
+90008214 00021043
+90008218 005B1021
+9000821C A4226534
+90008220 84226530
+90008224 00000000
+90008228 0002D883
+9000822C 00021043
+90008230 005B1021
+90008234 0800C1CB
+90008238 A4226530
+

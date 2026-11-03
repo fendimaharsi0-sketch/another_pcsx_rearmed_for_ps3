@@ -1,0 +1,126 @@
+; CHTDB: ; [ Forsaken (USA) (1998) (Acclaim Entertainment) {SLUS-00458} <forsaken> ]
+
+[Have Cheat Menu]
+Type = Gameshark
+Activation = EndFrame
+800CCA3C 011F
+
+[Infinite Pulsar]
+Type = Gameshark
+Activation = EndFrame
+8008628C 8000
+
+[Infinite Mug]
+Type = Gameshark
+Activation = EndFrame
+800862D6 0507
+
+[Infinite Mfrl And Graviton]
+Type = Gameshark
+Activation = EndFrame
+800862DC 2A01
+
+[Infinite Purge]
+Type = Gameshark
+Activation = EndFrame
+800862DE 0009
+
+[Infinite Solaris Missiles]
+Type = Gameshark
+Activation = EndFrame
+800862D8 0009
+
+[Infinite Shields]
+Type = Gameshark
+Activation = EndFrame
+80086284 1000
+
+[Infinite Hull]
+Type = Gameshark
+Activation = EndFrame
+80086286 1000
+
+[Infinite Titan + Scatter Missiles]
+Type = Gameshark
+Activation = EndFrame
+800862DA 0507
+
+[Infinite Quantum + Pine Mines]
+Type = Gameshark
+Activation = EndFrame
+800862E0 0507
+
+[Infinite Suss Gun Energy]
+Type = Gameshark
+Activation = EndFrame
+80086290 8000
+
+[Infinite Transpulsar, Beam Laser + Trojax Energy]
+Type = Gameshark
+Activation = EndFrame
+8008628C 8000
+
+[Infinite Pyrolite Rifle Energy]
+Type = Gameshark
+Activation = EndFrame
+8008628E 8000
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+800CCA40 0005
+
+[Have Max Power Pods]
+Type = Gameshark
+Activation = EndFrame
+800862B0 0003
+
+[Have Choas Shield]
+Type = Gameshark
+Activation = EndFrame
+800862A0 05B1
+
+[Infinite Nitro]
+Type = Gameshark
+Activation = EndFrame
+80086294 0800
+
+[Have Golden Powerpod]
+Type = Gameshark
+Activation = EndFrame
+800862B8 04AB
+
+[Have Stealth Mantle]
+Type = Gameshark
+Activation = EndFrame
+80086288 0696
+
+[Primary Weapon Suss Gun]
+Type = Gameshark
+Activation = EndFrame
+800862A4 0500
+
+[Select Starting Stage]
+Type = Gameshark
+Activation = EndFrame
+300CCA3E ????
+Option = 1 Volcano:0x0000
+Option = 2 Abandoned Subway:0x0001
+Option = 3 Nuclear Power Facility:0x0002
+Option = 4 Thermal Power Station:0x0003
+Option = 5 Federal Bank Vault:0x0004
+Option = 6 Prison Ship:0x0005
+Option = 7 Asteroid Base:0x0006
+Option = 8 Biosphere:0x0007
+Option = 9 Sub Terran Decontamination Unit:0x0008
+Option = 10 Capsized Ship:0x0009
+Option = 11 Orbital Space Station:0x000A
+Option = 12 Military Research Base:0x000B
+Option = 13 Temple of Tloloc:0x000C
+Option = 14 Ancient Temple:0x000D
+Option = 15 Death Match - Pandora's Box:0x000E
+Option = 16 Death Match - Ship:0x000F
+Option = 17 Death Match - Alpha:0x0010
+Option = 18 Death Match - Arena:0x0011
+Option = 19 Death Match - Nuke:0x0012
+

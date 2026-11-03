@@ -1,0 +1,35 @@
+; CHTDB: ; [ Guilty Gear (USA, v1.0) (1998) (Atlus Software) {SLUS-00772} <ggear> ]
+
+[P1 Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+8007CB98 00BC
+
+[P2 Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+8007CB68 00BC
+
+[P2 Sudden death]
+Type = Gameshark
+Activation = EndFrame
+8007CB68 0001
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+80139048 ????
+Option = Axl Low:0x0006
+Option = Baiken:0x000C
+Option = Chipp Zanuee:0x0004
+Option = Dr.Baldhead:0x0009
+Option = Justice:0x000B
+Option = Kliff Undersn:0x0008
+Option = Ky Kiske:0x0003
+Option = M:0x0007
+Option = May:0x0005
+Option = Potemkin:0x0000
+Option = Sol-Badguy:0x0002
+Option = Testament:0x000A
+Option = Zato-1:0x0001
+

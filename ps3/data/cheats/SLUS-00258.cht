@@ -1,0 +1,55 @@
+; CHTDB: ; [ Street Fighter Alpha 2 (USA) (1996) (Capcom Entertainment) {SLUS-00258} <sfa2> ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+80190324 6302
+
+[P1 Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801981F0 0090
+
+[P2 1-Hit Death]
+Type = Gameshark
+Activation = EndFrame
+A6198584 00900001
+
+[P1 Super Always Powered at Level 3]
+Type = Gameshark
+Activation = EndFrame
+8019825A 0090
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+8019823A ????
+Option = Ryu (Arcade Mode):0x0000
+Option = Ken (Arcade Mode):0x0100
+Option = Akuma (Arcade Mode):0x0200
+Option = Charlie (Arcade Mode):0x0300
+Option = Chun Li (Arcade Mode):0x0400
+Option = Adon (Arcade Mode):0x0500
+Option = Sodom (Arcade Mode):0x0600
+Option = Guy (Arcade Mode):0x0700
+Option = Birdie (Arcade Mode):0x0800
+Option = Rose (Arcade Mode):0x0900
+Option = M.Bison (Arcade Mode):0x0A00
+Option = Sagat (Arcade Mode):0x0B00
+Option = Dan (Arcade Mode):0x0C00
+Option = Sakura (Arcade Mode):0x0D00
+Option = Rolento (Arcade Mode):0x0E00
+Option = Dhalsim (Arcade Mode):0x0F00
+Option = Zangief (Arcade Mode):0x1000
+Option = Gen (Arcade Mode):0x1100
+Option = Chun Li (SSF2 Turbo) (Arcade Mode):0x1200
+Option = Gen (New) (Arcade Mode):0x1300
+Option = Akuma (New) (Arcade Mode):0x1400
+Option = Ryu (New) (Arcade Mode):0x1500
+Option = Akuma (Alt) (New) (Arcade Mode):0x1600
+Option = Rose (New) (Arcade Mode):0x1700
+Option = Rolento (New) (Arcade Mode):0x1800
+Option = Gen (Alt) (New) (Arcade Mode):0x1900
+Option = Ken (New) (Arcade Mode):0x1A00
+Option = Ryu (Alt) (New) (Arcade Mode):0x1B00
+

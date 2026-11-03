@@ -1,0 +1,68 @@
+; CHTDB: ; [ Captain Commando (Jpn) (1998) (Capcom) {SLPS-01567} <captcomm> ]
+
+[P1 Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+80197D44 0048
+
+[P2 Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+80197E2C 0048
+
+[P1 Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+801980CC 000A
+
+[P2 Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+80198104 000A
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+8019DD6A 0100
+
+[Select Stage]
+Type = Gameshark
+Activation = EndFrame
+80011800 ????
+Option = 2:0x0002
+Option = 3:0x0003
+Option = 4:0x0004
+Option = 5:0x0005
+Option = 6:0x0006
+Option = 7:0x0007
+Option = Final Stage 8:0x0008
+
+[P1 Hold L1 to Run]
+Type = Gameshark
+Activation = EndFrame
+E019EA38 0004
+80197DC2 0C00
+
+[P2 Hold L1 to Run]
+Type = Gameshark
+Activation = EndFrame
+E019EA3A 0004
+80197EAA 0C00
+
+[P1 Infinite Weapon Use]
+Type = Gameshark
+Activation = EndFrame
+30197DCD 0004
+
+[P2 Infinite Weapon Use]
+Type = Gameshark
+Activation = EndFrame
+30197EB5 0004
+
+[Unlock Extras Unlocks 4-player mode + stage select.]
+Type = Gameshark
+Activation = EndFrame
+800112D4 0004
+D01A1BEC 0002
+801A1BEE 0001
+

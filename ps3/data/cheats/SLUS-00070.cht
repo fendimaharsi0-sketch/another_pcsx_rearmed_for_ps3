@@ -1,0 +1,29 @@
+; CHTDB: ; [ Tecmo Super Bowl (USA) (1996) (Tecmo) {SLUS-00070} <tecmosb> ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+8005CE6A 012C
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8005CE82 00??
+OptionRange = 0:99
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8005CE76 00??
+OptionRange = 0:99
+
+[P2 Infinite Time Outs]
+Type = Gameshark
+Activation = EndFrame
+8005CDF0 0004
+
+[Infinite Time Outs (Both Players)]
+Type = Gameshark
+Activation = EndFrame
+8011966C 0004
+

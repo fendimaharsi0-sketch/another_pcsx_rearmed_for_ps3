@@ -1,0 +1,143 @@
+; CHTDB: ; [ T'ai Fu - Wrath of the Tiger (USA) (1999) (Activision) {SLUS-00787} <taifu> ]
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+8004B3E4 ????
+Option = Bamboo Forest:0x0000
+Option = Bamboo Hill:0x0001
+Option = Tiger Ruins:0x0002
+Option = Leopard Jungle:0x0003
+Option = Leopard Fortress:0x0004
+Option = Leopard Lookout:0x0005
+Option = Temple Bridge:0x0006
+Option = Mantis Caves:0x0007
+Option = Mantis Lair:0x0008
+Option = Cavern of Spirits:0x0009
+Option = Cross Roads:0x000A
+Option = Monkey Treetops:0x000B
+Option = Monkey Skyboy:0x000C
+Option = Crane Harbor:0x000D
+Option = Pirate's Junk:0x000E
+Option = Cross Roads 2:0x000F
+Option = Great Wall:0x0010
+Option = Tiger Mountains:0x0011
+Option = Mountain Pass:0x0012
+Option = Shadow Gauntlet:0x0013
+Option = Forbidden Palace:0x0014
+
+[Map Cheats Enabled]
+Type = Gameshark
+Activation = EndFrame
+8004B4E8 0001
+
+[Infinite Health (Panda Temple)]
+Type = Gameshark
+Activation = EndFrame
+8014639E 0064
+
+[Infinite Health (Bamboo Forest)]
+Type = Gameshark
+Activation = EndFrame
+8012F3DE 0064
+
+[Infinite Health (Bamboo Hill)]
+Type = Gameshark
+Activation = EndFrame
+8012B0EE 0064
+
+[Infinite Health (Tiger Ruins)]
+Type = Gameshark
+Activation = EndFrame
+8013CBFE 0064
+
+[Infinite Health (Leopard Jungle)]
+Type = Gameshark
+Activation = EndFrame
+8012D12E 0078
+
+[Infinite Health (Leopard Fortress)]
+Type = Gameshark
+Activation = EndFrame
+801238CE 0078
+
+[Infinite Health (Leopard Lookout)]
+Type = Gameshark
+Activation = EndFrame
+8015D29E 0078
+
+[Infinite Health (Temple Bridges)]
+Type = Gameshark
+Activation = EndFrame
+80129E2E 008C
+
+[Infinite Health (Mantis Caves)]
+Type = Gameshark
+Activation = EndFrame
+8013508E 008C
+
+[Infinite Health (Mantis Lair)]
+Type = Gameshark
+Activation = EndFrame
+8013EA7E 008C
+
+[Infinite Health (Cavern Of Spirits)]
+Type = Gameshark
+Activation = EndFrame
+8014CADE 008C
+
+[Infinite Health (Cross Roads)]
+Type = Gameshark
+Activation = EndFrame
+801362BE 008C
+
+[Infinite Health (Monkey Treetops)]
+Type = Gameshark
+Activation = EndFrame
+8012351E 008C
+
+[Infinite Health (Monkey Skyboy)]
+Type = Gameshark
+Activation = EndFrame
+8013EABE 008C
+
+[Infinite Health (Crane Harbor)]
+Type = Gameshark
+Activation = EndFrame
+8012A62E 00A0
+
+[Infinite Health (Pirate's Junk)]
+Type = Gameshark
+Activation = EndFrame
+8013CA7E 009E
+
+[Infinite Health (Cross Roads 2)]
+Type = Gameshark
+Activation = EndFrame
+801330DE 00B4
+
+[Infinite Health (Great Wall)]
+Type = Gameshark
+Activation = EndFrame
+8012550E 00B4
+
+[Infinite Health (Tiger Mountains)]
+Type = Gameshark
+Activation = EndFrame
+8013C29E 00B4
+
+[Infinite Health (Mountain Pass)]
+Type = Gameshark
+Activation = EndFrame
+8012DABE 00B4
+
+[Infinite Health (Shadow Gauntlet)]
+Type = Gameshark
+Activation = EndFrame
+80131ABE 00C8
+
+[Infinite Health (Forbidden Palace)]
+Type = Gameshark
+Activation = EndFrame
+8012924E 00C8
+

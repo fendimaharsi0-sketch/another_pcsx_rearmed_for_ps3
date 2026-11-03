@@ -1,0 +1,45 @@
+; CHTDB: ; [ Shin Seiki GPX Cyber Formula: Aratanaru Chousensha (Japan) {SLPS-01958 | SLPS-01959} ]
+
+[All Premium]
+Type = Gameshark
+Activation = EndFrame
+300142A5 0081
+
+[Select Card Companion]
+Type = Gameshark
+Activation = EndFrame
+300FD4E6 ????
+Option = Kazami Hayato:0x0000
+Option = Sugeo:0x0001
+Option = Nanase:0x0002
+Option = Kyoko Aoi:0x0003
+Option = Burido Kaga:0x0004
+Option = Clair Fuotoran:0x0005
+Option = Jackie Guderian:0x0006
+Option = Naoki Shinjo:0x0007
+Option = Franz Haineru:0x0008
+Option = Osamu Sugeo:0x0009
+Option = Ederi Butsuhorutsu:0x000A
+Option = Sasabara Megumi:0x000B
+Option = Night Shumaha:0x000C
+Option = Nemesis:0x000D
+
+[Select Fight Companion]
+Type = Gameshark
+Activation = EndFrame
+30014278 ????
+Option = Kazami Hayato:0x0000
+Option = Sugeo:0x0001
+Option = Nanase:0x0002
+Option = Kyoko Aoi:0x0003
+Option = Burido Kaga:0x0004
+Option = Clair Fuotoran:0x0005
+Option = Jackie Guderian:0x0006
+Option = Naoki Shinjo:0x0007
+Option = Franz Haineru:0x0008
+Option = Osamu Sugeo:0x0009
+Option = Ederi Butsuhorutsu:0x000A
+Option = Sasabara Megumi:0x000B
+Option = Night Shumaha:0x000C
+Option = Nemesis:0x000D
+

@@ -1,0 +1,34 @@
+; CHTDB: ; [ NBA Jam Extreme (USA) (1996) (Acclaim Entertainment) {SLUS-00388} <nbajamex> ]
+
+[Select Team 1 Score]
+Type = Gameshark
+Activation = EndFrame
+800A227C 00??
+OptionRange = 0:100
+
+[Select Team 2 Score]
+Type = Gameshark
+Activation = EndFrame
+800A2280 00??
+OptionRange = 0:100
+
+[P1 Infinite Turbo]
+Type = Gameshark
+Activation = EndFrame
+800B2124 00FF
+
+[P2 Infinite Turbo]
+Type = Gameshark
+Activation = EndFrame
+800B2208 00FF
+
+[P3 Infinite Turbo]
+Type = Gameshark
+Activation = EndFrame
+800B22EC 00FF
+
+[P4 Infinite Turbo]
+Type = Gameshark
+Activation = EndFrame
+800B23D0 00FF
+

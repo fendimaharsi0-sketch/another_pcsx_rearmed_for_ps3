@@ -1,0 +1,59 @@
+; CHTDB: ; [ Armored Core: Project Phantasma (Japan) (1998) (PlayStation the Best, PSone Books) {SLPS-91110} ]
+
+[Game Progress\Credits 9999999]
+Description = Set Credits to 9999999.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+9003C6DC 0098967F
+
+[Game Progress\Human PLUS (強化人間)]
+Description = Set Human PLUS (強化人間) stage.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+3003C734 ????
+Option = No Upgrades:0x0000
+Option = Stage 1:0x0001
+Option = Stage 2:0x0004
+Option = Stage 3:0x0006
+
+[Game Progress\Deploy Restricted AC (基準違反機体)]
+Description = Set Deploy Restricted AC (基準違反機体) ability.
+Type = Gameshark
+Activation = EndFrame
+Author = val
+3003C736 ????
+Option = Disabled:0x0000
+Option = Enabled:0x0001
+
+[Infinite Mission Timer]
+Type = Gameshark
+Activation = EndFrame
+801A1694 0F80
+
+[Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+801A4980 8300
+
+[Infinite Jet Packs]
+Type = Gameshark
+Activation = EndFrame
+80041A26 6D60
+
+[Infinite Rifle]
+Type = Gameshark
+Activation = EndFrame
+80041CF8 00C8
+
+[Infinite Small Missiles]
+Type = Gameshark
+Activation = EndFrame
+80041D36 0028
+
+[Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+9003A634 50F5E0FF
+

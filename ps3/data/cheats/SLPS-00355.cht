@@ -1,0 +1,62 @@
+; CHTDB: ; [ Dragon Ball Z: Idainaru Dragon Ball Densetsu (Japan) {SLPS-00355} ]
+
+[Unlock SP Mode]
+Type = Gameshark
+Activation = EndFrame
+801FF018 0007
+
+[Select Starting Saga]
+Type = Gameshark
+Activation = EndFrame
+801FF002 ????
+Option = Saiyan Saga:0x0000
+Option = Ginyu Saga:0x0001
+Option = Freeza Saga:0x0002
+Option = Android Saga:0x0003
+Option = Cell Saga:0x0004
+Option = Buu Saga (Dabura/Majin Buu):0x0005
+Option = Buu Saga (Majin Buu/Super Buu):0x0006
+Option = Buu Saga (Super Buu/Kid Buu):0x0007
+
+[Press Select to Unlock All Characters [Title Screen]]
+Type = Gameshark
+Activation = EndFrame
+D0055B6C 0100
+801FF002 0007
+
+[P1 Infinite super power]
+Type = Gameshark
+Activation = EndFrame
+80019498 3E80
+
+[P1 No Powerbar]
+Type = Gameshark
+Activation = EndFrame
+80017FC2 0009
+
+[Select Power Balance]
+Type = Gameshark
+Activation = EndFrame
+8001AF10 ????
+Option = full blue:0x7FFF
+Option = Balanced:0x0000
+Option = full red:0x8AD0
+
+[All Attacks Hurt P2 (Game Mode)]
+Type = Gameshark
+Activation = EndFrame
+D00566F4 0023
+300566F4 0021
+
+[All Attacks Hurt P2 (SP Mode)]
+Type = Gameshark
+Activation = EndFrame
+D00565BC 0023
+300565BC 0021
+
+[All Attacks Hurt P2 (VS Mode)]
+Type = Gameshark
+Activation = EndFrame
+D0056250 0023
+30056250 0021
+

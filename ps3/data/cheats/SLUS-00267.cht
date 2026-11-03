@@ -1,0 +1,14 @@
+; CHTDB: ; [ NBA Live 97 (USA) (1996) (Electronic Arts) {SLUS-00267} <nbaliv97> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8001EE22 00??
+OptionRange = 0:100
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8001EEE6 00??
+OptionRange = 0:100
+

@@ -1,0 +1,14 @@
+; CHTDB: ; [ World League Soccer (Japan) {SLPS-01389} ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800EF874 00??
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800EF878 00??
+OptionRange = 0:9
+

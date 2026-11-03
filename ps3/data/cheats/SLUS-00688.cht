@@ -1,0 +1,14 @@
+; CHTDB: ; [ NCAA Football 99 (USA) (1998) (Electronic Arts) {SLUS-00688} <ncaa99> ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+80084F34 00??
+OptionRange = 0:99
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+80082D04 00??
+OptionRange = 0:99
+

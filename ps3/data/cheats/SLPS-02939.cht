@@ -1,0 +1,59 @@
+; CHTDB: ; [ Tatsunoko Fight (Jpn) (2000) (Takara) {SLPS-02939} <tatsufgt> ]
+
+[P1 Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+8008FDA5 0069
+8009844E 0075
+
+[P1 stamina]
+Type = Gameshark
+Activation = EndFrame
+8008FDA4 6900
+
+[P2 stamina]
+Type = Gameshark
+Activation = EndFrame
+8008FEF0 6900
+
+[Gallery Mode Fully Open]
+Type = Gameshark
+Activation = EndFrame
+800CB8F2 0001
+800CB8F6 0001
+800CB8FA 0001
+800CB8FE 0001
+800CB902 0001
+900CB904 00010001
+900CB908 00010001
+900CB90C 00010001
+900CB910 00010001
+
+[All Unlock (Final story mode, gallery and character)]
+Type = Gameshark
+Activation = EndFrame
+8008D848 FFFF
+50001304 0000
+800CB8EE 0001
+
+[P1 Select character]
+Type = Gameshark
+Activation = EndFrame
+30097B08 ????
+Option = Ken:0x0000
+Option = Swan Jun:0x0001
+Option = Berukukatsutse:0x0002
+Option = Casshern:0x0003
+Option = Luna Kozuki:0x0004
+Option = Buraikingubosu:0x0005
+Option = Polymer:0x0006
+Option = Motel:0x0007
+Option = Asutorarukamereon:0x0008
+Option = Tekkaman:0x0009
+Option = Umeta:0x000A
+Option = Doburai:0x000B
+Option = Wolter 0C:0x000C
+Option = Neon 0D:0x000D
+Option = Karochi:0x000E
+Option = Rosuraisen:0x000F
+

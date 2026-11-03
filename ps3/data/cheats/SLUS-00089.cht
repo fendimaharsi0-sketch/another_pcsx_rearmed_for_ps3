@@ -1,0 +1,36 @@
+; CHTDB: ; [ TNN Motor Sports HardCore 4X4 (USA) (1996) (ASC Games) {SLUS-00089} <tnnhc4x4> ]
+
+[Select Track]
+Type = Gameshark
+Activation = EndFrame
+800B2628 ????
+Option = Dynamite Pass:0x0000
+Option = Ground Zero Gulch:0x0001
+Option = Devil's Kitchen:0x0002
+Option = Mercurial Forest:0x0003
+Option = Hades Highway:0x0004
+Option = Arctic Inferno:0x0005
+
+[Total Time = 00.00.00]
+Type = Gameshark
+Activation = EndFrame
+801F3ACC 0000
+
+[Select Car]
+Type = Gameshark
+Activation = EndFrame
+800B2614 ????
+Option = Tree Killer:0x0000
+Option = Fire Witch:0x0001
+Option = Snow Spider:0x0002
+Option = Canyon Snake:0x0003
+Option = Sand Blaster:0x0004
+Option = Shasta Cyclone:0x0005
+Option = Mother:0x0006
+
+[Start on Lap 3]
+Type = Gameshark
+Activation = EndFrame
+A61F53B4 00000002
+801F52B8 0002
+

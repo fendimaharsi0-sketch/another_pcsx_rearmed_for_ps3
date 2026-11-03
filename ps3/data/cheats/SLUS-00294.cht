@@ -1,0 +1,16 @@
+; CHTDB: ; [ NBA in the Zone 2 (USA) (1996) (Konami of America) {SLUS-00294} <nbazone2> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8007126C 00??
+8006EBF0 00??
+OptionRange = 0:100
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+8006ED84 00??
+8006ED7E 00??
+OptionRange = 0:100
+

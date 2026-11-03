@@ -1,0 +1,21 @@
+; CHTDB: ; [ Darkstalkers - The Night Warriors (USA) (1996) (Capcom Entertainment) {SLUS-00036} <dstlk> ]
+
+[P1 Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+800BDB00 0090
+900CD1A0 00900090
+
+[P1 Only Needs to Win 1 Round]
+Type = Gameshark
+Activation = EndFrame
+800CD49E 0200
+800CD4A6 0002
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+800CD140 ????
+Option = Huitzil:0x0B00
+Option = Pyron:0x0C00
+

@@ -1,0 +1,53 @@
+; CHTDB: ; [ Umi no Nushi Tsuri - Takarajimi ni Mukatte (Jpn) (1999) (Pack-in-Soft) {SLPS-02172} <uminustm> ]
+
+[Infinite Money (60000)]
+Type = Gameshark
+Activation = EndFrame
+80174210 EA60
+
+[Infinite Energy (999)]
+Type = Gameshark
+Activation = EndFrame
+8017420A 03E7
+8017420C 03E7
+
+[Always 100 Possible Fishing Tries?]
+Type = Gameshark
+Activation = EndFrame
+8017420E 0064
+
+[Select Location]
+Type = Gameshark
+Activation = EndFrame
+30174204 ????
+Option = Breakwater:0x0001
+Option = Sandy:0x0002
+Option = Rocky fishing spot:0x0003
+Option = Coast:0x0004
+Option = Okishima:0x0005
+Option = Open ocean:0x0006
+Option = Remote island:0x0007
+Option = Ghost ship:0x0008
+Option = Treasure Island:0x0009
+Option = Fishing pond:0x000A
+
+[Story mode / character 00 = Koichi]
+Type = Gameshark
+Activation = EndFrame
+301741E4 0000
+
+[Story mode / character 01 = Sachiko]
+Type = Gameshark
+Activation = EndFrame
+301741E4 0001
+
+[Story mode / Kenichi appearance]
+Type = Gameshark
+Activation = EndFrame
+301741E5 0001
+
+[Fishing mode appeared unrestrained]
+Type = Gameshark
+Activation = EndFrame
+30174203 0001
+

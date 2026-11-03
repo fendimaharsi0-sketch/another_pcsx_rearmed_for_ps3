@@ -1,0 +1,74 @@
+; CHTDB: ; [ Poy Poy (USA) (1997) (Konami of America) {SLUS-00486} <poypoy> ]
+
+[P1 Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+900DCB68 00C800C8
+
+[P1 Lots Of Points]
+Type = Gameshark
+Activation = EndFrame
+800DCCF0 0099
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+800DB0D8 088E
+
+[P2 Lots Of Points]
+Type = Gameshark
+Activation = EndFrame
+800DCCF2 0099
+
+[Infinite Money]
+Type = Gameshark
+Activation = EndFrame
+800DCCFC 045F
+
+[P1 Infinite Glove Power]
+Type = Gameshark
+Activation = EndFrame
+900DCB70 4CEA4CEA
+
+[Win Lots Of Money (Battle Mode)]
+Type = Gameshark
+Activation = EndFrame
+800DCCF0 0110
+
+[P1 Have All Gloves]
+Type = Gameshark
+Activation = EndFrame
+900DCD04 FFFFFFFF
+900DCD08 FFFFFFFF
+800DCD0C 001F
+
+[Select Stage]
+Type = Gameshark
+Activation = EndFrame
+800DB0E0 ????
+Option = Practice:0x0000
+Option = Flatland:0x0001
+Option = Moi Island:0x0002
+Option = Park:0x0003
+Option = Robots:0x0004
+Option = Desert:0x0005
+Option = Iceberg:0x0006
+Option = Stage Infinity:0x0007
+Option = Technical Bonus:0x0008
+;#### PATCHES LISTED BELOW ####
+
+[Select Widescreen Aspect Ratio\16-9]
+Type = Gameshark
+Activation = EndFrame
+A710D54C 10000C00
+
+[Select Widescreen Aspect Ratio\20-9]
+Type = Gameshark
+Activation = EndFrame
+A710D54C 10000900
+
+[Select Widescreen Aspect Ratio\Eye Infinity]
+Type = Gameshark
+Activation = EndFrame
+A710D54C 10000400
+

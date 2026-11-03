@@ -1,0 +1,77 @@
+; CHTDB: ; [ X-Men - Children of the Atom (USA) (1998) (Acclaim Entertainment) {SLUS-00044} <xmcota> ]
+
+[P1 Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+8003B6E8 008F
+
+[P1 No Energy]
+Type = Gameshark
+Activation = EndFrame
+8003B6E8 0000
+
+[P1 1-Hit Death]
+Type = Gameshark
+Activation = EndFrame
+A603B6E8 008F0001
+
+[P1 Super Bar Always Full]
+Type = Gameshark
+Activation = EndFrame
+8003B6EC 008E
+
+[P1 Start With One Win]
+Type = Gameshark
+Activation = EndFrame
+D003BD58 0000
+3003BD58 0001
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+8003BE58 ????
+Option = Storm:0x0100
+Option = Cyclops:0x0101
+Option = Wolverine:0x0102
+Option = Omega Red:0x0103
+Option = Sentinel:0x0104
+Option = Iceman:0x0105
+Option = Colussus:0x0106
+Option = Psylocke:0x0107
+Option = Silver Samurai:0x0108
+Option = Spiral:0x0109
+Option = Juggernaut:0x010A
+Option = Magneto:0x010B
+Option = Akuma:0x010C
+
+[P2 Infinite Energy]
+Type = Gameshark
+Activation = EndFrame
+8003BAE8 008F
+
+[P2 No Energy]
+Type = Gameshark
+Activation = EndFrame
+8003BAE8 0000
+
+[P2 1-Hit Death]
+Type = Gameshark
+Activation = EndFrame
+A603BAE8 008F0001
+
+[P2 Super Bar Always Full]
+Type = Gameshark
+Activation = EndFrame
+8003BAEC 008E
+
+[P2 Start With One Win]
+Type = Gameshark
+Activation = EndFrame
+D003BD58 0000
+3003BD58 0002
+
+[P2 Never Wins]
+Type = Gameshark
+Activation = EndFrame
+3003BD59 0000
+

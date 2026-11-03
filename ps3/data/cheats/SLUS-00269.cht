@@ -1,0 +1,38 @@
+; CHTDB: ; [ FIFA Soccer 97 (USA) (1996) (Electronic Arts) {SLUS-00269} <fifa97> ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+800DE5DC 0000
+800DF6FC 0000
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800125CC 00??
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800125C8 00??
+OptionRange = 0:9
+
+[Always In 1st Period]
+Type = Gameshark
+Activation = EndFrame
+800DF73C 0001
+800DF740 0001
+
+[Start In 2nd Period]
+Type = Gameshark
+Activation = EndFrame
+A60DF73C 00010002
+800DF740 0002
+
+[Start In 3rd Period]
+Type = Gameshark
+Activation = EndFrame
+A60DF73C 00010003
+800DF740 0003
+

@@ -1,0 +1,67 @@
+; CHTDB: ; [ Duke Nukem - Time to Kill (USA) (1998) (GT Interactive Software) {SLUS-00583, SLUS-00583GH} <dukenktk> ]
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+800D71CA 4E20
+
+[Infinite Armor]
+Type = Gameshark
+Activation = EndFrame
+800D73CC 4E20
+
+[Infinite Air]
+Type = Gameshark
+Activation = EndFrame
+800D73CE 2EC0
+
+[All Keys All Levels]
+Type = Gameshark
+Activation = EndFrame
+50000B04 0000
+800D7504 0001
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+800BE570 ????
+Option = Level 2:0x0001
+Option = Level 3:0x0002
+Option = Level 4:0x0003
+Option = Level 5:0x0004
+Option = Level 6:0x0005
+Option = Level 7:0x0006
+Option = Level 8:0x0007
+Option = Level 9:0x0008
+Option = Level 10:0x0009
+Option = Level 11:0x000A
+Option = Level 12:0x000B
+Option = Level 13:0x000C
+Option = Level 14:0x000D
+Option = Level 15:0x000E
+Option = Level 16:0x000F
+Option = Level 17:0x0010
+Option = Level 18:0x0011
+Option = Level 19:0x0012
+Option = Level 20:0x0003
+Option = Level 21:0x0014
+Option = Level 22:0x0015
+Option = Level 23:0x0016
+Option = Level 24:0x0017
+Option = Level 25:0x0018
+Option = Level 26:0x0019
+Option = Level 27:0x001A
+Option = Level 28:0x001B
+Option = Level 29:0x001C
+Option = Level 30:0x001D
+
+[Infinite Ammo + Items]
+Type = Gameshark
+Activation = EndFrame
+800C3CC4 0001
+
+[Kill Last Boss in 1 Hit]
+Type = Gameshark
+Activation = EndFrame
+8018EFC2 0000
+

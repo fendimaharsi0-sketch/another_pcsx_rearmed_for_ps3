@@ -1,0 +1,205 @@
+; CHTDB: ; [ Vigilante 8 - 2nd Offense (USA) (1999) (Activision) {SLUS-00868} <vigil2nd> ]
+
+[P1 Unlock All Characters/Quest Mode Complete With Everyone]
+Type = Gameshark
+Activation = EndFrame
+5000120A 0000
+8006B9E8 01FF
+
+[P1 Maxed Out Stats All Characters]
+Type = Gameshark
+Activation = EndFrame
+5000120A 0000
+8006B9EE 6464
+5000120A 0000
+8006B9F0 6464
+
+[Open All Original V8 Levels + Wacky Mode]
+Type = Gameshark
+Activation = EndFrame
+8006A832 001F
+
+[Invincibility]
+Type = Gameshark
+Activation = EndFrame
+8006A830 0008
+
+[View All Endings]
+Type = Gameshark
+Activation = EndFrame
+8006A830 0010
+
+[Enemies\Enemy 1]
+Description = Activate only AFTER random enemies are selected on the arcade/survival enemy menu (and respawn count on arcade) or else the game will CRASH
+Type = Gameshark
+Activation = EndFrame
+3006B8F6 00??
+Option = Wonderwagon default:0
+Option = Thunderbolt default:1
+Option = dakota stunt cycle default:2
+Option = samson tow truck default:3
+Option = livingston truck default:4
+Option = xanandu RV default:5
+Option = palomino 13 default:6
+Option = el guerrero default:7
+Option = blue burro bus default:8
+Option = excelsior stretch default:9
+Option = tsunami default:10
+Option = marathon default:11
+Option = moon trekker default:12
+Option = grubb dual loader default:13
+Option = chrono stinger default:14
+Option = vertigo default:15
+Option = goliath halftrack default:16
+Option = wapiti 4wd default:17
+Option = wonderwagon hotrod:21
+Option = thunderbolt hotrod:22
+Option = dakota stunt cycle hotrod:23
+Option = samson tow truck hotrod:24
+Option = livingston truck hotrod:25
+Option = xanandu RV hotrod:26
+Option = palomino 13 hotrod:27
+Option = el guerrero hotrod:28
+Option = blue burro bus hotrod:29
+Option = excelsior stretch hotrod:30
+Option = tsunami hotrod:31
+Option = marathon hotrod:32
+Option = moon trekker hotrod:33
+Option = grubb dual loader hotrod:34
+Option = chrono stinger hotrod:35
+Option = vertigo hotrod:36
+Option = goliath halftrack hotrod:37
+Option = wapiti 4wd hotrod:38
+
+[Enemies\Enemy 2]
+Description = Activate only AFTER random enemies are selected on the arcade/survival enemy menu (and respawn count on arcade) or else the game will CRASH
+Type = Gameshark
+Activation = EndFrame
+3006B8F7 00??
+Option = Wonderwagon default:0
+Option = Thunderbolt default:1
+Option = dakota stunt cycle default:2
+Option = samson tow truck default:3
+Option = livingston truck default:4
+Option = xanandu RV default:5
+Option = palomino 13 default:6
+Option = el guerrero default:7
+Option = blue burro bus default:8
+Option = excelsior stretch default:9
+Option = tsunami default:10
+Option = marathon default:11
+Option = moon trekker default:12
+Option = grubb dual loader default:13
+Option = chrono stinger default:14
+Option = vertigo default:15
+Option = goliath halftrack default:16
+Option = wapiti 4wd default:17
+Option = wonderwagon hotrod:21
+Option = thunderbolt hotrod:22
+Option = dakota stunt cycle hotrod:23
+Option = samson tow truck hotrod:24
+Option = livingston truck hotrod:25
+Option = xanandu RV hotrod:26
+Option = palomino 13 hotrod:27
+Option = el guerrero hotrod:28
+Option = blue burro bus hotrod:29
+Option = excelsior stretch hotrod:30
+Option = tsunami hotrod:31
+Option = marathon hotrod:32
+Option = moon trekker hotrod:33
+Option = grubb dual loader hotrod:34
+Option = chrono stinger hotrod:35
+Option = vertigo hotrod:36
+Option = goliath halftrack hotrod:37
+Option = wapiti 4wd hotrod:38
+
+[Enemies\Enemy 3]
+Description = Activate only AFTER random enemies are selected on the arcade/survival enemy menu (and respawn count on arcade) or else the game will CRASH
+Type = Gameshark
+Activation = EndFrame
+3006B8F8 00??
+Option = Wonderwagon default:0
+Option = Thunderbolt default:1
+Option = dakota stunt cycle default:2
+Option = samson tow truck default:3
+Option = livingston truck default:4
+Option = xanandu RV default:5
+Option = palomino 13 default:6
+Option = el guerrero default:7
+Option = blue burro bus default:8
+Option = excelsior stretch default:9
+Option = tsunami default:10
+Option = marathon default:11
+Option = moon trekker default:12
+Option = grubb dual loader default:13
+Option = chrono stinger default:14
+Option = vertigo default:15
+Option = goliath halftrack default:16
+Option = wapiti 4wd default:17
+Option = wonderwagon hotrod:21
+Option = thunderbolt hotrod:22
+Option = dakota stunt cycle hotrod:23
+Option = samson tow truck hotrod:24
+Option = livingston truck hotrod:25
+Option = xanandu RV hotrod:26
+Option = palomino 13 hotrod:27
+Option = el guerrero hotrod:28
+Option = blue burro bus hotrod:29
+Option = excelsior stretch hotrod:30
+Option = tsunami hotrod:31
+Option = marathon hotrod:32
+Option = moon trekker hotrod:33
+Option = grubb dual loader hotrod:34
+Option = chrono stinger hotrod:35
+Option = vertigo hotrod:36
+Option = goliath halftrack hotrod:37
+Option = wapiti 4wd hotrod:38
+
+[Enemies\Enemy 4]
+Description = Activate only AFTER random enemies are selected on the arcade/survival enemy menu (and respawn count on arcade) or else the game will CRASH
+Type = Gameshark
+Activation = EndFrame
+3006B8F9 00??
+Option = Wonderwagon default:0
+Option = Thunderbolt default:1
+Option = dakota stunt cycle default:2
+Option = samson tow truck default:3
+Option = livingston truck default:4
+Option = xanandu RV default:5
+Option = palomino 13 default:6
+Option = el guerrero default:7
+Option = blue burro bus default:8
+Option = excelsior stretch default:9
+Option = tsunami default:10
+Option = marathon default:11
+Option = moon trekker default:12
+Option = grubb dual loader default:13
+Option = chrono stinger default:14
+Option = vertigo default:15
+Option = goliath halftrack default:16
+Option = wapiti 4wd default:17
+Option = wonderwagon hotrod:21
+Option = thunderbolt hotrod:22
+Option = dakota stunt cycle hotrod:23
+Option = samson tow truck hotrod:24
+Option = livingston truck hotrod:25
+Option = xanandu RV hotrod:26
+Option = palomino 13 hotrod:27
+Option = el guerrero hotrod:28
+Option = blue burro bus hotrod:29
+Option = excelsior stretch hotrod:30
+Option = tsunami hotrod:31
+Option = marathon hotrod:32
+Option = moon trekker hotrod:33
+Option = grubb dual loader hotrod:34
+Option = chrono stinger hotrod:35
+Option = vertigo hotrod:36
+Option = goliath halftrack hotrod:37
+Option = wapiti 4wd hotrod:38
+
+[Widescreen Fix]
+Description = expands a bit more the levels rendering right and left field - enable in the main menu AFTER loading your save game or the game will crash
+Type = Gameshark
+Activation = EndFrame
+A7001BAC 10000400
+

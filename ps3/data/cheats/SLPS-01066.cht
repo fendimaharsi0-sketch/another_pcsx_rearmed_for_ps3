@@ -1,0 +1,86 @@
+; CHTDB: ; [ Speed Power Gunbike (Jpn) (1998) (Sony Music Entertainment) {SLPS-01066} <speedpwg> ]
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+801C32A8 86A0
+
+[Infinite G-Power]
+Type = Gameshark
+Activation = EndFrame
+801AE1E4 00FF
+801AE1DE 0003
+
+[Infinite Power Boost]
+Type = Gameshark
+Activation = EndFrame
+801AE1E0 0000
+
+[STAGE 1 boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00D0940 00E4
+300D0940 0000
+
+[STAGE 2 boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00CD908 00DC
+300CD908 0000
+
+[STAGE 3 boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00D1A0C 00D8
+300D1A0C 0000
+
+[STAGE 4 boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00C9AA8 0064
+300C9AA8 0000
+
+[STAGE 5A boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00D4028 00F8
+300D4028 0000
+
+[STAGE 5B boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00D3EB8 00F8
+300D3EB8 0000
+
+[STAGE 5C boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00D357C 00F0
+300D357C 0000
+
+[STAGE 6 boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+A60D61B4 02000000
+
+[STAGE 7 boss anergy 0]
+Type = Gameshark
+Activation = EndFrame
+D00C321C 00B8
+300C321C 0000
+
+[Select Stage]
+Type = Gameshark
+Activation = EndFrame
+301C32A2 ????
+Option = 0 Practice:0x0000
+Option = 1:0x0001
+Option = 2:0x0002
+Option = 3:0x0003
+Option = 4:0x0004
+Option = 5:0x0005
+Option = 6:0x0006
+Option = 7:0x0007
+Option = 8:0x0008
+Option = 9:0x0009
+

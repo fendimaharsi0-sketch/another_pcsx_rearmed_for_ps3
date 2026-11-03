@@ -1,0 +1,14 @@
+; CHTDB: ; [ HardBall '99 (USA) (1998) (Accolade) {SLUS-00651} <hardbl99> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+300E3EE9 00??
+OptionRange = 0:50
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+300E3EE8 00??
+OptionRange = 0:50
+

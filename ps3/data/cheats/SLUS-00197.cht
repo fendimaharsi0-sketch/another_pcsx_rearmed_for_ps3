@@ -1,0 +1,30 @@
+; CHTDB: ; [ Street Fighter Alpha - Warriors' Dreams (USA) (1996) (Capcom Entertainment) {SLUS-00197} <sfa> ]
+
+[P1 Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+8018710C 0090
+
+[P2 No Energy]
+Type = Gameshark
+Activation = EndFrame
+801873D4 0000
+
+[P1 Select Character]
+Type = Gameshark
+Activation = EndFrame
+80187162 ????
+Option = Ryu:0x0000
+Option = Ken:0x0001
+Option = Akuma:0x0002
+Option = Charlie:0x0003
+Option = Chun Li:0x0004
+Option = Adon:0x0005
+Option = Sodom:0x0006
+Option = Guy:0x0007
+Option = Birdie:0x0008
+Option = Rose:0x0009
+Option = M.Bison:0x000A
+Option = Sagat:0x000B
+Option = Dan:0x000C
+
