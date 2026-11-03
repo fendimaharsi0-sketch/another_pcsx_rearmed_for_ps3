@@ -637,6 +637,7 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 		pgxp_push(gteSX2, gteSY2,
 			(float)((gteOFX + gte_wide_x((s64)gteIR1 * quotient)) / 65536.0),
 			(float)((gteOFY + (s64)gteIR2 * quotient) / 65536.0), sz3);
+	if (pgxp_track) pgxp_on_rtps(gteSXY2, (float)((gteOFX + gte_wide_x((s64)gteIR1 * quotient)) / 65536.0), (float)((gteOFY + (s64)gteIR2 * quotient) / 65536.0), sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
 	gteIR0 = limH(&flags, mac0 >> 12);
@@ -677,6 +678,7 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 			pgxp_push(fSX(v), fSY(v),
 				(float)((gteOFX + gte_wide_x((s64)ir1 * quotient)) / 65536.0),
 				(float)((gteOFY + (s64)ir2 * quotient) / 65536.0), sz3);
+		if (pgxp_track) pgxp_on_rtpt(v, regs->CP2D.r[12 + v], (float)((gteOFX + gte_wide_x((s64)ir1 * quotient)) / 65536.0), (float)((gteOFY + (s64)ir2 * quotient) / 65536.0), sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
 	}
 
 	gteMAC1 = mac1;

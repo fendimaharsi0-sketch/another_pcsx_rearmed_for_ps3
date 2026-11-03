@@ -4,6 +4,7 @@
  * when a fresh snapshot of native VRAM is needed. */
 #include <string.h>
 #include "hwr.h"
+#include "../../../libpcsxcore/pgxp.h"
 
 #define VCAP      65536   /* vertices per submit */
 #define SCAP      32768   /* staged second-pass vertices */
@@ -575,19 +576,20 @@ static void pgxp_resolve(pv *t, int nt, const int *tsrc, const int *rsx, const i
     }
 }
 
-static void do_poly(const uint32_t *l, const uint32_t *end)
+static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t *sh)
 {
     uint32_t w0 = le32(l), cmd = w0 >> 24, uvw[4] = { 0 };
     int gour = cmd & 0x10, quad = cmd & 8, tex = cmd & 4, semi = cmd & 2, raw = cmd & 1;
     int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0, spr = 0;
     int umin = 255, umax = 0, vmin = 255, vmax = 0, nt = 0;
-    int rsx[4], rsy[4], tsrc[6];   /* PGXP: raw GP0 coords + drawn-vertex source map */
+    int rsx[4], rsy[4], tsrc[6], xy_idx[4];   /* PGXP: raw GP0 coords + drawn-vertex source map + command-word index of each vertex */
     pv p[4], t[6];
     for (i = 0; i < n; i++) {
         uint32_t c = w0, xy;
         if (gour && i) { if (l + idx >= end) return; c = le32(l + idx++); }
         if (l + idx >= end) return;
         xy = le32(l + idx++);
+        xy_idx[i] = idx - 1;
         rsx[i] = sx11(xy); rsy[i] = sx11(xy >> 16);   /* before the draw offset (see pgxp_resolve) */
         p[i].x = (float)(rsx[i] + st.ox); p[i].y = (float)(rsy[i] + st.oy);
         if (tex) {
@@ -622,6 +624,23 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
     if (umax > umin) umax--;
     if (vmax > vmin) vmax--;
     pgxp_resolve(t, nt, tsrc, rsx, rsy, tex);
+    /* PGXP T2: vertex stabilization from provenance-validated shadows.
+       Only vertices whose GP0 word was written directly by the CPU while
+       its shadow was live in a register move; DMA words and unshadowed
+       words keep integer positions. The shift is sub-pixel (the GTE
+       fraction), and both sides of a shared edge resolve identically when
+       they come from the same register flow. Gated on the master switch
+       only (no new setting). In VRAM-check mode this diverges from the
+       software reference exactly like texture correction already does. */
+    if (sh && pgxp_track) {
+        for (i = 0; i < nt; i++) {
+            const pgxp_shadow_t *sv = &sh[xy_idx[tsrc[i]]];
+            if (sv->valid) {
+                t[i].x = sv->x + (float)st.ox;
+                t[i].y = sv->y + (float)st.oy;
+            }
+        }
+    }
     ps1_sample_shift(t, nt);
     tex_setup(tex, raw, cx, cy, umin, umax, vmin, vmax, ta, ca);
     if (!prepare(tex, ta[0], ta[1], ta[2], ta[3], ca[0], ca[1], ca[2])) return;
@@ -776,7 +795,7 @@ int hwr_cmd(const uint32_t *list, const uint32_t *end)
         return full_mode;
     }
     if (cmd < 0x20 || cmd >= 0x80 || frame_overflow) return 0;
-    if (cmd < 0x40) do_poly(list, end);
+    if (cmd < 0x40) do_poly(list, end, pgxp_cmd_shadow_at(list, gpulib_get_cmd_buffer()));
     else if (cmd < 0x60) do_line(list, end);
     else do_rect(list, end);
     if (nv + nsv >= CHUNK) submit();

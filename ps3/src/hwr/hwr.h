@@ -113,6 +113,7 @@ int  hwr_active(void);
 /* --- core side (called through the core's gpu_frontend_hooks) --- */
 /* before the software renderer runs it; 1 = drawn here (full mode), skip it */
 int  hwr_cmd(const uint32_t *list, const uint32_t *end);
+uint32_t *gpulib_get_cmd_buffer(void);  /* gpulib: CPU-write command buffer, for PGXP shadow lookup */
 void hwr_flush(void);                                     /* submit everything queued */
 void hwr_vram_written(int x, int y, int w, int h);        /* upload, copy or savestate load */
 void hwr_sync_ecmds(const uint32_t *ex_regs);             /* host-endian E1..E6 */

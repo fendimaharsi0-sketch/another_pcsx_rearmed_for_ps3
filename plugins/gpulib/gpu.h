@@ -191,6 +191,7 @@ void GPUwriteDataMem(uint32_t *mem, int count);
 long GPUdmaChain(uint32_t *rambase, uint32_t addr,
 		uint32_t *progress_addr, int32_t *cycles_last_cmd);
 void GPUwriteData(uint32_t data);
+uint32_t *gpulib_get_cmd_buffer(void);
 void GPUreadDataMem(uint32_t *mem, int count);
 uint32_t GPUreadData(void);
 uint32_t GPUreadStatus(void);

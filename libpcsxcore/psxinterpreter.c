@@ -25,6 +25,7 @@
 #include "psxcommon.h"
 #include "r3000a.h"
 #include "gte.h"
+#include "pgxp.h"
 #include "psxhle.h"
 #include "psxinterpreter.h"
 #include <stddef.h>
@@ -1030,9 +1031,9 @@ OP(psxCOP2) {
 		return;
 	}
 	switch (rs) {
-		case 0x00: doLoad(regs_, rt, MFC2(&regs_->CP2, rd)); break; // MFC2
+		case 0x00: { u32 v = MFC2(&regs_->CP2, rd); doLoad(regs_, rt, v); pgxp_on_mfc2(rd, rt, v); } break; // MFC2
 		case 0x02: doLoad(regs_, rt, regs_->CP2C.r[rd]);     break; // CFC2
-		case 0x04: MTC2(&regs_->CP2, regs_->GPR.r[rt], rd);  break; // MTC2
+		case 0x04: pgxp_on_mtc2(rt, rd, regs_->GPR.r[rt], 0); MTC2(&regs_->CP2, regs_->GPR.r[rt], rd);  break; // MTC2
 		case 0x06: CTC2(&regs_->CP2, regs_->GPR.r[rt], rd);  break; // CTC2
 		case 0x08:
 		case 0x0c: log_unhandled("BC2 %08x @%08x\n", code, regs_->pc - 4);
@@ -1047,7 +1048,7 @@ OP(psxCOP2_stall) {
 }
 
 OP(gteLWC2) {
-	MTC2(&regs_->CP2, psxMemRead32(regs_, _oB_), _Rt_);
+	u32 v = psxMemRead32(regs_, _oB_); MTC2(&regs_->CP2, v, _Rt_); pgxp_on_mtc2(0, _Rt_, v, 1);
 }
 
 OP(gteLWC2_stall) {
@@ -1057,8 +1058,11 @@ OP(gteLWC2_stall) {
 
 OP(gteLWC2e_stall) {
 	gteCheckStall(0);
-	if (checkLD(regs_, _oB_, 3))
-		MTC2(&regs_->CP2, psxMemRead32(regs_, _oB_), _Rt_);
+	if (checkLD(regs_, _oB_, 3)) {
+		u32 v = psxMemRead32(regs_, _oB_);
+		MTC2(&regs_->CP2, v, _Rt_);
+		pgxp_on_mtc2(0, _Rt_, v, 1);
+	}
 }
 
 OP(gteSWC2) {

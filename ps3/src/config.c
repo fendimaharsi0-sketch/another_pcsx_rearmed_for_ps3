@@ -145,6 +145,7 @@ int config_game_active(void) { return game_on; }
 void config_mirror_gte_pgxp(void)
 {
     gte_pgxp = cfg.pgxp_enable ? ((cfg.pgxp_texture ? 1 : 0) | (cfg.pgxp_culling ? 2 : 0)) : 0;
+    pgxp_track = cfg.pgxp_enable;
 }
 
 void config_game_begin(const char *key)

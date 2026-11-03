@@ -13,6 +13,7 @@
 #include "../cdrom.h"
 #include "../gpu.h"
 #include "../gte.h"
+#include "../pgxp.h"
 #include "../mdec.h"
 #include "../psxdma.h"
 #include "../psxhw.h"
@@ -105,6 +106,19 @@ static void cop2_op(struct lightrec_state *state, u32 func)
 	/* This works because regs->cp2c comes right after regs->cp2d,
 	 * so it can be cast to a pcsxCP2Regs pointer. */
 	gteDispatch((psxCP2Regs *)regs->cp2d, func);
+}
+
+static void cop2_notify(struct lightrec_state *state, u32 op, u32 data)
+{
+	/* Registering this callback makes the Lightrec emitter fall back to C
+	 * calls for MFC2/MTC2 (instead of inlining them), so every GTE register
+	 * move is visible here, in both the JIT and the interpreter paths.
+	 * Cost: MFC2/MTC2 become C calls even when tracking is off (the choice
+	 * is made at block-compile time); pgxp_on_notify itself returns
+	 * immediately when tracking is off. Unmeasured on hardware; revisit
+	 * if FPS drops. */
+	(void)state;
+	pgxp_on_notify(op, data);
 }
 
 static bool has_interrupt(void)
@@ -431,6 +445,7 @@ static bool lightrec_can_hw_direct(u32 kaddr, bool is_write, u8 size)
 
 static const struct lightrec_ops lightrec_ops = {
 	.cop2_op = cop2_op,
+	.cop2_notify = cop2_notify,
 	.enable_ram = lightrec_enable_ram,
 	.hw_direct = lightrec_can_hw_direct,
 	.code_inv = LIGHTREC_CODE_INV ? lightrec_code_inv : NULL,

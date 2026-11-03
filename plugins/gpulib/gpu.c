@@ -17,6 +17,7 @@
 #include "gpu_timing.h"
 #include "gpu_async.h"
 #include "../../libpcsxcore/gpu.h" // meh
+#include "../../libpcsxcore/pgxp.h"
 #include "../../frontend/plugin_lib.h"
 #include "../../include/compiler_features.h"
 
@@ -923,10 +924,12 @@ static noinline int do_cmd_buffer(struct psx_gpu *gpu, uint32_t *data, int count
 static noinline void flush_cmd_buffer(struct psx_gpu *gpu)
 {
   int cycles_last = 0;
-  int dummy = 0, left;
+  int dummy = 0, left, total = gpu->cmd_len;
   left = do_cmd_buffer(gpu, gpu->cmd_buffer, gpu->cmd_len, &dummy, &cycles_last);
-  if (left > 0)
+  if (left > 0) {
     memmove(gpu->cmd_buffer, gpu->cmd_buffer + gpu->cmd_len - left, left * 4);
+    pgxp_cmd_shift(left, total);
+  }
   if (left != gpu->cmd_len) {
     gpu->cmd_len = left;
     if (!gpu->dma.h && gpu->gpu_state_change)
@@ -971,11 +974,17 @@ static void GPUwriteDataMem_(uint32_t *mem, int count)
 void GPUwriteData(uint32_t data)
 {
   log_io(&gpu, "gpu_write %08x\n", data);
+  pgxp_cmd_write(gpu.cmd_len, data);
   gpu.cmd_buffer[gpu.cmd_len++] = HTOLE32(data);
   if (gpu.cmd_len >= CMD_BUFFER_LEN) {
     flush_cmd_buffer(&gpu);
     sync_ecmds_status_bits(&gpu);
   }
+}
+
+uint32_t *gpulib_get_cmd_buffer(void)
+{
+  return gpu.cmd_buffer;
 }
 
 static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
@@ -1022,6 +1031,7 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
         log_anomaly(&gpu, "cmd_buffer overflow, likely garbage commands\n");
         gpu.cmd_len = 0;
       }
+      pgxp_cmd_fill_none(gpu.cmd_len, len); /* RAM words: no shadow */
       memcpy(gpu.cmd_buffer + gpu.cmd_len, list + 1, len * 4);
       gpu.cmd_len += len;
       flush_cmd_buffer(&gpu);
@@ -1032,6 +1042,7 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
       left = do_cmd_buffer(&gpu, list + 1, len, &cpu_cycles_sum, &cpu_cycles_last);
       if (left) {
         memcpy(gpu.cmd_buffer, list + 1 + len - left, left * 4);
+        pgxp_cmd_fill_none(0, left); /* RAM words: no shadow */
         gpu.cmd_len = left;
         log_anomaly(&gpu, "GPUdmaChain: %d/%d words left\n", left, len);
       }
