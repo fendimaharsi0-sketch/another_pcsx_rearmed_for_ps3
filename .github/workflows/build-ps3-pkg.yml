@@ -30,6 +30,18 @@
 #   it skips itself if the header already contains the clobber.
 # - Cg comes from the Ubuntu package (nvidia-cg-toolkit), the same package
 #   used to verify all 58 shaders locally. No other shader tool is needed.
+# - FIX 2026-11-03 (run #17 failure, exit 134): PSL1GHT's pkg tool
+#   (tools/sfo_pkg/pkg.c) caps packages at MAX_FILES 1024 and fills
+#   per-directory stack arrays without a bounds check; our package holds
+#   4502 entries (4497 cheat files + EBOOT/SFO/ICON0/PIC1/ps1titles), so
+#   the stock tool aborts with "*** buffer overflow detected ***" /
+#   "*** stack smashing detected ***" while packing. The PSL1GHT step now
+#   patches MAX_FILES to 8192 and moves the collection arrays to static
+#   storage before building. Verified locally: stock pkg.c aborts (exit
+#   134) on the real cheat set, patched pkg.c packs all 4497 cheats in
+#   ~2.4 s. The patch is inline (heredoc) so no repo file is needed; if
+#   upstream changes pkg.c, the patch step fails loudly (patch exits
+#   non-zero) instead of silently misbuilding.
 # - Output is ONLY an Actions artifact, not a Release: the pkg is untested
 #   on PS3 hardware until Fendi runs it. Do not turn this into a release
 #   job until a hardware test passes.
@@ -136,6 +148,48 @@ jobs:
             patch -p1 -d PSL1GHT < psl1ght-patches/0001-rsx-context-callback-clobbers.patch
           fi
           grep -q '"memory"' PSL1GHT/ppu/include/rsx/rsx_function_macros.h
+          # FIX 2026-11-03 (run #17 failure, exit 134): raise PSL1GHT's pkg
+          # file cap from 1024 to 8192 and move its per-directory collection
+          # arrays off the stack, otherwise packing our 4502-entry package
+          # aborts the tool. Inline patch (no repo file needed); fails
+          # loudly if upstream pkg.c changes underneath us.
+          patch -p1 -d PSL1GHT <<'PKG_MAX_FILES_EOF'
+          diff --git a/tools/sfo_pkg/pkg.c b/tools/sfo_pkg/pkg.c
+          --- a/tools/sfo_pkg/pkg.c
+          +++ b/tools/sfo_pkg/pkg.c
+          @@ -281,7 +281,7 @@ static void make_dirs(const char *path)
+           /* ------------------------------------------------------------------ */
+           
+           /* Maximum number of entries in a PKG */
+          -#define MAX_FILES 1024
+          +#define MAX_FILES 8192
+           
+           static pkg_file_entry_t g_files[MAX_FILES];
+           static int              g_file_count = 0;
+          @@ -299,8 +299,8 @@ static void get_files(const char *folder, const char *original)
+               if (h == INVALID_HANDLE_VALUE) return;
+           
+               /* Collect entries: files first, then directories */
+          -    char files_list[MAX_FILES][260];
+          -    char dirs_list[MAX_FILES][260];
+          +    static char files_list[MAX_FILES][260];
+          +    static char dirs_list[MAX_FILES][260];
+               int  nfiles = 0, ndirs = 0;
+           
+               do {
+          @@ -373,8 +373,8 @@ static void collect_dir(const char *folder, const char *original)
+               if (!dp) { perror(folder); return; }
+           
+               /* Collect names */
+          -    char files_list[MAX_FILES][512];
+          -    char dirs_list[MAX_FILES][512];
+          +    static char files_list[MAX_FILES][512];
+          +    static char dirs_list[MAX_FILES][512];
+               int  nfiles = 0, ndirs = 0;
+           
+               size_t foldlen = strlen(folder);
+          PKG_MAX_FILES_EOF
+          grep -q 'define MAX_FILES 8192' PSL1GHT/tools/sfo_pkg/pkg.c
           cd PSL1GHT
           make install-ctrl
           make
