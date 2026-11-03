@@ -73,9 +73,15 @@ typedef struct {
     char last_dir[512];
     int turbo_cd;       /* upstream TurboCD: instant CD seeks + faster reads; auto-off during XA audio and FMV */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
+    int pgxp_enable;    /* global-only master gate for PGXP slice 1 (default off): the sub-options below only take effect when this is on */
+    int pgxp_texture;   /* PGXP texture correction: perspective-correct UV in the RSX renderer (default on, per game) */
+    int pgxp_culling;   /* PGXP culling correction: NCLIP recomputed from precise GTE positions (default on, per game) */
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
+extern int gte_pgxp;   /* core, libpcsxcore/pgxp.c: bitmask (1 = texture, 2 = culling), mirrored from cfg by config_mirror_gte_pgxp() */
+void config_mirror_gte_pgxp(void);   /* recompute gte_pgxp from cfg.pgxp_enable/texture/culling */
+void pgxp_next_frame(void);   /* core, libpcsxcore/pgxp.c: invalidate the GTE vertex cache (new frame) */
 void config_load(void);
 void config_save(void);
 /* per-game settings: configs/<game>.ini (game = ROM file name without extension) */

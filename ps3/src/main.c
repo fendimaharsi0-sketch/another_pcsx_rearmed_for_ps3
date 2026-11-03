@@ -662,7 +662,7 @@ static void apply_controller_type(void)
     retro_set_controller_port_device(1, dev);
 }
 
-void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
+void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; config_mirror_gte_pgxp(); hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
 
 /* ---- cheats: feeding the core's dormant engine ----
  * The engine (libpcsxcore/cheat.c) applies fed codes at VBlank and knows

@@ -385,20 +385,23 @@ static const item_t settings_items[] = {
     { "Analog joystick", "DualShock analog sticks on, or a digital pad. When on, Left stick as D-pad and Right stick as buttons are bypassed (the stick and D-pad stay independent)." },
     { "Turbo CD", "Faster CD loads: instant seeks + quicker reads. Auto-off during XA audio and FMV." },
     { "Enable cheats", "Master switch for cheats. The Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off. Cheats write to game memory every frame and can crash games or corrupt saves." },
+    { "PGXP", "Master switch for PGXP texture and culling correction. Off by default; the sub-options below only take effect when this is on." },
+    { "PGXP texture correction", "Perspective-correct texture mapping in the RSX renderer: receding surfaces stop swimming. Only when PGXP is on." },
+    { "PGXP culling correction", "Polygon culling recomputed from precise GTE positions: near-edge-on polygons stop flickering out. Only when PGXP is on." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 30 settings are grouped into 5 pages, flipped with L1/R1 (top row).
+   The 33 settings are grouped into 6 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
    up to NSET, and the host test checks uniqueness and the grouping itself. */
-#define NPAGES 5
+#define NPAGES 6
 static const char *set_page_titles[NPAGES] = {
-    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves"
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "PGXP"
 };
 static const int set_page_items[NPAGES][9] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
@@ -406,9 +409,10 @@ static const int set_page_items[NPAGES][9] = {
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
+    { 30, 31, 32 },                              /* PGXP: master, texture correction, culling correction */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 3 };
+typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -478,6 +482,9 @@ static void setting_value(int i, char *b, size_t n)
     case 27: snprintf(b, n, "%s", cfg.analog ? "On (DualShock)" : "Off (digital pad)"); break;
     case 28: snprintf(b, n, "%s", cfg.turbo_cd ? "On" : "Off"); break;
     case 29: snprintf(b, n, "%s", cfg.cheat_enable ? "On" : "Off"); break;
+    case 30: snprintf(b, n, "%s", cfg.pgxp_enable ? "On" : "Off"); break;
+    case 31: snprintf(b, n, "%s", cfg.pgxp_texture ? "On" : "Off"); break;
+    case 32: snprintf(b, n, "%s", cfg.pgxp_culling ? "On" : "Off"); break;
     }
 }
 
@@ -558,6 +565,12 @@ static void setting_change_(int i, int dir, int in_game)
             else cheat_reset_all();
         }
         break;
+    case 30: cfg.pgxp_enable ^= 1; config_mirror_gte_pgxp();
+        /* cached vertices from PGXP-off play must not survive the switch on */
+        if (in_game) pgxp_next_frame();
+        break;
+    case 31: cfg.pgxp_texture ^= 1; config_mirror_gte_pgxp(); break;
+    case 32: cfg.pgxp_culling ^= 1; config_mirror_gte_pgxp(); break;
     }
 }
 

@@ -221,6 +221,9 @@ The in-game menu has these entries:
 | Analog joystick | **On (DualShock)**, Off (digital pad) | Digital pad for games that force another layout with analog on (Moto Racer 2). Quick toggle in the pause menu, after Reset. When on, stick-as-D-pad/buttons are bypassed. No L3+R3 combo: that combination is a real move in Ape Escape (crawl + hide). |
 | Turbo CD | **Off**, On | Instant CD seeks + faster reads. Auto-off during XA audio and FMV. Applies on resume in a game; per game. |
 | Enable cheats | **Off**, On | Master switch for cheats (global only). The Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off. See Cheats below. |
+| PGXP | **Off**, On | Master switch for PGXP texture and culling correction (global only). The sub-options below only take effect when this is on. |
+| PGXP texture correction | **On**, Off | Perspective-correct texture mapping in the RSX renderer: receding surfaces stop swimming. Only when PGXP is on. Per game. |
+| PGXP culling correction | **On**, Off | Polygon culling recomputed from precise GTE positions: near-edge-on polygons stop flickering out. Only when PGXP is on. Per game. |
 | Vibration | **On**, Off | DualShock 3 vibration in games that use it. |
 | FMV decoding | **SPUs**, PPU | |
 | PS1 CPU speed | **Normal**, +50%, +75% | Some games may glitch. |

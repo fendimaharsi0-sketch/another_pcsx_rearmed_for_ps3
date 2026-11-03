@@ -14,7 +14,7 @@
 
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .turbo_cd = 0, .cheat_enable = 0,
+    .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .turbo_cd = 0, .cheat_enable = 0, .pgxp_enable = 0, .pgxp_texture = 1, .pgxp_culling = 1,
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -51,6 +51,9 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "analog", F(analog), 0, 1, 1 },
     { "turbo_cd", F(turbo_cd), 0, 1, 1 },
     { "cheat_enable", F(cheat_enable), 0, 1, 0 },
+    { "pgxp_enable", F(pgxp_enable), 0, 1, 0 },
+    { "pgxp_texture", F(pgxp_texture), 0, 1, 1 },
+    { "pgxp_culling", F(pgxp_culling), 0, 1, 1 },
 };
 #define NINTS (sizeof ints / sizeof ints[0])
 #define IV(s, i) (*(int *)((char *)(s) + ints[i].off))
@@ -135,6 +138,15 @@ int config_game_exists(const char *key)
 
 int config_game_active(void) { return game_on; }
 
+/* PGXP slice 1: the core's gate bitmask follows the frontend settings: the
+ * master must be on, and each feature needs its own sub-option on. 0 means
+ * the GTE hooks record nothing at all. Called everywhere gte_widescreen is
+ * mirrored, so the two mirrors can never drift apart. */
+void config_mirror_gte_pgxp(void)
+{
+    gte_pgxp = cfg.pgxp_enable ? ((cfg.pgxp_texture ? 1 : 0) | (cfg.pgxp_culling ? 2 : 0)) : 0;
+}
+
 void config_game_begin(const char *key)
 {
     in_game = 1;
@@ -143,6 +155,7 @@ void config_game_begin(const char *key)
     game_on = read_file(game_path, &cfg, 1) > 0;
     if (game_on) logf_("settings: this game's own settings from %s\n", game_path);
     gte_widescreen = cfg.widescreen;   /* the game's own widescreen, or the global one */
+    config_mirror_gte_pgxp();
 }
 
 void config_game_end(void)
@@ -154,6 +167,7 @@ void config_game_end(void)
     }
     game_on = in_game = 0;
     gte_widescreen = cfg.widescreen;   /* back to the settings for all games */
+    config_mirror_gte_pgxp();
 }
 
 /* in a game: on = from now on this game has its own settings (the current ones);
@@ -175,6 +189,7 @@ void config_game_enable(int on)
         logf_("settings: this game's own settings removed, the settings for all games apply\n");
     }
     gte_widescreen = cfg.widescreen;   /* per-game on/off switches the active widescreen */
+    config_mirror_gte_pgxp();
 }
 
 void config_save(void)

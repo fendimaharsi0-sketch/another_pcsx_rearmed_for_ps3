@@ -167,8 +167,20 @@ float2 texel_slow(sampler2D vram, float4 t1, float u, float v)
    and CLUT positions + 0.5; t3.z/.w = pass weights: drop = w2 + bit15 * (w1 - w2). */
 half4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2,
            float4 t2 : TEXCOORD3, float4 t3 : TEXCOORD4, float4 lim : TEXCOORD5,
+           float4 pgx : TEXCOORD6,   /* PGXP slice 1: u/w, v/w, 1/w (identity when off) */
            uniform sampler2D vram16, uniform sampler2D vram8) : COLOR
 {
+    /* PGXP slice 1: perspective-correct UV. The vertex program passed u/w, v/w
+       and 1/w; dividing per pixel restores true u, v. Identity when PGXP is
+       off or the triangle did not validate (pgx = u, v, 1). uv.zw (native
+       position, used by the mask check / self copy below) is untouched. The
+       divide stays in float: the RSX evaluates parts of fragment math at
+       half precision (see the header note), and 1/w needs the full range. */
+    uv.xy = pgx.xy * (1.0f / pgx.z) + 1.0e-4f;
+    /* +1e-4: the affine path biases UVs by 1/256 texel at the vertices so exact
+       integers do not floor down a texel (see ps1_sample_shift); the float
+       division above can land a hair below an integer, so this keeps the
+       same edge. Far below a texel, so sampling is unchanged elsewhere. */
 #if MCHK
     if (h4tex2D(vram16, (floor(uv.zw) + 0.5f) * float2(1.0f / 1024.0f, 1.0f / 512.0f)).a > 0.5h) discard;
 #endif
@@ -275,8 +287,10 @@ half4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2,
 #else
 float4 main(float4 uv : TEXCOORD0, float4 col : TEXCOORD1, float4 t1 : TEXCOORD2,
             float4 t2 : TEXCOORD3, float4 t3 : TEXCOORD4, float4 lim : TEXCOORD5,
+            float4 pgx : TEXCOORD6,   /* PGXP slice 1: see the fast main above */
             uniform sampler2D vram) : COLOR
 {
+    uv.xy = pgx.xy * (1.0f / pgx.z) + 1.0e-4f;   /* PGXP slice 1: perspective-correct UV (identity when off; +1e-4 edge bias, see the fast main) */
 #if MCHK
     if (rd16(vram, floor(uv.z), floor(uv.w)).y > 127.5f) discard;
 #endif

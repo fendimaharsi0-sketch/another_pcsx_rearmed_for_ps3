@@ -16,12 +16,17 @@
 
 hwr_stats_t hwr_stats;
 
+/* PGXP slice 1: 1 = texture correction active for the current batch, mirrored
+ * fresh per batch by the backend (hwr_rsx.c) so the menu toggle works in-game. */
+int hwr_pgxp_tex = 0;
+
 static hwr_dev *dev;
 static const uint16_t *vram;
 static void (*sync_cb)(void);
 static int full_mode;                  /* dev->full at attach */
 
-typedef struct { float x, y, u, v, r, g, b; } pv;   /* a primitive's vertex while it is set up */
+typedef struct { float x, y, u, v, r, g, b, uw, vw, invw; } pv;   /* a primitive's vertex while it is set up
+ * (uw/vw/invw: PGXP slice 1 pre-divided texcoords; identity when PGXP is off) */
 
 static hwr_vtx vb[VCAP], sv[SCAP];
 static int nv, nsv;
@@ -184,6 +189,12 @@ static void put(hwr_vtx *d, const pv *p)
     *d = tmpl;
     d->x = p->x; d->y = p->y; d->u = p->u; d->v = p->v;
     d->r = p->r; d->g = p->g; d->b = p->b;
+    if (p->invw == 0.0f) {   /* producer left PGXP unset (fill/snapshot quads): identity, never divide by zero */
+        d->uw = p->u; d->vw = p->v; d->invw = 1.0f;
+    } else {
+        d->uw = p->uw; d->vw = p->vw; d->invw = p->invw;
+    }
+    d->pad = 0.0f;
 }
 
 /* p: n vertices forming n/3 triangles */
@@ -479,11 +490,11 @@ static void ps1_sample_shift(pv *t, int n)
         pv *a = &t[k], *b = &t[k + 1], *c = &t[k + 2];
         float e1x = b->x - a->x, e1y = b->y - a->y, e2x = c->x - a->x, e2y = c->y - a->y;
         float det = e1x * e2y - e2x * e1y, ix;
-        float *pa[5] = { &a->u, &a->v, &a->r, &a->g, &a->b };
+        float *pa[8] = { &a->u, &a->v, &a->r, &a->g, &a->b, &a->uw, &a->vw, &a->invw };
         a->x += dx; b->x += dx; c->x += dx; a->y += dy0; b->y += dy0; c->y += dy0;
         if (det > -0.5f && det < 0.5f) continue;      /* degenerate: nothing is drawn anyway */
         ix = 1.f / det;
-        for (i = 0; i < 5; i++) {
+        for (i = 0; i < 8; i++) {
             size_t off = (size_t)((char *)pa[i] - (char *)a);
             float va = *pa[i], vb = *(float *)((char *)b + off), vc = *(float *)((char *)c + off);
             float gx = ((vb - va) * e2y - (vc - va) * e1y) * ix;
@@ -533,19 +544,52 @@ static int poly_is_sprite(const pv *t, int n)
     return 1;
 }
 
+/* PGXP slice 1: fill uw/vw/invw for the triangles actually drawn. All-or-
+ * nothing per triangle: every vertex must validate against the GTE cache
+ * (same frame, exact integer match, float within ~1px), else the whole
+ * triangle keeps affine mapping (identity values). rsx/rsy are the raw GP0
+ * coordinates BEFORE the draw offset: the cache is keyed by the integer
+ * position the GTE produced, and the draw offset is added by the GPU, so
+ * the lookup key must be the pre-offset value. tsrc maps each drawn vertex
+ * back to its source polygon vertex (a dropped oversized first half must not
+ * shift the second half's keys). Called before ps1_sample_shift, so the
+ * shift moves the pre-divided values along their own gradients like u/v. */
+static void pgxp_resolve(pv *t, int nt, const int *tsrc, const int *rsx, const int *rsy, int tex)
+{
+    int k, i;
+    for (k = 0; k + 2 < nt; k += 3) {
+        float iw[3];
+        int ok = tex && hwr_pgxp_tex;
+        if (ok) {
+            for (i = 0; i < 3; i++) {
+                float fx, fy;
+                int s = tsrc[k + i];
+                if (!pgxp_lookup(rsx[s], rsy[s], &fx, &fy, &iw[i])) { ok = 0; break; }
+            }
+        }
+        for (i = 0; i < 3; i++) {
+            pv *v = &t[k + i];
+            if (ok) { v->uw = v->u * iw[i]; v->vw = v->v * iw[i]; v->invw = iw[i]; }
+            else { v->uw = v->u; v->vw = v->v; v->invw = 1.0f; }
+        }
+    }
+}
+
 static void do_poly(const uint32_t *l, const uint32_t *end)
 {
     uint32_t w0 = le32(l), cmd = w0 >> 24, uvw[4] = { 0 };
     int gour = cmd & 0x10, quad = cmd & 8, tex = cmd & 4, semi = cmd & 2, raw = cmd & 1;
     int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0, spr = 0;
     int umin = 255, umax = 0, vmin = 255, vmax = 0, nt = 0;
+    int rsx[4], rsy[4], tsrc[6];   /* PGXP: raw GP0 coords + drawn-vertex source map */
     pv p[4], t[6];
     for (i = 0; i < n; i++) {
         uint32_t c = w0, xy;
         if (gour && i) { if (l + idx >= end) return; c = le32(l + idx++); }
         if (l + idx >= end) return;
         xy = le32(l + idx++);
-        p[i].x = (float)(sx11(xy) + st.ox); p[i].y = (float)(sx11(xy >> 16) + st.oy);
+        rsx[i] = sx11(xy); rsy[i] = sx11(xy >> 16);   /* before the draw offset (see pgxp_resolve) */
+        p[i].x = (float)(rsx[i] + st.ox); p[i].y = (float)(rsy[i] + st.oy);
         if (tex) {
             if (l + idx >= end) return;
             uvw[i] = le32(l + idx++);
@@ -566,8 +610,8 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
         set_texpage(uvw[1] >> 16);
     }
     if (!scissor(sc)) return;
-    if (!too_big(&p[0], &p[1], &p[2])) { t[nt++] = p[0]; t[nt++] = p[1]; t[nt++] = p[2]; }
-    if (quad && !too_big(&p[1], &p[2], &p[3])) { t[nt++] = p[1]; t[nt++] = p[2]; t[nt++] = p[3]; }
+    if (!too_big(&p[0], &p[1], &p[2])) { t[nt] = p[0]; tsrc[nt++] = 0; t[nt] = p[1]; tsrc[nt++] = 1; t[nt] = p[2]; tsrc[nt++] = 2; }
+    if (quad && !too_big(&p[1], &p[2], &p[3])) { t[nt] = p[1]; tsrc[nt++] = 1; t[nt] = p[2]; tsrc[nt++] = 2; t[nt] = p[3]; tsrc[nt++] = 3; }
     if (!nt) return;
     /* axis-aligned check on the triangles actually drawn, before the sample
        shift (which preserves all vertex differences, so it cannot change it) */
@@ -577,6 +621,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
        a thin line of the neighbouring tile along polygon seams (Tekken 3 skies) */
     if (umax > umin) umax--;
     if (vmax > vmin) vmax--;
+    pgxp_resolve(t, nt, tsrc, rsx, rsy, tex);
     ps1_sample_shift(t, nt);
     tex_setup(tex, raw, cx, cy, umin, umax, vmin, vmax, ta, ca);
     if (!prepare(tex, ta[0], ta[1], ta[2], ta[3], ca[0], ca[1], ca[2])) return;
@@ -625,6 +670,7 @@ static void do_fill(const uint32_t *l, const uint32_t *end)
         static const int qx[6] = { 0, 1, 0, 1, 0, 1 }, qy[6] = { 0, 0, 1, 0, 1, 1 };
         q[i].x = (float)(qx[i] ? sc[2] : sc[0]); q[i].y = (float)(qy[i] ? sc[3] : sc[1]);
         /* the PS1 stores the fill colour as 15 bits */
+        q[i].invw = 1.0f;   /* PGXP: untextured, identity (uw/vw stay 0 = u/v) */
         q[i].r = (float)((c & 0xf8) | ((c & 0xf8) >> 5));
         q[i].g = (float)(((c >> 8) & 0xf8) | (((c >> 8) & 0xf8) >> 5));
         q[i].b = (float)(((c >> 16) & 0xf8) | (((c >> 16) & 0xf8) >> 5));
@@ -647,6 +693,7 @@ static void do_line(const uint32_t *l, const uint32_t *end)
     tex_setup(0, 0, 0, 0, 0, 0, 0, 0, ta, ca);
     if (!prepare(0, 0, 0, 0, 0, 0, 0, 0)) return;
     memset(&prev, 0, sizeof prev);
+    prev.invw = 1.0f;   /* PGXP: lines are untextured, identity (uw/vw stay 0 = u/v) */
     colour(&prev, w0);
     { uint32_t xy = le32(l + 1); prev.x = (float)(sx11(xy) + st.ox); prev.y = (float)(sx11(xy >> 16) + st.oy); }
     for (;;) {
@@ -662,6 +709,7 @@ static void do_line(const uint32_t *l, const uint32_t *end)
         if (!gour && poly && (xy & 0xf000f000) == 0x50005000) break;
         idx++;
         memset(&cur, 0, sizeof cur);
+        cur.invw = 1.0f;   /* PGXP: see prev above */
         colour(&cur, c);
         cur.x = (float)(sx11(xy) + st.ox); cur.y = (float)(sx11(xy >> 16) + st.oy);
         line(&prev, &cur, semi, sc);
@@ -696,6 +744,8 @@ static void do_rect(const uint32_t *l, const uint32_t *end)
         if (tex && st.flipy) p[i].v = (float)(v0 + 1 - (ry ? h : 0));
         else p[i].v = (float)(v0 + (ry ? h : 0));
         if (tex && raw) p[i].r = p[i].g = p[i].b = 128.f; else colour(&p[i], w0);
+        /* PGXP: sprites are axis-aligned with no perspective to correct: identity */
+        p[i].uw = p[i].u; p[i].vw = p[i].v; p[i].invw = 1.0f;
     }
     t[0] = p[0]; t[1] = p[1]; t[2] = p[2]; t[3] = p[1]; t[4] = p[2]; t[5] = p[3];
     {
@@ -745,6 +795,7 @@ int hwr_present(int x, int y, int w, int h, int bgr24)
     if (!dev) return 0;
     shown_w = w; shown_h = h;
     close_batch();
+    pgxp_next_frame();   /* PGXP slice 1: entries from older frames stop matching */
     /* areas written only by uploads/fills (FMV, still screens) reach the target here */
     if (ndirty && !frame_overflow) { open_batch(); take_snapshot(); close_batch(); }
     hwr_stats.frames++;

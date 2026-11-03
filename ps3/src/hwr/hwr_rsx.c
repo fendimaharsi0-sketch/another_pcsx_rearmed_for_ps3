@@ -778,6 +778,8 @@ static void rsxr_submit_(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx 
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, base + 40, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX3, 0, base + 48, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX4, 0, base + 56, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
+    /* PGXP slice 1: pre-divided texcoords (uw, vw, invw, pad) at offset 64 */
+    rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX5, 0, base + 64, st, 4, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_CELL);
     if (!R.mask_used) {
         int i;
         for (i = 0; i < nops; i++)
@@ -808,6 +810,7 @@ static void rsxr_submit_(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx 
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, 0, 0, 0, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX3, 0, 0, 0, 0, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX4, 0, 0, 0, 0, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
+    rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX5, 0, 0, 0, 0, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
     R.seq++;
     rsxSetWriteBackendLabel(rsx_ctx, HWR_LABEL, R.seq);
     if (!R.base.full) R.snap_seq[R.slot] = R.seq;
@@ -1356,6 +1359,7 @@ static int self_test(int full)
 /* the software renderer keeps drawing into the core's VRAM as a reference */
 static int cmd_check(const uint32_t *list, const uint32_t *end)
 {
+    hwr_pgxp_tex = cfg.pgxp_enable && cfg.pgxp_texture;   /* PGXP slice 1: fresh per batch */
     if (T.on) {                       /* raw words as in PS1 memory (little-endian) */
         const uint32_t *p;
         tr_put(1); tr_put((u32)(end - list));
@@ -1471,6 +1475,7 @@ static int cmd_timed(const uint32_t *list, const uint32_t *end)
 {
     u64 t0;
     int r;
+    hwr_pgxp_tex = cfg.pgxp_enable && cfg.pgxp_texture;   /* PGXP slice 1: first, before the early return below */
     if (!cfg.debug_log) return hwr_cmd(list, end);   /* timed only for the debug log */
     t0 = gpulib_prof_now();
     r = hwr_cmd(list, end);

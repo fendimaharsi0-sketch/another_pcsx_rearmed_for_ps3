@@ -24,6 +24,7 @@
 */
 
 #include "gte.h"
+#include "pgxp.h"
 #include "gte_arm.h"
 #include "psxmem.h"
 #include "../include/compiler_features.h"
@@ -628,6 +629,14 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 
 	gteSX2 = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)gteIR1 * quotient)) >> 16);
 	gteSY2 = limG2(&flags, mac0flags(&flags, gteOFY + (s64)gteIR2 * quotient) >> 16);
+	/* PGXP slice 1: record the pre-truncation float position and depth before
+	   the >>16 truncation above discards the fraction. The expression mirrors
+	   the integer one exactly (same widescreen scaling), so the float claims
+	   to describe precisely the integer vertex the game got. */
+	if (gte_pgxp && sz3 > 0)
+		pgxp_push(gteSX2, gteSY2,
+			(float)((gteOFX + gte_wide_x((s64)gteIR1 * quotient)) / 65536.0),
+			(float)((gteOFY + (s64)gteIR2 * quotient) / 65536.0), sz3);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
 	gteIR0 = limH(&flags, mac0 >> 12);
@@ -664,6 +673,10 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 		fSZ(v) = sz3;
 		fSX(v) = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)ir1 * quotient)) >> 16);
 		fSY(v) = limG2(&flags, mac0flags(&flags, gteOFY + (s64)ir2 * quotient) >> 16);
+		if (gte_pgxp && sz3 > 0)
+			pgxp_push(fSX(v), fSY(v),
+				(float)((gteOFX + gte_wide_x((s64)ir1 * quotient)) / 65536.0),
+				(float)((gteOFY + (s64)ir2 * quotient) / 65536.0), sz3);
 	}
 
 	gteMAC1 = mac1;
@@ -787,6 +800,27 @@ static inline void gteNCLIP_(psxCP2Regs *regs)
 	gteMAC0 = mac0flags(&flags, (s64)(gteSX0 * (gteSY1 - gteSY2)) +
 				gteSX1 * (gteSY2 - gteSY0) +
 				gteSX2 * (gteSY0 - gteSY1));
+	if (gte_pgxp & PGXP_CULL) {
+		/* Culling correction: recompute the winding from the precise GTE
+		   positions when all three FIFO vertices validate. A near-edge-on
+		   polygon whose integer winding rounds to zero (or the wrong sign)
+		   is what flickers out as a hole; the precise winding restores it.
+		   Any miss keeps the integer result above. A sliver with a nonzero
+		   precise winding is bumped to +/-1 so the game's sign test sees it
+		   unambiguously (DuckStation's sliver rule). */
+		float x0, y0, x1, y1, x2, y2, iw;
+		if (pgxp_lookup(gteSX0, gteSY0, &x0, &y0, &iw) &&
+		    pgxp_lookup(gteSX1, gteSY1, &x1, &y1, &iw) &&
+		    pgxp_lookup(gteSX2, gteSY2, &x2, &y2, &iw)) {
+			float det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+			if (det != 0.0f) {
+				if (det > 0.0f && det < 1.0f) det = 1.0f;
+				else if (det < 0.0f && det > -1.0f) det = -1.0f;
+				flags = 0;   /* mac0flags only sets bits: drop the integer result's flags */
+				gteMAC0 = mac0flags(&flags, (s64)det);
+			}
+		}
+	}
 	gteFLAG = getFinalFlag(flags);
 }
 

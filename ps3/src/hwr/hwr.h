@@ -22,13 +22,17 @@
 #define WS_HWR_H
 #include <stdint.h>
 
-/* One vertex, 64 bytes. Values that are whole numbers are 16-bit integers the
+/* One vertex, 80 bytes. Values that are whole numbers are 16-bit integers the
  * GPU converts itself (RSX "S32K", GL_SHORT): the PPU pays for every int->float
  * conversion (load-hit-store) and for every byte written. The program inputs
  * are still float4s:
  *   POSITION  x, y, u, v        TEXCOORD0 r, g, b, z
  *   TEXCOORD1 tpx, tpy, cx, cy  TEXCOORD2 mode, raw, twmx, twmy
- *   TEXCOORD3 twox, twoy, pass, a   TEXCOORD4 umin, vmin, umax, vmax */
+ *   TEXCOORD3 twox, twoy, pass, a   TEXCOORD4 umin, vmin, umax, vmax
+ *   TEXCOORD5 uw, vw, invw, pad (PGXP slice 1: pre-divided texcoords u/w, v/w
+ *   and 1/w from the validated GTE depth; identity uw=u, vw=v, invw=1 when
+ *   PGXP texture correction is off or the vertex did not validate, so the
+ *   fragment program's divide is a no-op there) */
 typedef struct {
     float x, y, u, v;          /* native VRAM coords (offset applied), texel coords */
     float r, g, b, z;          /* vertex colour 0..255; z: depth for the native pass (set by the backend) */
@@ -38,7 +42,15 @@ typedef struct {
                                       a: 1 = the mask-set flag (E6 bit 0) */
     int16_t umin, vmin, umax, vmax; /* texel range the primitive uses: sampling is clamped to it, so
                                        upscaled edges do not pick neighbouring texels (seams) */
+    float uw, vw, invw, pad;         /* PGXP slice 1, offset 64: u/w, v/w, 1/w (see above) */
 } hwr_vtx;
+
+/* PGXP slice 1 (canonical declarations: libpcsxcore/pgxp.h): hwr_pgxp_tex is
+ * mirrored per command batch by the backend (master on + texture on); the
+ * lookup/next-frame functions live in the core's pgxp.c. */
+extern int hwr_pgxp_tex;
+int pgxp_lookup(int sx, int sy, float *x, float *y, float *invw);
+void pgxp_next_frame(void);
 
 enum { HWR_BLEND_NONE = 0, HWR_BLEND_AVG, HWR_BLEND_ADD, HWR_BLEND_SUB, HWR_BLEND_ADDQ };
 
