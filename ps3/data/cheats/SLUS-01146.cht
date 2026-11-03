@@ -1,0 +1,50 @@
+; CHTDB: ; [ NFL Blitz 2001 (USA) (2000) (Midway Home Entertainment) {SLUS-01146} <blitz2k1> ]
+
+[Select Home Team 1st Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682A4 00??
+OptionRange = 0:99
+
+[Select Home Team 2nd Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682A8 00??
+OptionRange = 0:99
+
+[Select Home Team 3rd Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682AC 00??
+OptionRange = 0:99
+
+[Select Home Team 4th Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682B0 00??
+OptionRange = 0:99
+
+[Select Away Team 1st Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682B4 00??
+OptionRange = 0:99
+
+[Select Away Team 2nd Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682B8 00??
+OptionRange = 0:99
+
+[Select Away Team 3rd Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682BC 00??
+OptionRange = 0:99
+
+[Select Away Team 4th Quarter Score]
+Type = Gameshark
+Activation = EndFrame
+801682C0 00??
+OptionRange = 0:99
+

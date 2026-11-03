@@ -1,0 +1,81 @@
+; CHTDB: ; [ Mega Man X6 (USA, v1.0) (2001) (Capcom Entertainment) {SLUS-01395} <megamnx6a> ]
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+800970FC 2020
+
+[Hp Gauge Full]
+Type = Gameshark
+Activation = EndFrame
+300CCF2B 0040
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+800CCF08 0900
+
+[Have All Weapons]
+Type = Gameshark
+Activation = EndFrame
+30097169 00FF
+
+[No Level Time]
+Type = Gameshark
+Activation = EndFrame
+800CCF60 0000
+
+[Infinite All Weapons]
+Type = Gameshark
+Activation = EndFrame
+50000802 0000
+8009714A 0168
+
+[Have All Souls (HU Ranking)]
+Type = Gameshark
+Activation = EndFrame
+800CCFA2 270F
+
+[Have All Arrmor Parts]
+Type = Gameshark
+Activation = EndFrame
+800CCF38 FF01
+
+[All Reploids Rescued]
+Type = Gameshark
+Activation = EndFrame
+50002002 0000
+800CCFA8 2222
+
+[Have All Armors + Enable Zero In Black Armor]
+Type = Gameshark
+Activation = EndFrame
+300CCF2F 003F
+
+[Select Level]
+Description = select Game Start at main title screen,after the intro scenes instead of going to the Intro Level(Sky Lagoon) you will be taken to the level
+Type = Gameshark
+Activation = EndFrame
+301721CC ????
+Option = Sky Lagoon:0x0000
+Option = Jungle:0x0001
+Option = Snow Base:0x0002
+Option = Bio Laboratory:0x0003
+Option = Volcano:0x0004
+Option = Marine Base:0x0005
+Option = Cyber Space:0x0006
+Option = Air Force:0x0007
+Option = Military Train:0x0008
+Option = Memorial Hall:0x0009
+Option = Spaceport:0x000A
+Option = Final Weapon:0x000B
+Option = Final Weapon (2nd Section):0x000C
+
+[Matrix mode "Press L3 to toggle on/off"]
+Type = Gameshark
+Activation = EndFrame
+D7010001 01000200
+F5020082 10401000
+F50527D2 14431000
+F50202CE 10401000
+

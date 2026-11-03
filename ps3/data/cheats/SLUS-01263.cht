@@ -1,0 +1,173 @@
+; CHTDB: ; [ NASCAR 2001 (USA) (2000) (Electronic Arts) {SLUS-01263} <nascr2k1> ]
+
+[Select Win\Quick Win]
+Type = Gameshark
+Activation = EndFrame
+A601C774 00010032
+A601A640 00010032
+A60209DC 00010032
+
+[Select Win\Automatic Win]
+Type = Gameshark
+Activation = EndFrame
+A601A640 0000FFFF
+A601C774 0000FFFF
+A60209DC 0000FFFF
+
+[Enable All Cars]
+Type = Gameshark
+Activation = EndFrame
+900B6960 01010101
+
+[Enable Black Box Classic Car]
+Type = Gameshark
+Activation = EndFrame
+300B6963 0001
+
+[Enable EA Sports Car]
+Type = Gameshark
+Activation = EndFrame
+300B6960 0001
+
+[Enable EA.COM Car]
+Type = Gameshark
+Activation = EndFrame
+300B6961 0001
+
+[Enable Treasure Island]
+Type = Gameshark
+Activation = EndFrame
+300B6965 0001
+
+[Select Max Season Points Character]
+Type = Gameshark
+Activation = EndFrame
+900B4270 ????????
+Option = Steve Park:0xFFFF0001
+Option = Rusty Wallace:0xFFFF0002
+Option = Dale Earnhardt:0xFFFF0003
+Option = Bobby Hamilton:0xFFFF0004
+Option = Terry Labonte:0xFFFF0005
+Option = Mark Martin:0xFFFF0006
+Option = Michael Waltrip:0xFFFF0007
+Option = Dale Earnhardt, Jr:0xFFFF0008
+Option = Jeremy Mayfield:0xFFFF000C
+Option = Kevin LePage:0xFFFF0010
+Option = Matt Kenseth:0xFFFF0011
+Option = Bobby LeBonte:0xFFFF0012
+Option = Tony Stewart:0xFFFF0014
+Option = Elliot Sadler:0xFFFF0015
+Option = Wade Burton:0xFFFF0016
+Option = Jeff Gordon:0xFFFF0018
+Option = Jeremy Nadeau:0xFFFF0019
+Option = Jimmy Spencer:0xFFFF001A
+Option = Ricky Rudd:0xFFFF001C
+Option = Mike Skinner:0xFFFF001F
+Option = Scott Pruett:0xFFFF0020
+Option = Joe Nemechek:0xFFFF0021
+Option = Ken Schrader:0xFFFF0024
+Option = Sterling Martin:0xFFFF0028
+Option = Kenny Irwin, Jr:0xFFFF002A
+Option = John Andretti:0xFFFF002B
+Option = Kyle Petty:0xFFFF002C
+Option = Adam Perry:0xFFFF002D
+Option = Kenny Wallace:0xFFFF0037
+Option = Geoffrey Bodine:0xFFFF003C
+Option = Darrell Waltrip:0xFFFF0042
+Option = Wally Dallenbach:0xFFFF004B
+Option = Dale Jarrett:0xFFFF0058
+Option = Bill Elliot:0xFFFF005E
+Option = Chad Little:0xFFFF0061
+Option = Jeff Burton:0xFFFF0063
+Option = Shorty Leung:0xFFFF0064
+Option = KC Monoxide:0xFFFF0065
+Option = Richard Petty:0xFFFF008F
+Option = Daniel Seiberling:0xFFFF0092
+Option = Asher Boldt:0xFFFF0099
+Option = Jocko Michaels:0xFFFF00A7
+Option = Goopy Gough:0xFFFF00AF
+
+[Select Driver/Car]
+Type = Gameshark
+Activation = EndFrame
+800C0FE0 ????
+Option = 'Shorty' Leung:0x0064
+Option = Adam Petty:0x002D
+Option = Asher Boldt:0x0099
+Option = Bill Elliott:0x005E
+Option = Bobby Hamilton:0x0004
+Option = Bobby Labonte:0x0012
+Option = Chad Little:0x0061
+Option = Dale Earnhardt Jr.:0x0008
+Option = Dale Earnhardt:0x0003
+Option = Dale Jarrrett:0x0058
+Option = Dan seiberling:0x0092
+Option = Darrell Waltrip:0x0042
+Option = Elliott Sadler:0x0015
+Option = Geoffrey Bodine:0x003C
+Option = Goopy Gough:0x00AF
+Option = Jacko Michaels:0x00A7
+Option = Jeff Burton:0x0063
+Option = Jeff Gordon:0x0018
+Option = Jeremy Mayfield:0x000C
+Option = Jerry Nadeau:0x0019
+Option = Jimmy Spencer:0x001A
+Option = Joe Nemechek:0x0021
+Option = John Andretti (STP):0x002B
+Option = John Andretti (cheerios):0x0090
+Option = KC Monoxide:0x0065
+Option = Ken Schrader:0x0024
+Option = Kenny Irwin Jr.:0x002A
+Option = Kenny Wallace:0x0037
+Option = Kevin Lepage:0x0010
+Option = Kyle Petty:0x002C
+Option = Mark Martin:0x0006
+Option = Matt Kenseth:0x0011
+Option = Micheal Waltrip:0x0007
+Option = Mike Skinner:0x001F
+Option = Richard Petty:0x008F
+Option = Ricky Rudd:0x001C
+Option = Rusty Wallace:0x0002
+Option = Scott Pruett:0x0020
+Option = Sterling Marlin:0x0028
+Option = Steve Park:0x0001
+Option = Terry Labonte:0x0005
+Option = Tony Stewert:0x0014
+Option = Wally Dallenbach:0x004B
+Option = Ward Burton:0x0016
+
+[Select Track]
+Type = Gameshark
+Activation = EndFrame
+800C13E4 ????
+Option = Bristol (Day):0x0000
+Option = Bridtol (Day):0x0001
+Option = Talladega:0x0002
+Option = Watkins Glen:0x0003
+Option = California:0x0004
+Option = Lowe's:0x0005
+Option = Atlanta:0x0006
+Option = Darlington:0x0007
+Option = Texas:0x0008
+Option = Las Vegas:0x0009
+Option = Indianapolis:0x000A
+Option = Michigan:0x000B
+Option = North Carolina:0x000C
+Option = Sears Point:0x000D
+Option = Martinsville:0x000E
+Option = Phoenix:0x000F
+Option = Richmond:0x0010
+Option = Homestead-Miami:0x0011
+Option = Pocono:0x0012
+Option = New York:0x0013
+Option = Mile High:0x0014
+Option = Hawaii:0x0015
+Option = Dustbowl:0x0016
+Option = Southern:0x0017
+Option = Proving Grounds:0x0019
+Option = Bristol(Night):0x001C
+Option = Daytona (Day):0x001D
+Option = Treasure Island:0x001E
+Option = Daytona (Night):0x001F
+Option = 4th From the Sun:0x0020
+

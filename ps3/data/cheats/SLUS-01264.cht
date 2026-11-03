@@ -1,0 +1,22 @@
+; CHTDB: ; [ NHL 2001 (USA) (2000) (Electronic Arts) {SLUS-01264} <nhl2k1> ]
+
+[Infinite Skill Points]
+Type = Gameshark
+Activation = EndFrame
+D0098658 AC43
+8009865A 2400
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+3004868E 000?
+30121678 000?
+OptionRange = 0:9
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+300486EE 000?
+30121714 000?
+OptionRange = 0:9
+

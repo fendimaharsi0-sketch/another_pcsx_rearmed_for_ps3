@@ -1,0 +1,34 @@
+; CHTDB: ; [ Easter Bunny's Big Day (USA) (2003) (Mastiff) {SLUS-01551} <easterbn> ]
+
+[0 Eggs Left (Eggs Game)]
+Type = Gameshark
+Activation = EndFrame
+80078046 0000
+
+[Infinite Time]
+Type = Gameshark
+Activation = EndFrame
+80078042 0C63
+
+[Select Eggs Worth]
+Type = Gameshark
+Activation = EndFrame
+80031CE4 ????
+Option = 2:0xFFFE
+Option = 3:0xFFFD
+Option = 4:0xFFFC
+Option = 5:0xFFFB
+Option = 6:0xFFFA
+Option = 7:0xFFF9
+Option = 8:0xFFF8
+
+[Infinite Time Puzzle Game]
+Type = Gameshark
+Activation = EndFrame
+8018ABE0 3700
+
+[Infinite Time Match Game]
+Type = Gameshark
+Activation = EndFrame
+80077E44 198C
+

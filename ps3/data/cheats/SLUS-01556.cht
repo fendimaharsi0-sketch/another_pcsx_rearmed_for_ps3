@@ -1,0 +1,31 @@
+; CHTDB: ; [ Miracle Space Race (USA) (2003) (Mud Duck Productions) {SLUS-01556} <mirarace> ]
+
+[Select Perm Lap]
+Type = Gameshark
+Activation = EndFrame
+8006B764 ????
+Option = 3:0x0003
+Option = 4:0x0004
+Option = 5:0x0005
+Option = 6:0x0006
+
+[Max Points]
+Type = Gameshark
+Activation = EndFrame
+800812B4 001B
+
+[Open All Cups]
+Type = Gameshark
+Activation = EndFrame
+80081134 00FF
+
+[Unlock Chloe]
+Type = Gameshark
+Activation = EndFrame
+800755C0 0001
+
+[Unlock Picasso]
+Type = Gameshark
+Activation = EndFrame
+80075638 0001
+

@@ -1,0 +1,14 @@
+; CHTDB: ; [ Madden NFL 2005 (USA) (2004) (Electronic Arts) {SLUS-01584} <maddn2k5> ]
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8006F3C0 00??
+OptionRange = 0:10
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800714A0 00??
+OptionRange = 0:10
+

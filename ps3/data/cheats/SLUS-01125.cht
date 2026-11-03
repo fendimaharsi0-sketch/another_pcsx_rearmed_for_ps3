@@ -1,0 +1,24 @@
+; CHTDB: ; [ Kurt Warner's Arena Football Unleashed (USA) (2000) (Midway Home Entertainment) {SLUS-01125} <kwarena> ]
+
+[Team 1 Select Score]
+Type = Gameshark
+Activation = EndFrame
+801C8DC0 00??
+OptionRange = 0:9
+
+[Team 2 Select Score]
+Type = Gameshark
+Activation = EndFrame
+801C8DDC 00??
+OptionRange = 0:9
+
+[Select Perm Down\1st Down]
+Type = Gameshark
+Activation = EndFrame
+801C8E1C 0001
+
+[Select Perm Down\4th Down]
+Type = Gameshark
+Activation = EndFrame
+801C8E1C 0004
+

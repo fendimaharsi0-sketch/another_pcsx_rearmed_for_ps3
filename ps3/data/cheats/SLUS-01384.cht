@@ -1,0 +1,51 @@
+; CHTDB: ; [ Castlevania Chronicles (USA) (2001) (Konami of America) {SLUS-01384} <cvaniach> ]
+
+[Infinite Lives]
+Type = Gameshark
+Activation = EndFrame
+80059292 0063
+
+[Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+8005A822 0010
+
+[Invincibility]
+Type = Gameshark
+Activation = EndFrame
+8005A828 006B
+
+[Select Starting Level]
+Type = Gameshark
+Activation = EndFrame
+800592C4 ????
+Option = 1 - Castle Entrance:0x0000
+Option = 2 - Cave:0x0001
+Option = 3 - Courtyard:0x0002
+Option = 4 - Royal Chapel:0x0003
+Option = 5 - Clock Tower:0x0004
+Option = 6 - Floating Corridor:0x0005
+Option = 7 - Prison:0x0006
+Option = 8 - Final Level - Chronicles:0x0007
+
+[Watch endings / FMVs in Original + Arranged Modes]
+Type = Gameshark
+Activation = EndFrame
+8010564C 001B
+
+[Enable All Modes In Arrange Mode]
+Type = Gameshark
+Activation = EndFrame
+3006E464 0001
+
+[Enable Photo Gallery]
+Type = Gameshark
+Activation = EndFrame
+3006E461 001A
+
+[Enter Special Option Screen]
+Type = Gameshark
+Activation = EndFrame
+D0059270 000F
+80059286 001C
+

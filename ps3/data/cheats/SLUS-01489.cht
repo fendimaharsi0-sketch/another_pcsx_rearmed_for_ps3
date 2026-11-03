@@ -1,0 +1,37 @@
+; CHTDB: ; [ Beyblade (USA) (2002) (Crave Entertainment) {SLUS-01489} <beyblade> ]
+
+[Infinite BP]
+Type = Gameshark
+Activation = EndFrame
+8007B3B2 270F
+
+[Select Losses]
+Type = Gameshark
+Activation = EndFrame
+8009374E ????
+Option = Max Losses:0x270F
+Option = No Losses:0x0000
+
+[Select Wins]
+Type = Gameshark
+Activation = EndFrame
+8009374C ????
+Option = Max Wins:0x270F
+Option = No Wins:0x0000
+
+[P1 Infinite HP]
+Type = Gameshark
+Activation = EndFrame
+800BD2A8 03E7
+
+[P1 Max LP]
+Type = Gameshark
+Activation = EndFrame
+800BD2AC 0064
+;#### PATCHES LISTED BELOW ####
+
+[Widescreen 16-9]
+Type = Gameshark
+Activation = EndFrame
+A7048342 10000EC8
+

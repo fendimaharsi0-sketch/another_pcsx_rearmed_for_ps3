@@ -1,0 +1,16 @@
+; CHTDB: ; [ Jim Henson's Bear in the Big Blue House (USA) (2002) (Ubi Soft Entertainment Software) {SLUS-01524} <bluehous> ]
+
+[Select Points Worth]
+Type = Gameshark
+Activation = EndFrame
+80024994 ????
+Option = 2:0x0002
+Option = 3:0x0003
+Option = 4:0x0004
+Option = 5:0x0005
+Option = 6:0x0006
+Option = 7:0x0007
+Option = 8:0x0008
+Option = 9:0x0009
+Option = 10:0x000A
+

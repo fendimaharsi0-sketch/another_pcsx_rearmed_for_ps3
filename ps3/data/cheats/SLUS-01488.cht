@@ -1,0 +1,39 @@
+; CHTDB: ; [ American Pool (USA) (2003) (Mud Duck Productions) {SLUS-01488} <amerpool> ]
+
+[P1 Select 8-Ball, 9-Ball + Matches]
+Type = Gameshark
+Activation = EndFrame
+8008847C ????
+Option = Max Points:0x0064
+Option = No Points:0x0000
+
+[P2 Select 8-Ball, 9-Ball + Matches]
+Type = Gameshark
+Activation = EndFrame
+800884B4 ????
+Option = Max Points:0x0064
+Option = No Points:0x0000
+
+[Select Basic, Rotation + 14-1 Ball]
+Type = Gameshark
+Activation = EndFrame
+800494A0 ????
+Option = Always P1's Turn:0x0000
+Option = Always P2's Turn:0x0002
+
+[P1 Select Basic, Rotation + 14-1 Ball]
+Type = Gameshark
+Activation = EndFrame
+8008847A ????
+8008847C ????
+Option = Max Points:0x0009
+Option = No Points:0x0000
+
+[P2 Select Basic, Rotation + 14-1 Ball]
+Type = Gameshark
+Activation = EndFrame
+800884B2 ????
+800884B4 ????
+Option = Max Points:0x0009
+Option = No Points:0x0000
+

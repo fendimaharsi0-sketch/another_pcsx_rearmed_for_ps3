@@ -1,0 +1,83 @@
+; CHTDB: ; [ Planet of the Apes (USA) (2002) (Ubi Soft Entertainment Software) {SLUS-01468} <planapes> ]
+
+[Infinite Health Level Medical Center Part 3]
+Type = Gameshark
+Activation = EndFrame
+801E61F4 0100
+
+[Infinite Medikits]
+Type = Gameshark
+Activation = EndFrame
+801E7630 0009
+
+[Language Select Enabled]
+Type = Gameshark
+Activation = EndFrame
+301070FE 0005
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+801F6BC8 ????
+Option = Medical Center Part 2:0x0006
+Option = Medical Center Part 3:0x0007
+Option = Medical Center Part End Sequence:0x0008
+Option = Monastery Part 1:0x0009
+Option = Monastery Part 2:0x000A
+Option = Monastery Part 3:0x000B
+Option = Monastery Part 4:0x000C
+Option = Monastery End Sequence:0x000D
+Option = Mines Part 1:0x000E
+Option = Mines Part 2:0x000F
+Option = Mines Part 3:0x0010
+Option = Mines End Sequence:0x0011
+Option = Entering Ruined City:0x0012
+Option = Ruined City 2:0x0013
+Option = Ruined City 3:0x0014
+Option = Ruined City End Seququenxe:0x0015
+Option = Human Village Part 1:0x0016
+Option = Human Village Part 2:0x0017
+Option = Human Village Part 3:0x0018
+Option = The Canyon Sequence:0x0019
+Option = Human Village End Sequence:0x001A
+Option = University Part 1:0x001B
+Option = University Part 2:0x001C
+Option = Meeting Mathias 1 Sequence:0x001D
+Option = Entering Prison Sequence:0x001E
+Option = Prison 4:0x001F
+Option = Prison End Sequence:0x0020
+Option = Military Base:0x0021
+Option = Meeting Mathias 2 Sequence:0x0022
+Option = Factory Underground:0x0023
+Option = Factory Underground End Cutscene:0x0024
+Option = Archives Part 1:0x0025
+Option = Archives Part 2:0x0026
+Option = Archives Part 3:0x0027
+Option = Archives End Sequence:0x0028
+Option = Meeting Mathias 3 Sequence:0x0029
+Option = The Statue:0x002A
+Option = The Statue Sequence 2:0x002B
+Option = The Statue or Pentagon 1:0x002C
+Option = Pentagon Part 2:0x002D
+Option = Pentagon Part 3:0x002E
+Option = The Encounter Sequence:0x002F
+Option = Monastery 5 Sequence:0x0030
+Option = Ape Palace Sequence:0x0031
+Option = Ape Palace:0x0032
+Option = Ape Palace End Sequence:0x0033
+
+[Walk through Doors/Gates (BETA disable ehen not needed)]
+Type = Gameshark
+Activation = EndFrame
+A7040A9A 10401000
+
+[Stealth Mode (BETA disable ehen not needed)]
+Type = Gameshark
+Activation = EndFrame
+A705F3AE 10401000
+
+[One Hit Kills]
+Type = Gameshark
+Activation = EndFrame
+A703269E 1C401400
+

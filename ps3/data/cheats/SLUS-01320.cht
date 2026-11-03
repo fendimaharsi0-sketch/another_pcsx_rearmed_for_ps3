@@ -1,0 +1,14 @@
+; CHTDB: ; [ NCAA March Madness 2001 (USA) (2000) (Electronic Arts) {SLUS-01320} <ncaam2k1> ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800115DE 00??
+OptionRange = 0:100
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+8001018E 00??
+OptionRange = 0:100
+

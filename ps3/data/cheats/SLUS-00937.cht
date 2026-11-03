@@ -1,0 +1,36 @@
+; CHTDB: ; [ LEGO Rock Raiders (USA) (2000) (LEGO Media International) {SLUS-00937} <legorock> ]
+
+[Timer Frozen]
+Type = Gameshark
+Activation = EndFrame
+80061D1C 0000
+
+[Pusher Beam Ammo]
+Type = Gameshark
+Activation = EndFrame
+8011E424 0014
+
+[Laser Beam Ammo]
+Type = Gameshark
+Activation = EndFrame
+8011E454 0018
+
+[Lego Ore]
+Type = Gameshark
+Activation = EndFrame
+800C1C88 FFFF
+
+[Select Green Crystals Qty]
+Description = Choose number needed to complete mission
+Type = Gameshark
+Activation = EndFrame
+800C1C90 00??
+OptionRange = 0:255
+
+[Select Red Crystals Qty]
+Description = Choose number needed to complete mission
+Type = Gameshark
+Activation = EndFrame
+800C1C8C 00??
+OptionRange = 0:255
+

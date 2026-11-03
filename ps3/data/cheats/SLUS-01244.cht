@@ -1,0 +1,14 @@
+; CHTDB: ; [ High Heat Major League Baseball 2002 (USA) (2001) (The 3DO Company) {SLUS-01244} <highh2k2> ]
+
+[Select Away Team Score]
+Type = Gameshark
+Activation = EndFrame
+800AE590 00??
+OptionRange = 0:9
+
+[Select Home Team Score]
+Type = Gameshark
+Activation = EndFrame
+800AE58C 00??
+OptionRange = 0:9
+

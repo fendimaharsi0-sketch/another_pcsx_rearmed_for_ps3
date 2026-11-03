@@ -1,0 +1,41 @@
+; CHTDB: ; [ Fighting Force 2 (USA) (1999) (Eidos Interactive) {SLUS-00934} <fforce2> ]
+
+[Infinite Health]
+Type = Gameshark
+Activation = EndFrame
+80117244 03FC
+
+[Infinite Credits]
+Type = Gameshark
+Activation = EndFrame
+800CDC40 FFFF
+
+[Have Door Cards]
+Type = Gameshark
+Activation = EndFrame
+900CE284 01010101
+
+[360 Degree Head Turn]
+Type = Gameshark
+Activation = EndFrame
+800D0A7E 8016
+
+[Select Level]
+Type = Gameshark
+Activation = EndFrame
+800CBBBC ????
+Option = Steel Mill:0x0001
+Option = Research Lab:0x0006
+Option = Tank Factory:0x000A
+Option = Polar Research Base:0x000F
+Option = Jungle Temple:0x0012
+Option = Chemical Plant:0x0016
+Option = Prison Island:0x001A
+Option = Undersea Base:0x001F
+Option = Skyscraper HQ:0x0023
+
+[Select Level\Credits]
+Type = Gameshark
+Activation = EndFrame
+800CBBBC 0028
+

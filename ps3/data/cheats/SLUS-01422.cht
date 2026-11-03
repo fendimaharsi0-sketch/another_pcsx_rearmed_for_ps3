@@ -1,0 +1,66 @@
+; CHTDB: ; [ Cubix Robots for Everyone - Race 'n Robots (USA) (2001) (The 3DO Company) {SLUS-01422} <cubixrob> ]
+
+[Have 9999 credits in story mode]
+Type = Gameshark
+Activation = EndFrame
+8009572E 270F
+
+[P1 Select Weapon]
+Type = Gameshark
+Activation = EndFrame
+30095724 ????
+Option = Speed Boost:0x0001
+Option = Mega Horn:0x0002
+Option = Shield:0x0003
+Option = Missiles:0x0004
+Option = Mines:0x0005
+
+[P1 99 Coins Coin Race Mode]
+Type = Gameshark
+Activation = EndFrame
+8009572C 0063
+
+[99 Coins Player 2 Coin Race Mode]
+Type = Gameshark
+Activation = EndFrame
+8009579C 0063
+
+[99 Coins Player 3 Coin Race Mode]
+Type = Gameshark
+Activation = EndFrame
+8009580C 0063
+
+[99 Coins Player 4 Coin Race Mode]
+Type = Gameshark
+Activation = EndFrame
+8009587C 0063
+
+[Never Lose Pts. P1 Versus Race Mode]
+Type = Gameshark
+Activation = EndFrame
+3007EDF2 0004
+
+[Never Lose Pts. P2 Versus Race Mode]
+Type = Gameshark
+Activation = EndFrame
+3007EF7A 0004
+
+[Never Lose Pts. P3 Versus Race Mode]
+Type = Gameshark
+Activation = EndFrame
+3007F102 0004
+
+[Never Lose Pts. P4 Versus Race Mode]
+Type = Gameshark
+Activation = EndFrame
+3007F28A 0004
+
+[Unlock Picture Gallery]
+Type = Gameshark
+Activation = EndFrame
+90095740 00010001
+90095744 00010001
+90095748 00010001
+9009574C 00010001
+80095750 0001
+

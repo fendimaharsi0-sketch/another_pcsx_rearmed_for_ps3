@@ -1,0 +1,59 @@
+; CHTDB: ; [ Motocross Mania (USA) (2001) (Take-Two Interactive Software) {SLUS-01357} <mxmania> ]
+
+[Always Place 1st]
+Type = Gameshark
+Activation = EndFrame
+800A8C58 0001
+
+[Always Low Time]
+Type = Gameshark
+Activation = EndFrame
+80079ED8 0000
+
+[Select Perm Lap]
+Type = Gameshark
+Activation = EndFrame
+800A8C5C ????
+Option = Lap 2:0x0002
+Option = Lap 3:0x0003
+Option = Lap 4:0x0004
+Option = Lap 5:0x0005
+
+[Max Money (Profile)]
+Type = Gameshark
+Activation = EndFrame
+900AD584 05F5E0FF
+
+[Max Stunt Points (In-Game)]
+Type = Gameshark
+Activation = EndFrame
+900A8BF4 05F5E0FF
+
+[Max Stunt Points (Profile)]
+Type = Gameshark
+Activation = EndFrame
+900AD580 05F5E0FF
+
+[Play Any Track (Motocross + Supercross Modes)]
+Type = Gameshark
+Activation = EndFrame
+D005F8E8 0030
+8005F8EA 1000
+
+[Select Rider (00-0F)]
+Type = Gameshark
+Activation = EndFrame
+800746BC 00??
+OptionRange = 0:0x0F
+
+[Use Any Bike or Rider]
+Type = Gameshark
+Activation = EndFrame
+D0052E88 0024
+90052E8C 2403000F
+
+[Game Speed Max]
+Type = Gameshark
+Activation = EndFrame
+80079C74 000F
+
