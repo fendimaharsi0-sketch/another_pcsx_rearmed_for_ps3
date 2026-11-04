@@ -16,7 +16,7 @@ The greatest credit belongs to **Calyps0man**, whose work made this fork possibl
 
 At this time, the changes in this fork are limited to cosmetic improvements and quality-of-life features. No core emulation work has been undertaken. The additions are:
 
-- **Cheat support** — a fullscreen cheat menu with per-game cheat settings, gated by a global enable option.
+- **Cheat support** — a fullscreen cheat menu with per-game cheat settings. Cheats must first be enabled via the global “Enable cheats” setting in System & Saves (off by default); only then will the cheat menu appear in the quick menu and any cheat apply.
 - **Game cover support** — display of game cover artwork in the game list.
 - **CD speed-up** — an option to accelerate CD-ROM reading (TurboCD).
 - **Real-time CPU switching** — switching between the dynamic recompiler (Dynarec) and the interpreter from the quick menu, as a workaround for certain titles that hang under one CPU mode. Live switching can be unstable in some cases; it is provided as a workaround, not as a fix.
