@@ -114,6 +114,31 @@ const pgxp_shadow_t *pgxp_ram_shadow_at(unsigned psx_addr);
  * hook returns immediately when pgxp_track is off. */
 void pgxp_on_sw_ram(unsigned addr, unsigned word, int rt, int is_cop2);
 void pgxp_on_lw_ram(unsigned addr, unsigned word, int rt, int is_cop2);
+/* Sub-word + unaligned (DuckStation memory-mode scope, T3 extension).
+ * Stores (SB/SH/SWL/SWR): merged = the post-write RAM/scratchpad word
+ * containing addr (read back by the caller after the write, RAM/scratchpad
+ * only — the caller passes 0 for any other address and the slot lookup
+ * below then no-ops). The exact-match rule: if the source GPR's shadow
+ * claims exactly merged, the slot takes that shadow; else the slot is
+ * invalidated. A partial write that completes a known shadowed value
+ * (e.g. SH low + SH high from one shadowed SXY word) restores coverage;
+ * any other partial write safely invalidates — never a wrong shadow.
+ * Each SWL/SWR op writes exactly one aligned word in both the interpreter
+ * (doSWL/doSWR) and Lightrec (lightrec_swl/swr), so the per-word rule has
+ * exactly one word to judge per op; a two-word span only arises across an
+ * SWL+SWR pair, each handled by its own call. Loads: LB/LH invalidate the
+ * destination GPR shadow (a byte/halfword cannot carry a full shadow);
+ * LWL/LWR at a word-aligned address behave exactly as LW, unaligned they
+ * invalidate (full-word-via-pair propagation is a follow-up, not here).
+ * Every hook returns immediately when pgxp_track is off (no counter). */
+void pgxp_on_sb_ram(unsigned addr, unsigned merged, int rt);
+void pgxp_on_sh_ram(unsigned addr, unsigned merged, int rt);
+void pgxp_on_swl_ram(unsigned addr, unsigned merged, int rt);
+void pgxp_on_swr_ram(unsigned addr, unsigned merged, int rt);
+void pgxp_on_lb_ram(int rt);
+void pgxp_on_lh_ram(int rt);
+void pgxp_on_lwl_ram(unsigned addr, unsigned word, int rt);
+void pgxp_on_lwr_ram(unsigned addr, unsigned word, int rt);
 /* T3: attach RAM shadows to command words copied from a DMA list into the
  * command buffer. word = the game value of the copied word, psx_addr = the
  * PS1 address that word came from. Attaches only when the slot is valid
@@ -172,6 +197,8 @@ typedef struct {
     unsigned long lk_hit, lk_miss;
     unsigned long nclip_total, nclip_flip, nclip_restore;
     unsigned long degen_skip, toobig_drop;
+    unsigned long st_sb, st_sh, st_swl, st_swr;
+    unsigned long ld_lb, ld_lh, ld_lwl, ld_lwr;
 } pgxp_stats_t;
 extern pgxp_stats_t pgxp_stats;
 void pgxp_stats_reset(void);

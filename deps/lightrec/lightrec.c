@@ -455,11 +455,16 @@ static void lightrec_rw_helper(struct lightrec_state *state,
 	}
 
 	/* T3: RAM-shadow update for the C fallback path (unknown addresses;
-	 * LWL/LWR/SWL/SWR go through here too, but only full-word transfers
-	 * carry shadows). Runs after the access, like the JIT fast path. The
-	 * helpers gate on pgxp_track, so this is a no-op when off. */
+	 * LWL/LWR/SWL/SWR go through here too, with the sub-word rules in
+	 * the pgxp helpers). Runs after the access, like the JIT fast path.
+	 * The helpers gate on pgxp_track, so this is a no-op when off. */
 	if (op.i.op == OP_LW || op.i.op == OP_LWC2 ||
-	    op.i.op == OP_SW || op.i.op == OP_SWC2)
+	    op.i.op == OP_SW || op.i.op == OP_SWC2 ||
+	    op.i.op == OP_SB || op.i.op == OP_SH ||
+	    op.i.op == OP_SWL || op.i.op == OP_SWR ||
+	    op.i.op == OP_LB || op.i.op == OP_LBU ||
+	    op.i.op == OP_LH || op.i.op == OP_LHU ||
+	    op.i.op == OP_LWL || op.i.op == OP_LWR)
 		lightrec_pgxp_cb(state, op.opcode);
 }
 
@@ -745,7 +750,7 @@ static void lightrec_mtc_cb(struct lightrec_state *state, u32 arg)
 	LR_DBG_LEAVE();
 }
 
-/* T3: PGXP RAM-shadow update for a JIT word load/store, called through the
+/* T3: PGXP RAM-shadow update for a JIT load/store, called through the
  * C wrapper after the memory op (emitter's rec_pgxp_mem, branch-around on
  * pgxp_track) and from the C fallback (lightrec_rw_helper, unconditionally
  * -- the helpers gate on pgxp_track themselves). arg = the opcode.
@@ -753,14 +758,33 @@ static void lightrec_mtc_cb(struct lightrec_state *state, u32 arg)
  * still be in a host register or a load-delay temp, so it is not trusted
  * here. Re-reading is safe because it only happens for RAM/scratchpad
  * addresses (no read side effects); any other address invalidates the
- * destination shadow without a read. */
+ * destination shadow without a read. Sub-word stores likewise re-read the
+ * merged post-write word; partial loads only invalidate, so they need no
+ * read at all. */
+static u32 lightrec_pgxp_ram_word(struct lightrec_state *state, u32 addr)
+{
+	/* Caller must have checked pgxp_ram_shadow_at(addr) first. */
+	if (addr < 0x00800000u)
+		return LE32TOH(((const u32 *)
+			state->maps[PSX_MAP_KERNEL_USER_RAM].address)
+			[(addr & 0x1fffffu) >> 2]);
+	return LE32TOH(((const u32 *)
+		state->maps[PSX_MAP_SCRATCH_PAD].address)
+		[(addr - 0x1f800000u) >> 2]);
+}
+
 static void lightrec_pgxp_cb(struct lightrec_state *state, u32 arg)
 {
 	union code op = (union code) arg;
 	u32 addr, val;
 
 	if (op.i.op != OP_LW && op.i.op != OP_LWC2 &&
-	    op.i.op != OP_SW && op.i.op != OP_SWC2)
+	    op.i.op != OP_SW && op.i.op != OP_SWC2 &&
+	    op.i.op != OP_SB && op.i.op != OP_SH &&
+	    op.i.op != OP_SWL && op.i.op != OP_SWR &&
+	    op.i.op != OP_LB && op.i.op != OP_LBU &&
+	    op.i.op != OP_LH && op.i.op != OP_LHU &&
+	    op.i.op != OP_LWL && op.i.op != OP_LWR)
 		return;
 	addr = kunseg(state->regs.gpr[op.i.rs] + (s16)op.i.imm);
 	switch (op.i.op) {
@@ -788,6 +812,41 @@ static void lightrec_pgxp_cb(struct lightrec_state *state, u32 arg)
 		break;
 	case OP_SWC2:
 		pgxp_on_sw_ram(addr, lightrec_mfc2(state, op.i.rt), op.i.rt, 1);
+		break;
+	case OP_LB:
+	case OP_LBU:
+		pgxp_on_lb_ram(op.i.rt);
+		break;
+	case OP_LH:
+	case OP_LHU:
+		pgxp_on_lh_ram(op.i.rt);
+		break;
+	case OP_LWL:
+	case OP_LWR:
+		/* Aligned: exactly LW (re-read word, carry iff exact match);
+		 * unaligned: invalidate (the pgxp helper checks alignment).
+		 * Non-RAM: no read, word 0 (helper invalidates either way). */
+		val = pgxp_ram_shadow_at(addr) ?
+			lightrec_pgxp_ram_word(state, addr) : 0;
+		if (op.i.op == OP_LWL)
+			pgxp_on_lwl_ram(addr, val, op.i.rt);
+		else
+			pgxp_on_lwr_ram(addr, val, op.i.rt);
+		break;
+	case OP_SB:
+	case OP_SH:
+	case OP_SWL:
+	case OP_SWR:
+		/* Merged post-write word, re-read from the map; non-RAM:
+		 * no read, word 0 (helper counts then no-ops on NULL slot). */
+		val = pgxp_ram_shadow_at(addr) ?
+			lightrec_pgxp_ram_word(state, addr) : 0;
+		switch (op.i.op) {
+		case OP_SB: pgxp_on_sb_ram(addr, val, op.i.rt); break;
+		case OP_SH: pgxp_on_sh_ram(addr, val, op.i.rt); break;
+		case OP_SWL: pgxp_on_swl_ram(addr, val, op.i.rt); break;
+		default: pgxp_on_swr_ram(addr, val, op.i.rt); break;
+		}
 		break;
 	}
 }

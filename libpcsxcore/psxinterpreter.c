@@ -801,16 +801,16 @@ static inline int checkST(psxRegisters *regs, u32 addr, u32 m) {
 
 #define _oB_ (regs_->GPR.r[_Rs_] + _Imm_)
 
-OP(psxLB)  { doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); }
-OP(psxLBU) { doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); }
-OP(psxLH)  { doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_ & ~1)); }
-OP(psxLHU) { doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_ & ~1)); }
+OP(psxLB)  { doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); }
+OP(psxLBU) { doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); }
+OP(psxLH)  { doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_ & ~1)); pgxp_on_lh_ram(_Rt_); }
+OP(psxLHU) { doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_ & ~1)); pgxp_on_lh_ram(_Rt_); }
 OP(psxLW)  { u32 v = psxMemRead32(regs_, _oB_ & ~3); doLoad(regs_, _Rt_, v); pgxp_on_lw_ram(_oB_ & ~3, v, _Rt_, 0); }
 
-OP(psxLBe)  { if (checkLD(regs_, _oB_, 0)) doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); }
-OP(psxLBUe) { if (checkLD(regs_, _oB_, 0)) doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); }
-OP(psxLHe)  { if (checkLD(regs_, _oB_, 1)) doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_)); }
-OP(psxLHUe) { if (checkLD(regs_, _oB_, 1)) doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_)); }
+OP(psxLBe)  { if (checkLD(regs_, _oB_, 0)) { doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); } }
+OP(psxLBUe) { if (checkLD(regs_, _oB_, 0)) { doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); } }
+OP(psxLHe)  { if (checkLD(regs_, _oB_, 1)) { doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_)); pgxp_on_lh_ram(_Rt_); } }
+OP(psxLHUe) { if (checkLD(regs_, _oB_, 1)) { doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_)); pgxp_on_lh_ram(_Rt_); } }
 OP(psxLWe)  { if (checkLD(regs_, _oB_, 3)) { u32 v = psxMemRead32(regs_, _oB_); doLoad(regs_, _Rt_, v); pgxp_on_lw_ram(_oB_, v, _Rt_, 0); } }
 
 static void doLWL(psxRegisters *regs, u32 rt, u32 addr) {
@@ -865,18 +865,25 @@ static void doLWR(psxRegisters *regs, u32 rt, u32 addr) {
 	*/
 }
 
-OP(psxLWL) { doLWL(regs_, _Rt_, _oB_); }
-OP(psxLWR) { doLWR(regs_, _Rt_, _oB_); }
+/* Sub-word PGXP readback: the merged post-write word is read back only
+ * when the containing word is RAM/scratchpad (pgxp_ram_shadow_at range
+ * check first), so an I/O address is never read for PGXP (reads can have
+ * side effects there); for any other address the hook gets 0 and no-ops
+ * on its own NULL slot lookup. The hooks themselves gate on pgxp_track. */
+#define PGXP_MERGED_(a) (pgxp_ram_shadow_at((a) & ~3) ? psxMemRead32(regs_, (a) & ~3) : 0)
 
-OP(psxLWLe) { if (checkLD(regs_, _oB_ & ~3, 0)) doLWL(regs_, _Rt_, _oB_); }
-OP(psxLWRe) { if (checkLD(regs_, _oB_     , 0)) doLWR(regs_, _Rt_, _oB_); }
+OP(psxLWL) { doLWL(regs_, _Rt_, _oB_); pgxp_on_lwl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
+OP(psxLWR) { doLWR(regs_, _Rt_, _oB_); pgxp_on_lwr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
 
-OP(psxSB) { psxMemWrite8 (regs_, _oB_, _rRt_); }
-OP(psxSH) { psxMemWrite16(regs_, _oB_, _rRt_); }
+OP(psxLWLe) { if (checkLD(regs_, _oB_ & ~3, 0)) { doLWL(regs_, _Rt_, _oB_); pgxp_on_lwl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
+OP(psxLWRe) { if (checkLD(regs_, _oB_     , 0)) { doLWR(regs_, _Rt_, _oB_); pgxp_on_lwr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
+
+OP(psxSB) { psxMemWrite8 (regs_, _oB_, _rRt_); pgxp_on_sb_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
+OP(psxSH) { psxMemWrite16(regs_, _oB_, _rRt_); pgxp_on_sh_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
 OP(psxSW) { psxMemWrite32(regs_, _oB_, _rRt_); pgxp_on_sw_ram(_oB_, _rRt_, _Rt_, 0); }
 
-OP(psxSBe) { if (checkST(regs_, _oB_, 0)) psxMemWrite8 (regs_, _oB_, _rRt_); }
-OP(psxSHe) { if (checkST(regs_, _oB_, 1)) psxMemWrite16(regs_, _oB_, _rRt_); }
+OP(psxSBe) { if (checkST(regs_, _oB_, 0)) { psxMemWrite8 (regs_, _oB_, _rRt_); pgxp_on_sb_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
+OP(psxSHe) { if (checkST(regs_, _oB_, 1)) { psxMemWrite16(regs_, _oB_, _rRt_); pgxp_on_sh_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
 OP(psxSWe) { if (checkST(regs_, _oB_, 3)) { psxMemWrite32(regs_, _oB_, _rRt_); pgxp_on_sw_ram(_oB_, _rRt_, _Rt_, 0); } }
 
 static void doSWL(psxRegisters *regs, u32 rt, u32 addr) {
@@ -920,11 +927,11 @@ static void doSWR(psxRegisters *regs, u32 rt, u32 addr) {
 	*/
 }
 
-OP(psxSWL) { doSWL(regs_, _Rt_, _oB_); }
-OP(psxSWR) { doSWR(regs_, _Rt_, _oB_); }
+OP(psxSWL) { doSWL(regs_, _Rt_, _oB_); pgxp_on_swl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
+OP(psxSWR) { doSWR(regs_, _Rt_, _oB_); pgxp_on_swr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
 
-OP(psxSWLe) { if (checkST(regs_, _oB_ & ~3, 0)) doSWL(regs_, _Rt_, _oB_); }
-OP(psxSWRe) { if (checkST(regs_, _oB_     , 0)) doSWR(regs_, _Rt_, _oB_); }
+OP(psxSWLe) { if (checkST(regs_, _oB_ & ~3, 0)) { doSWL(regs_, _Rt_, _oB_); pgxp_on_swl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
+OP(psxSWRe) { if (checkST(regs_, _oB_     , 0)) { doSWR(regs_, _Rt_, _oB_); pgxp_on_swr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
 
 /*********************************************************
 * Moves between GPR and COPx                             *

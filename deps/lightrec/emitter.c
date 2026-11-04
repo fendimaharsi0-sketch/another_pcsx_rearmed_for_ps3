@@ -1221,21 +1221,30 @@ static void call_to_c_wrapper(struct lightrec_cstate *state,
 	lightrec_regcache_mark_live(reg_cache, _jit);
 }
 
-/* T3: emit a PGXP RAM-shadow update for a word load/store, through the C
- * wrapper. Only full-word transfers carry shadows; anything else is ignored
- * (a partial transfer cannot carry a full-word shadow, and the read-time
- * validation in pgxp makes a stale shadow fail safe). Gate: the call is
- * emitted only when tracking is on at compile time (pgxp_track mirrors the
- * master switch); when off, nothing is emitted at all — no branch-around,
- * no shadow maintenance, no behaviour change. All live blocks match the
- * current master because lightrec_pgxp_gate flushes them on every toggle. */
+/* T3: emit a PGXP RAM-shadow update for a load/store, through the C
+ * wrapper. Full-word transfers carry shadows as-is; sub-word stores apply
+ * the exact-match-or-invalidate rule on the merged word (pgxp_on_sb/sh/
+ * swl/swr_ram, re-read by the C callback), partial loads invalidate the
+ * destination shadow, and unaligned word loads behave as LW when aligned
+ * else invalidate. Gate: the call is emitted only when tracking is on at
+ * compile time (pgxp_track mirrors the master switch); when off, nothing
+ * is emitted at all — no branch-around, no shadow maintenance, no
+ * behaviour change. All live blocks match the current master because
+ * lightrec_pgxp_gate flushes them on every toggle. SWL/SWR/LWL/LWR go
+ * through the C fallback (rec_io), not here, and are covered by
+ * lightrec_rw_helper calling the same callback. */
 static void rec_pgxp_mem(struct lightrec_cstate *cstate,
 			 const struct block *block, u16 offset)
 {
 	union code c = block->opcode_list[offset].c;
 
 	if (c.i.op != OP_LW && c.i.op != OP_LWC2 &&
-	    c.i.op != OP_SW && c.i.op != OP_SWC2)
+	    c.i.op != OP_SW && c.i.op != OP_SWC2 &&
+	    c.i.op != OP_SB && c.i.op != OP_SH &&
+	    c.i.op != OP_LB && c.i.op != OP_LBU &&
+	    c.i.op != OP_LH && c.i.op != OP_LHU &&
+	    c.i.op != OP_SWL && c.i.op != OP_SWR &&
+	    c.i.op != OP_LWL && c.i.op != OP_LWR)
 		return;
 
 	if (!pgxp_track) return;

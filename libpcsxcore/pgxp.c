@@ -352,6 +352,80 @@ void pgxp_on_lw_ram(unsigned addr, unsigned word, int rt, int is_cop2)
 	}
 }
 
+/* Sub-word + unaligned stores: exact-match-or-invalidate on the merged
+ * post-write word (see pgxp.h). The slot lookup floors an unaligned addr
+ * to its containing word, which is exactly the word the caller read back.
+ * Range check first: a non-RAM/scratchpad addr yields NULL, never an I/O
+ * alias, and the op then only counts (the caller passed merged=0). */
+static void pgxp_store_merged_word(unsigned addr, unsigned merged, int rt)
+{
+	pgxp_shadow_t *slot;
+	const pgxp_shadow_t *src = NULL;
+	slot = pgxp_ram_slot(addr);
+	if (!slot) return;
+	if (rt != 0) src = &pgxp_gpr[rt]; /* r0 never carries a shadow */
+	if (src && src->valid && src->i == merged) *slot = *src;
+	else slot->valid = 0;
+}
+
+void pgxp_on_sb_ram(unsigned addr, unsigned merged, int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.st_sb++;
+	pgxp_store_merged_word(addr, merged, rt);
+}
+
+void pgxp_on_sh_ram(unsigned addr, unsigned merged, int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.st_sh++;
+	pgxp_store_merged_word(addr, merged, rt);
+}
+
+void pgxp_on_swl_ram(unsigned addr, unsigned merged, int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.st_swl++;
+	pgxp_store_merged_word(addr, merged, rt);
+}
+
+void pgxp_on_swr_ram(unsigned addr, unsigned merged, int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.st_swr++;
+	pgxp_store_merged_word(addr, merged, rt);
+}
+
+void pgxp_on_lb_ram(int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.ld_lb++;
+	if (rt != 0) pgxp_gpr[rt].valid = 0;
+}
+
+void pgxp_on_lh_ram(int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.ld_lh++;
+	if (rt != 0) pgxp_gpr[rt].valid = 0;
+}
+
+void pgxp_on_lwl_ram(unsigned addr, unsigned word, int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.ld_lwl++;
+	if ((addr & 3) == 0) pgxp_on_lw_ram(addr, word, rt, 0);
+	else if (rt != 0) pgxp_gpr[rt].valid = 0;
+}
+
+void pgxp_on_lwr_ram(unsigned addr, unsigned word, int rt)
+{
+	if (!pgxp_track) return;
+	pgxp_stats.ld_lwr++;
+	if ((addr & 3) == 0) pgxp_on_lw_ram(addr, word, rt, 0);
+	else if (rt != 0) pgxp_gpr[rt].valid = 0;
+}
+
 void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr)
 {
 	const pgxp_shadow_t *slot;
