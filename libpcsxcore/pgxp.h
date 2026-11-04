@@ -155,6 +155,11 @@ void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr);
  * immediately (miss) when pgxp_track is off. */
 void pgxp_edge_record(int sx, int sy, float x, float y, float invw);
 int pgxp_edge_lookup(int sx, int sy, float *x, float *y, float *invw);
+/* Texture-precision logging: record one substituted vertex's integer
+ * screen position into this frame's substituted-position set (for the
+ * flip_new/flip_lost counters). Called from do_poly for every substituted
+ * vertex (own shadow or borrowed). Returns immediately when off. */
+void pgxp_note_substituted(int sx, int sy);
 
 /* PGXP logging: per-window counters for hardware diagnosis (no more guessing).
  * All counters live in pgxp.c and are incremented from the core (lookup,
@@ -187,7 +192,29 @@ int pgxp_edge_lookup(int sx, int sy, float *x, float *y, float *invw);
  *    integer would draw, or vice versa), restores (integer det 0, precise != 0).
  *  degen_skip: triangles sample_shift dropped as degenerate (post-override
  *    positions); compare master ON vs OFF to see if substitution kills any.
- *  toobig_drop: triangles do_poly dropped as oversized (pre-override). */
+ *  toobig_drop: triangles do_poly dropped as oversized (pre-override).
+ *  flip_new/flip_lost: substitution-state flicker per screen position
+ *    across frames (shaking signal): new = positions substituted this
+ *    frame but not last, lost = last frame but not this. Counts conflate
+ *    scene motion with flicker when the camera moves (different objects
+ *    occupy the same screen position in different frames), so the clean
+ *    flicker baseline is a STILL scene (parked/paused view) or a same-
+ *    scene build comparison — the counter just counts flips.
+ *  invw_conflict/invw_conflict_max: same screen position claimed with
+ *    different invw within one frame (edge-warp signal): two triangles
+ *    sharing a screen position but using different w will warp/tear the
+ *    texture at that edge. Counted at most once per position per frame
+ *    (threshold |invw diff| > 0.05, above rounding). Motion-robust (one
+ *    frozen frame cannot explain two different invw for one position).
+ *    Note: a legitimate overlap (e.g. a car over ground at the same
+ *    screen position, different depths) also counts — that IS the warp
+ *    signal (two depths sharing a position with different w), not a
+ *    false alarm.
+ *  set_repl: sub-word store SETs (SB/SH/SWL/SWR only) that overwrote a
+ *    different existing shadow in the destination slot (proxy for false-
+ *    positive churn / mixed sources). A replacement is not proof the new
+ *    shadow is wrong, only that sources churned; SW/SWC2 SETs are never
+ *    counted (always sound: destination word equals source value). */
 typedef struct {
     unsigned long cmd_unique, cmd_ambig, cmd_none;
     unsigned long sub_verts, sub_applied, sub_borrowed;
@@ -199,6 +226,10 @@ typedef struct {
     unsigned long degen_skip, toobig_drop;
     unsigned long st_sb, st_sh, st_swl, st_swr;
     unsigned long ld_lb, ld_lh, ld_lwl, ld_lwr;
+    unsigned long flip_new, flip_lost;
+    unsigned long invw_conflict;
+    float invw_conflict_max;
+    unsigned long set_repl;
 } pgxp_stats_t;
 extern pgxp_stats_t pgxp_stats;
 void pgxp_stats_reset(void);

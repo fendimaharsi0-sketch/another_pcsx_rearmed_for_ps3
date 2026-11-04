@@ -82,8 +82,49 @@ static inline unsigned pgxp_hash(int sx, int sy)
 #define PGXP_EDGE_BITS 16
 #define PGXP_EDGE_SIZE (1 << PGXP_EDGE_BITS)
 #define PGXP_EDGE_MASK (PGXP_EDGE_SIZE - 1)
-typedef struct { int valid; int sx, sy; float x, y, invw; } pgxp_edge_t;
+typedef struct { int valid; int sx, sy; float x, y, invw; int conflict_counted; } pgxp_edge_t;
 static pgxp_edge_t pgxp_edge_map[PGXP_EDGE_SIZE];
+
+/* Texture-precision logging: per-frame substituted-position sets (flip
+ * detection). cur accumulates this frame's substituted integer positions
+ * (via pgxp_note_substituted, called from do_poly for every substituted
+ * vertex, own or borrowed); prev holds last frame's set. At each frame
+ * boundary pgxp_next_frame counts new (in cur, not in prev) and lost (in
+ * prev, not in cur), then swaps the tables and clears the new cur.
+ * Single-slot hash like the edge map (64K slots); a collision between two
+ * different positions in adjacent frames counts as one false new + one
+ * false lost (rare at 64K slots). Separate arrays with their own lifecycle:
+ * NOT wiped by the edge-map memset in pgxp_next_frame (that memset only
+ * covers pgxp_edge_map); cur/prev are managed by the flip code itself. */
+#define PGXP_FLIP_BITS 16
+#define PGXP_FLIP_SIZE (1 << PGXP_FLIP_BITS)
+#define PGXP_FLIP_MASK (PGXP_FLIP_SIZE - 1)
+typedef struct { int valid; int sx, sy; } pgxp_flip_t;
+static pgxp_flip_t pgxp_flip_buf[2][PGXP_FLIP_SIZE];
+static pgxp_flip_t *pgxp_flip_cur = pgxp_flip_buf[0];
+static pgxp_flip_t *pgxp_flip_prev = pgxp_flip_buf[1];
+static int pgxp_prev_track = 0;
+
+static inline unsigned pgxp_flip_hash(int sx, int sy)
+{
+	return ((unsigned)sx * 73856093u ^ (unsigned)sy * 19349663u) & PGXP_FLIP_MASK;
+}
+
+static int pgxp_flip_in(const pgxp_flip_t *table, int sx, int sy)
+{
+	const pgxp_flip_t *e = &table[pgxp_flip_hash(sx, sy)];
+	return e->valid && e->sx == sx && e->sy == sy;
+}
+
+void pgxp_note_substituted(int sx, int sy)
+{
+	pgxp_flip_t *e;
+	if (!pgxp_track) return;
+	e = &pgxp_flip_cur[pgxp_flip_hash(sx, sy)];
+	if (!e->valid) { e->valid = 1; e->sx = sx; e->sy = sy; }
+	/* else: same position already noted (idempotent set), or a different
+	 * position colliding — left alone, like the edge map. */
+}
 
 void pgxp_next_frame(void)
 {
@@ -91,8 +132,44 @@ void pgxp_next_frame(void)
 	 * is gated on pgxp_track, and hwr_pgxp_tex is 0 so do_poly skips the
 	 * cache lookup), so skip the gen bump and all wipes below. The first
 	 * next_frame after re-enabling runs the normal path, so no transition
-	 * wipe beyond it is needed. */
-	if (!pgxp_track) return;
+	 * wipe beyond it is needed. Flip tables have their own lifecycle (see
+	 * below): OFF frames clear them and reset the transition flag, so the
+	 * first ON frame after OFF has no stale baseline to compare against. */
+	if (!pgxp_track) {
+		memset(pgxp_flip_cur, 0, sizeof pgxp_flip_buf[0]);
+		memset(pgxp_flip_prev, 0, sizeof pgxp_flip_buf[0]);
+		pgxp_prev_track = 0;
+		return;
+	}
+	/* Texture-precision flips: compare this frame's substituted-position
+	 * set (cur, accumulated via pgxp_note_substituted during the frame)
+	 * against last frame's set (prev). On the first ON frame after OFF
+	 * (prev_track == 0) there is no baseline: skip counting this frame
+	 * (a toggle must not pollute the flicker count with a one-frame blip
+	 * of "new" substitutions), but still swap so the second ON frame
+	 * compares against the first. Computed BEFORE the wipes below (the
+	 * flip tables are separate arrays, not covered by those memsets, but
+	 * the order keeps the frame-boundary logic in one place). */
+	if (!pgxp_prev_track) {
+		memset(pgxp_flip_prev, 0, sizeof pgxp_flip_buf[0]);
+	} else {
+		int i;
+		for (i = 0; i < PGXP_FLIP_SIZE; i++) {
+			if (pgxp_flip_cur[i].valid &&
+			    !pgxp_flip_in(pgxp_flip_prev, pgxp_flip_cur[i].sx, pgxp_flip_cur[i].sy))
+				pgxp_stats.flip_new++;
+			if (pgxp_flip_prev[i].valid &&
+			    !pgxp_flip_in(pgxp_flip_cur, pgxp_flip_prev[i].sx, pgxp_flip_prev[i].sy))
+				pgxp_stats.flip_lost++;
+		}
+	}
+	{
+		pgxp_flip_t *tmp = pgxp_flip_prev;
+		pgxp_flip_prev = pgxp_flip_cur;
+		pgxp_flip_cur = tmp;
+	}
+	memset(pgxp_flip_cur, 0, sizeof pgxp_flip_buf[0]);
+	pgxp_prev_track = 1;
 	if (++pgxp_gen == 0) {
 		memset(pgxp_cache, 0, sizeof pgxp_cache);
 		pgxp_gen = 1;
@@ -154,10 +231,30 @@ void pgxp_edge_record(int sx, int sy, float x, float y, float invw)
 	pgxp_edge_t *e;
 	if (!pgxp_track) return;
 	e = &pgxp_edge_map[pgxp_edge_hash(sx, sy)];
-	if (e->valid) return; /* first-writer wins: an occupied slot — same
-		position re-recorded, or a different position colliding — is left
-		alone. Never overwrite, never borrow a wrong float. */
+	if (e->valid) {
+		/* First-writer wins: an occupied slot is left alone (never
+		 * overwrite, never borrow a wrong float). But a SAME-position
+		 * re-record with a DIFFERENT invw is the edge-warp signal: two
+		 * own shadows claiming one screen position with different w
+		 * (each triangle uses its OWN invw at draw, bypassing the map,
+		 * so the shared edge gets two different w and warps). Count it
+		 * once per position per frame (flag resets with the per-frame
+		 * map wipe); a hash collision (different position) is not a
+		 * conflict and is ignored. */
+		if (e->sx == sx && e->sy == sy && !e->conflict_counted) {
+			float d = invw - e->invw;
+			if (d < 0) d = -d;
+			if (d > 0.05f) {
+				pgxp_stats.invw_conflict++;
+				if (d > pgxp_stats.invw_conflict_max)
+					pgxp_stats.invw_conflict_max = d;
+				e->conflict_counted = 1;
+			}
+		}
+		return;
+	}
 	e->valid = 1; e->sx = sx; e->sy = sy; e->x = x; e->y = y; e->invw = invw;
+	e->conflict_counted = 0;
 }
 
 int pgxp_edge_lookup(int sx, int sy, float *x, float *y, float *invw)
@@ -364,8 +461,21 @@ static void pgxp_store_merged_word(unsigned addr, unsigned merged, int rt)
 	slot = pgxp_ram_slot(addr);
 	if (!slot) return;
 	if (rt != 0) src = &pgxp_gpr[rt]; /* r0 never carries a shadow */
-	if (src && src->valid && src->i == merged) *slot = *src;
-	else slot->valid = 0;
+	if (src && src->valid && src->i == merged) {
+		/* Sub-word SET replacing a different existing shadow: the slot
+		 * held a valid shadow for another word (stale) or the same word
+		 * with a different invw (different depth) — sources churned.
+		 * Same shadow (same i, invw within epsilon) is a no-op re-SET
+		 * and is not counted. SW/SWC2 never reach this helper (they
+		 * have their own path), so this counts sub-word SETs only. */
+		if (slot->valid) {
+			float d = slot->invw - src->invw;
+			if (d < 0) d = -d;
+			if (slot->i != src->i || d > 0.001f)
+				pgxp_stats.set_repl++;
+		}
+		*slot = *src;
+	} else slot->valid = 0;
 }
 
 void pgxp_on_sb_ram(unsigned addr, unsigned merged, int rt)

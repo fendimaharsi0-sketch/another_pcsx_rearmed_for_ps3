@@ -704,6 +704,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
                 }
                 pgxp_stats.sub_applied++;
                 if (borrowed) pgxp_stats.sub_borrowed++;
+                pgxp_note_substituted(rsx[s], rsy[s]);
                 tri_sub[tri] = 1; tri_shtex[tri] = 1;
                 dx = fx - (float)rsx[s]; if (dx < 0) dx = -dx;
                 dy = fy - (float)rsy[s]; if (dy < 0) dy = -dy;
