@@ -21,6 +21,7 @@ At this time, the changes in this fork are limited to cosmetic improvements and 
 - **CD speed-up** — an option to accelerate CD-ROM reading (TurboCD).
 - **Real-time CPU switching** — switching between the dynamic recompiler (Dynarec) and the interpreter from the quick menu, as a workaround for certain titles that hang under one CPU mode. Live switching can be unstable in some cases; it is provided as a workaround, not as a fix.
 - **Disc swapping** — changing discs from the quick menu, for multi-disc titles and boot-disc scenarios.
+- **Virtual memory card import** — importing standard PS1 virtual memory cards from the PS3's Memory Card Utility (savedata/vmc/*.VM1) into the imported library, for use via the per-slot memory card picker. One-way: saves made here never return to the XMB card. Memory cards from PSN PSOne Classics are currently not supported.
 - **Per-slot memory card picker** — choosing a memory card per slot (Auto first, then imported cards, then None, plus the legacy Default where present), with protection against two slots pointing to the same file. Slot 1 defaults to Auto, slot 2 to None.
 - **Boot BIOS entry** — booting into a real BIOS (a `scph5501.bin` file in the system folder) from the game list, for those who need the BIOS menu or memory card manager. A real BIOS remains optional; the HLE BIOS is still the default when no BIOS file is present.
 - **Digital pad / analog toggle** — switching between digital and analog pad modes from the quick menu.
