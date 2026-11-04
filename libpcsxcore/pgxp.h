@@ -214,7 +214,16 @@ void pgxp_note_substituted(int sx, int sy);
  *    different existing shadow in the destination slot (proxy for false-
  *    positive churn / mixed sources). A replacement is not proof the new
  *    shadow is wrong, only that sources churned; SW/SWC2 SETs are never
- *    counted (always sound: destination word equals source value). */
+ *    counted (always sound: destination word equals source value).
+ *  guard_skip: vertices whose substitution was skipped by the use-time
+ *    guard in do_poly (resolved precise position > 1.5px from the integer
+ *    on either axis — teleported vertices, e.g. from a clamped GTE float
+ *    whose integer still validates exactly). A skipped vertex keeps its
+ *    integer position + resolve texture (stock behaviour); it does NOT
+ *    count as applied, borrowed, noted, or big. Log reading: big=0 +
+ *    guard_skip>0 = the guard worked (blocked big vertices); big=0 +
+ *    guard_skip=0 = no big vertices occurred in the scene; big>0 = the
+ *    guard missed some (bug or an unguarded substitution site). */
 typedef struct {
     unsigned long cmd_unique, cmd_ambig, cmd_none;
     unsigned long sub_verts, sub_applied, sub_borrowed;
@@ -230,6 +239,7 @@ typedef struct {
     unsigned long invw_conflict;
     float invw_conflict_max;
     unsigned long set_repl;
+    unsigned long guard_skip;
 } pgxp_stats_t;
 extern pgxp_stats_t pgxp_stats;
 void pgxp_stats_reset(void);

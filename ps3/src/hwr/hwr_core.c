@@ -702,14 +702,37 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
                 } else {
                     continue; /* stays integer + pgxp_resolve texture */
                 }
+                /* Use-time guard (option 1): block teleported vertices.
+                   A legit shadow differs from its integer by < 1px (same
+                   GTE value, truncated vs exact), but a clamped GTE float
+                   can sit thousands of px away while its integer (clamped
+                   by limG1/limG2) still validates exactly — the exact-match
+                   check alone cannot catch it. Skip substitution when
+                   either axis exceeds 1.5px (the big-counter threshold;
+                   exactly 1.5 still substitutes): the vertex keeps its
+                   integer position + resolve texture (stock behaviour),
+                   the triangle is NOT dropped, and too_big already ran on
+                   integers before substitution. The check is on the final
+                   resolved (fx,fy), so it covers own and borrowed alike.
+                   One guard per vertex (the own/borrow branches above are
+                   mutually exclusive, and the integer branch continues
+                   before reaching here), so guard_skip cannot double-count.
+                   A skipped vertex counts ONLY as guard_skip — not applied,
+                   borrowed, noted, or big — so big=0 + guard_skip>0 means
+                   the guard worked, and a nonzero big means an unguarded
+                   substitution path. ox cancels in the delta (both sides
+                   are pre-draw-offset, like sub_big). */
+                dx = fx - (float)rsx[s]; if (dx < 0) dx = -dx;
+                dy = fy - (float)rsy[s]; if (dy < 0) dy = -dy;
+                if (dx > 1.5f || dy > 1.5f) { pgxp_stats.guard_skip++; continue; }
                 pgxp_stats.sub_applied++;
                 if (borrowed) pgxp_stats.sub_borrowed++;
                 pgxp_note_substituted(rsx[s], rsy[s]);
                 tri_sub[tri] = 1; tri_shtex[tri] = 1;
-                dx = fx - (float)rsx[s]; if (dx < 0) dx = -dx;
-                dy = fy - (float)rsy[s]; if (dy < 0) dy = -dy;
                 if (dx > pgxp_stats.sub_max_dx) pgxp_stats.sub_max_dx = dx;
                 if (dy > pgxp_stats.sub_max_dy) pgxp_stats.sub_max_dy = dy;
+                /* Applied deltas are <= 1.5 by the guard above, so this
+                   must stay 0; it stays as the failure detector. */
                 if (dx > 1.5f || dy > 1.5f) pgxp_stats.sub_big++;
                 v->x = fx + (float)st.ox;
                 v->y = fy + (float)st.oy;

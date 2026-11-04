@@ -104,6 +104,24 @@ static pgxp_flip_t pgxp_flip_buf[2][PGXP_FLIP_SIZE];
 static pgxp_flip_t *pgxp_flip_cur = pgxp_flip_buf[0];
 static pgxp_flip_t *pgxp_flip_prev = pgxp_flip_buf[1];
 static int pgxp_prev_track = 0;
+/* Sparse flip iteration (perf fix): the flip computation used to scan all
+ * 64K slots per ON frame (128K random-access hash lookups into a 768KB
+ * table — the PGXP-ON perf hit on the PPE). Each buffer now also keeps the
+ * list of slot indices that became valid this frame, appended exactly once
+ * per slot (on the invalid->valid transition in pgxp_note_substituted).
+ * The flip loop iterates only those lists, so its cost is O(used) instead
+ * of O(64K). Counts are identical to the full scan: invalid slots
+ * contribute nothing in the full loop (it checks valid first), and the
+ * used list contains exactly the valid slots, once each (a colliding
+ * second position never appends — the slot already holds the first one,
+ * exactly as the full loop would see it). The lists swap with the tables
+ * (below), and the new cur's count resets to 0 when its table is memset,
+ * so stale indices can never be iterated. Bound: a slot appends at most
+ * once between memsets, so a count never exceeds PGXP_FLIP_SIZE. */
+static int pgxp_flip_used[2][PGXP_FLIP_SIZE];
+static int *pgxp_flip_used_cur = pgxp_flip_used[0];
+static int *pgxp_flip_used_prev = pgxp_flip_used[1];
+static int pgxp_flip_used_cur_n = 0, pgxp_flip_used_prev_n = 0;
 
 static inline unsigned pgxp_flip_hash(int sx, int sy)
 {
@@ -119,11 +137,17 @@ static int pgxp_flip_in(const pgxp_flip_t *table, int sx, int sy)
 void pgxp_note_substituted(int sx, int sy)
 {
 	pgxp_flip_t *e;
+	unsigned h;
 	if (!pgxp_track) return;
-	e = &pgxp_flip_cur[pgxp_flip_hash(sx, sy)];
-	if (!e->valid) { e->valid = 1; e->sx = sx; e->sy = sy; }
+	h = pgxp_flip_hash(sx, sy);
+	e = &pgxp_flip_cur[h];
+	if (!e->valid) {
+		e->valid = 1; e->sx = sx; e->sy = sy;
+		pgxp_flip_used_cur[pgxp_flip_used_cur_n++] = (int)h;
+	}
 	/* else: same position already noted (idempotent set), or a different
-	 * position colliding — left alone, like the edge map. */
+	 * position colliding — left alone, like the edge map. Neither case
+	 * appends (the slot is already in the used list exactly once). */
 }
 
 void pgxp_next_frame(void)
@@ -138,6 +162,8 @@ void pgxp_next_frame(void)
 	if (!pgxp_track) {
 		memset(pgxp_flip_cur, 0, sizeof pgxp_flip_buf[0]);
 		memset(pgxp_flip_prev, 0, sizeof pgxp_flip_buf[0]);
+		pgxp_flip_used_cur_n = 0;
+		pgxp_flip_used_prev_n = 0;
 		pgxp_prev_track = 0;
 		return;
 	}
@@ -152,14 +178,22 @@ void pgxp_next_frame(void)
 	 * the order keeps the frame-boundary logic in one place). */
 	if (!pgxp_prev_track) {
 		memset(pgxp_flip_prev, 0, sizeof pgxp_flip_buf[0]);
+		pgxp_flip_used_prev_n = 0;
 	} else {
-		int i;
-		for (i = 0; i < PGXP_FLIP_SIZE; i++) {
-			if (pgxp_flip_cur[i].valid &&
-			    !pgxp_flip_in(pgxp_flip_prev, pgxp_flip_cur[i].sx, pgxp_flip_cur[i].sy))
+		/* Sparse: same predicate as the old full scan, iterated over
+		 * used slots only. Used entries are valid by construction
+		 * (appended only on invalid->valid); the valid check stays as
+		 * belt and braces (free on a sparse loop, and it keeps this
+		 * loop obviously equivalent to the full scan). */
+		int u;
+		for (u = 0; u < pgxp_flip_used_cur_n; u++) {
+			const pgxp_flip_t *e = &pgxp_flip_cur[pgxp_flip_used_cur[u]];
+			if (e->valid && !pgxp_flip_in(pgxp_flip_prev, e->sx, e->sy))
 				pgxp_stats.flip_new++;
-			if (pgxp_flip_prev[i].valid &&
-			    !pgxp_flip_in(pgxp_flip_cur, pgxp_flip_prev[i].sx, pgxp_flip_prev[i].sy))
+		}
+		for (u = 0; u < pgxp_flip_used_prev_n; u++) {
+			const pgxp_flip_t *e = &pgxp_flip_prev[pgxp_flip_used_prev[u]];
+			if (e->valid && !pgxp_flip_in(pgxp_flip_cur, e->sx, e->sy))
 				pgxp_stats.flip_lost++;
 		}
 	}
@@ -167,8 +201,15 @@ void pgxp_next_frame(void)
 		pgxp_flip_t *tmp = pgxp_flip_prev;
 		pgxp_flip_prev = pgxp_flip_cur;
 		pgxp_flip_cur = tmp;
+		int *utmp = pgxp_flip_used_prev;
+		pgxp_flip_used_prev = pgxp_flip_used_cur;
+		pgxp_flip_used_cur = utmp;
+		int ntmp = pgxp_flip_used_prev_n;
+		pgxp_flip_used_prev_n = pgxp_flip_used_cur_n;
+		pgxp_flip_used_cur_n = ntmp;
 	}
 	memset(pgxp_flip_cur, 0, sizeof pgxp_flip_buf[0]);
+	pgxp_flip_used_cur_n = 0;
 	pgxp_prev_track = 1;
 	if (++pgxp_gen == 0) {
 		memset(pgxp_cache, 0, sizeof pgxp_cache);
