@@ -17,6 +17,9 @@ static unsigned pgxp_gen = 1;
 int gte_pgxp = 0;
 int pgxp_track = 0;
 
+pgxp_stats_t pgxp_stats;
+void pgxp_stats_reset(void) { memset(&pgxp_stats, 0, sizeof pgxp_stats); }
+
 /* T1: per-register shadows. i is the exact integer (packed SXY word) the
  * shadow was recorded for; a shadow is only ever used when the register's
  * current integer still equals i, so a stale shadow fails safe. */
@@ -62,15 +65,16 @@ int pgxp_lookup(int sx, int sy, float *x, float *y, float *invw)
 {
 	pgxp_entry_t *e = &pgxp_cache[pgxp_hash(sx, sy)];
 
-	if (e->gen != pgxp_gen) return 0;
-	if (e->sx != sx || e->sy != sy) return 0;
+	if (e->gen != pgxp_gen) { pgxp_stats.lk_miss++; return 0; }
+	if (e->sx != sx || e->sy != sy) { pgxp_stats.lk_miss++; return 0; }
 	/* Validation (DuckStation's Validate() rule, in this architecture's terms):
 	 * the float must claim to describe exactly this integer vertex, in this
 	 * frame, and lie within ~1px of it. A saturated or stale entry fails here
 	 * and the caller falls back to the integer vertex. */
-	if (e->x < (float)sx - 0.02f || e->x > (float)sx + 1.02f) return 0;
-	if (e->y < (float)sy - 0.02f || e->y > (float)sy + 1.02f) return 0;
+	if (e->x < (float)sx - 0.02f || e->x > (float)sx + 1.02f) { pgxp_stats.lk_miss++; return 0; }
+	if (e->y < (float)sy - 0.02f || e->y > (float)sy + 1.02f) { pgxp_stats.lk_miss++; return 0; }
 	*x = e->x; *y = e->y; *invw = e->invw;
+	pgxp_stats.lk_hit++;
 	return 1;
 }
 
@@ -183,8 +187,14 @@ void pgxp_cmd_write(int idx, unsigned word)
 			count++;
 		}
 	}
-	if (count == 1)
+	if (count == 1) {
 		pgxp_cmd_shadow[idx] = pgxp_gpr[found];
+		pgxp_stats.cmd_unique++;
+	} else if (count > 1) {
+		pgxp_stats.cmd_ambig++;
+	} else {
+		pgxp_stats.cmd_none++;
+	}
 }
 
 void pgxp_cmd_shift(int left, int total)

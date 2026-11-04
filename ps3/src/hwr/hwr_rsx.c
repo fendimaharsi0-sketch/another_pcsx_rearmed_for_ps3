@@ -50,6 +50,7 @@
 #include "core_hooks.h"
 #include "shaders.h"
 #include "hwr.h"
+#include "../../../libpcsxcore/pgxp.h"
 #include "gpu_hooks.h"           /* from the core: plugins/gpulib */
 
 #define HWR_MAXS     4      /* widest scale: 1024 * 4 = 4096, the RSX's surface and texture limit */
@@ -1458,12 +1459,62 @@ int hooks_dump_vram(const char *name)
 }
 
 /* ---- gpu_frontend_hooks ---- */
+
+/* PGXP log: one summary line for the current counter window, tagged with
+   the master state the window was collected under and its frame count
+   (partial windows flushed on toggle have frames < 60). */
+static void pgxp_log_line(int on, int frames)
+{
+    logf_("pgxp [%s] frames %d: T2 sub %lu/%lu cmd u %lu a %lu n %lu | dmax %.2f,%.2f big %lu | tex persp %lu affine %lu mixed %lu | lk hit %lu miss %lu | nclip tot %lu flip %lu restore %lu | degen %lu toobig %lu\n",
+        on ? "ON" : "OFF", frames,
+        pgxp_stats.sub_applied, pgxp_stats.sub_verts,
+        pgxp_stats.cmd_unique, pgxp_stats.cmd_ambig, pgxp_stats.cmd_none,
+        pgxp_stats.sub_max_dx, pgxp_stats.sub_max_dy, pgxp_stats.sub_big,
+        pgxp_stats.tex_persp, pgxp_stats.tex_affine, pgxp_stats.tex_mixed,
+        pgxp_stats.lk_hit, pgxp_stats.lk_miss,
+        pgxp_stats.nclip_total, pgxp_stats.nclip_flip, pgxp_stats.nclip_restore,
+        pgxp_stats.degen_skip, pgxp_stats.toobig_drop);
+}
+
 static int present_hook(int x, int y, int w, int h, int bgr24)
 {
     int r;
     u64 t0 = gpulib_prof_now();
     tr_frame(x, y, w, h);
     r = hwr_present(x, y, w, h, bgr24);
+    /* PGXP log: state-tagged windows + toggle markers, so master ON/OFF can
+       be compared inside one run -- the same scene never recurs across
+       sessions, so cross-session ON-vs-OFF windows are not comparable.
+       Counters flush (printed) on toggle, so no window straddles a toggle;
+       each window line carries its master state and frame count. While the
+       debug log is off, the log state resets, so re-enabling starts clean. */
+    {
+        static int pgxp_log_frames = 0;
+        static int pgxp_log_last = -1;   /* -1 = not logging, else master */
+        if (cfg.debug_log) {
+            int cur = pgxp_track ? 1 : 0;
+            if (pgxp_log_last < 0) {
+                pgxp_log_last = cur;
+                logf_("pgxp: marker master %s (initial)\n", cur ? "ON" : "OFF");
+            } else if (cur != pgxp_log_last) {
+                if (pgxp_log_frames > 0)
+                    pgxp_log_line(pgxp_log_last, pgxp_log_frames);
+                pgxp_stats_reset();
+                pgxp_log_frames = 0;
+                logf_("pgxp: marker master %s -> %s\n", pgxp_log_last ? "ON" : "OFF", cur ? "ON" : "OFF");
+                pgxp_log_last = cur;
+            }
+            if (++pgxp_log_frames >= 60) {
+                pgxp_log_line(pgxp_log_last, pgxp_log_frames);
+                pgxp_stats_reset();
+                pgxp_log_frames = 0;
+            }
+        } else if (pgxp_log_last >= 0) {
+            pgxp_stats_reset();
+            pgxp_log_frames = 0;
+            pgxp_log_last = -1;
+        }
+    }
     /* the core shows this frame from its own VRAM: bring the area up to date */
     if (!r && R.base.full && !R.dead && !R.check) full_vram_read(x, y, bgr24 ? (w * 3 + 1) / 2 : w, h);
     R.t_present += gpulib_prof_now() - t0;

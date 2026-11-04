@@ -90,6 +90,48 @@ void pgxp_cmd_shift(int left, int total);
 void pgxp_cmd_fill_none(int start, int count);
 const pgxp_shadow_t *pgxp_cmd_shadow_at(const uint32_t *list, const uint32_t *base);
 
+/* PGXP logging: per-window counters for hardware diagnosis (no more guessing).
+ * All counters live in pgxp.c and are incremented from the core (lookup,
+ * command shadows, NCLIP) and the RSX layer (substitution, texture resolve,
+ * degenerate skips). The frontend prints one summary line per 60 presented
+ * frames while the debug log is on, then resets them, so each line covers
+ * one window. Every line is tagged with the master state it was collected
+ * under ([ON]/[OFF]) and its frame count, and a marker line is printed
+ * whenever the master toggles (flushing the pending partial window first),
+ * so ON/OFF can be compared inside one run -- the same scene never recurs
+ * across sessions. While the debug log is off, the log state resets, so
+ * re-enabling starts clean. Single-threaded (hooks run on the CPU thread):
+ * no locking.
+ * Every field answers one diagnostic question:
+ *  cmd_unique/ambig/none: reverse-lookup health (how often a GP0 word finds
+ *    exactly one live register shadow, several, or none).
+ *  sub_verts/sub_applied: how many drawn vertices T2 actually moved.
+ *  sub_max_dx/dy, sub_big: substitution size; legit shadows differ from the
+ *    integer by < 1px (same GTE value, truncated vs exact), so sub_big
+ *    (> 1.5px) is the smoking gun for a misaligned/wrong shadow.
+ *  tex_persp/affine/mixed: texture precision per triangle; mixed = a triangle
+ *    whose positions were substituted but whose texture stayed affine (cache
+ *    miss) -- steady vertices + sliding texture = the "weird wobble".
+ *  lk_hit/miss: slice-1 cache health (texture + culling lookups).
+ *  nclip_total/flip/restore: culling corrections applied, sign flips vs the
+ *    integer winding (flip = a triangle the precise winding culls but the
+ *    integer would draw, or vice versa), restores (integer det 0, precise != 0).
+ *  degen_skip: triangles sample_shift dropped as degenerate (post-override
+ *    positions); compare master ON vs OFF to see if substitution kills any.
+ *  toobig_drop: triangles do_poly dropped as oversized (pre-override). */
+typedef struct {
+    unsigned long cmd_unique, cmd_ambig, cmd_none;
+    unsigned long sub_verts, sub_applied;
+    float sub_max_dx, sub_max_dy;
+    unsigned long sub_big;
+    unsigned long tex_persp, tex_affine, tex_mixed;
+    unsigned long lk_hit, lk_miss;
+    unsigned long nclip_total, nclip_flip, nclip_restore;
+    unsigned long degen_skip, toobig_drop;
+} pgxp_stats_t;
+extern pgxp_stats_t pgxp_stats;
+void pgxp_stats_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

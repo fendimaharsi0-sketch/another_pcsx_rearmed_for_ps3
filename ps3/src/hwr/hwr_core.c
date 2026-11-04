@@ -493,7 +493,7 @@ static void ps1_sample_shift(pv *t, int n)
         float det = e1x * e2y - e2x * e1y, ix;
         float *pa[8] = { &a->u, &a->v, &a->r, &a->g, &a->b, &a->uw, &a->vw, &a->invw };
         a->x += dx; b->x += dx; c->x += dx; a->y += dy0; b->y += dy0; c->y += dy0;
-        if (det > -0.5f && det < 0.5f) continue;      /* degenerate: nothing is drawn anyway */
+        if (det > -0.5f && det < 0.5f) { pgxp_stats.degen_skip++; continue; }      /* degenerate: nothing is drawn anyway */
         ix = 1.f / det;
         for (i = 0; i < 8; i++) {
             size_t off = (size_t)((char *)pa[i] - (char *)a);
@@ -555,7 +555,7 @@ static int poly_is_sprite(const pv *t, int n)
  * back to its source polygon vertex (a dropped oversized first half must not
  * shift the second half's keys). Called before ps1_sample_shift, so the
  * shift moves the pre-divided values along their own gradients like u/v. */
-static void pgxp_resolve(pv *t, int nt, const int *tsrc, const int *rsx, const int *rsy, int tex)
+static void pgxp_resolve(pv *t, int nt, const int *tsrc, const int *rsx, const int *rsy, int tex, int *tex_ok)
 {
     int k, i;
     for (k = 0; k + 2 < nt; k += 3) {
@@ -568,6 +568,8 @@ static void pgxp_resolve(pv *t, int nt, const int *tsrc, const int *rsx, const i
                 if (!pgxp_lookup(rsx[s], rsy[s], &fx, &fy, &iw[i])) { ok = 0; break; }
             }
         }
+        tex_ok[k / 3] = ok;
+        if (tex) { if (ok) pgxp_stats.tex_persp++; else pgxp_stats.tex_affine++; }
         for (i = 0; i < 3; i++) {
             pv *v = &t[k + i];
             if (ok) { v->uw = v->u * iw[i]; v->vw = v->v * iw[i]; v->invw = iw[i]; }
@@ -583,6 +585,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
     int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0, spr = 0;
     int umin = 255, umax = 0, vmin = 255, vmax = 0, nt = 0;
     int rsx[4], rsy[4], tsrc[6], xy_idx[4];   /* PGXP: raw GP0 coords + drawn-vertex source map + command-word index of each vertex */
+    int tex_ok[2] = { 0, 0 };   /* PGXP log: per-triangle texture status from pgxp_resolve */
     pv p[4], t[6];
     for (i = 0; i < n; i++) {
         uint32_t c = w0, xy;
@@ -612,8 +615,8 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
         set_texpage(uvw[1] >> 16);
     }
     if (!scissor(sc)) return;
-    if (!too_big(&p[0], &p[1], &p[2])) { t[nt] = p[0]; tsrc[nt++] = 0; t[nt] = p[1]; tsrc[nt++] = 1; t[nt] = p[2]; tsrc[nt++] = 2; }
-    if (quad && !too_big(&p[1], &p[2], &p[3])) { t[nt] = p[1]; tsrc[nt++] = 1; t[nt] = p[2]; tsrc[nt++] = 2; t[nt] = p[3]; tsrc[nt++] = 3; }
+    if (!too_big(&p[0], &p[1], &p[2])) { t[nt] = p[0]; tsrc[nt++] = 0; t[nt] = p[1]; tsrc[nt++] = 1; t[nt] = p[2]; tsrc[nt++] = 2; } else pgxp_stats.toobig_drop++;
+    if (quad && !too_big(&p[1], &p[2], &p[3])) { t[nt] = p[1]; tsrc[nt++] = 1; t[nt] = p[2]; tsrc[nt++] = 2; t[nt] = p[3]; tsrc[nt++] = 3; } else if (quad) pgxp_stats.toobig_drop++;
     if (!nt) return;
     /* axis-aligned check on the triangles actually drawn, before the sample
        shift (which preserves all vertex differences, so it cannot change it) */
@@ -623,7 +626,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
        a thin line of the neighbouring tile along polygon seams (Tekken 3 skies) */
     if (umax > umin) umax--;
     if (vmax > vmin) vmax--;
-    pgxp_resolve(t, nt, tsrc, rsx, rsy, tex);
+    pgxp_resolve(t, nt, tsrc, rsx, rsy, tex, tex_ok);
     /* PGXP T2: vertex stabilization from provenance-validated shadows.
        Only vertices whose GP0 word was written directly by the CPU while
        its shadow was live in a register move; DMA words and unshadowed
@@ -633,13 +636,28 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
        only (no new setting). In VRAM-check mode this diverges from the
        software reference exactly like texture correction already does. */
     if (sh && pgxp_track) {
+        /* PGXP log: substitution + delta stats, and mixed-precision triangles
+           (positions substituted but texture affine). ox cancels in the delta. */
+        int tri_sub[2] = { 0, 0 };
         for (i = 0; i < nt; i++) {
             const pgxp_shadow_t *sv = &sh[xy_idx[tsrc[i]]];
+            float dx, dy;
+            pgxp_stats.sub_verts++;
             if (sv->valid) {
+                pgxp_stats.sub_applied++;
+                tri_sub[i / 3] = 1;
+                dx = sv->x - (float)rsx[tsrc[i]]; if (dx < 0) dx = -dx;
+                dy = sv->y - (float)rsy[tsrc[i]]; if (dy < 0) dy = -dy;
+                if (dx > pgxp_stats.sub_max_dx) pgxp_stats.sub_max_dx = dx;
+                if (dy > pgxp_stats.sub_max_dy) pgxp_stats.sub_max_dy = dy;
+                if (dx > 1.5f || dy > 1.5f) pgxp_stats.sub_big++;
                 t[i].x = sv->x + (float)st.ox;
                 t[i].y = sv->y + (float)st.oy;
             }
         }
+        if (tex)
+            for (i = 0; i < nt / 3; i++)
+                if (tri_sub[i] && !tex_ok[i]) pgxp_stats.tex_mixed++;
     }
     ps1_sample_shift(t, nt);
     tex_setup(tex, raw, cx, cy, umin, umax, vmin, vmax, ta, ca);
