@@ -1001,8 +1001,8 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr,
 static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
   uint32_t *progress_addr, int32_t *cycles_last_cmd)
 {
-  uint32_t addr, *list, ld_addr;
-  int len, left, count, ld_count = 32;
+  uint32_t addr, *list, ld_addr, list_psx;
+  int len, left, count, ld_count = 32, j;
   int cpu_cycles_sum = 0;
   int cpu_cycles_last = 0;
 
@@ -1016,6 +1016,7 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
   for (count = 0; (addr & 0x800000) == 0; count++)
   {
     list = rambase + (addr & 0x1fffff) / 4;
+    list_psx = addr; /* T3: PS1 address of list[0], before addr advances */
     len = LE32TOH(list[0]) >> 24;
     addr = LE32TOH(list[0]) & 0xffffff;
     preload(rambase + (addr & 0x1fffff) / 4);
@@ -1031,7 +1032,11 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
         log_anomaly(&gpu, "cmd_buffer overflow, likely garbage commands\n");
         gpu.cmd_len = 0;
       }
-      pgxp_cmd_fill_none(gpu.cmd_len, len); /* RAM words: no shadow */
+      /* T3: attach RAM shadows to the copied words (validated per word;
+       * list[1+j] sits at PS1 address list_psx + 4 + 4*j). */
+      for (j = 0; j < len; j++)
+        pgxp_cmd_dma_word(gpu.cmd_len + j, LE32TOH(list[1 + j]),
+                          list_psx + 4 + 4 * j);
       memcpy(gpu.cmd_buffer + gpu.cmd_len, list + 1, len * 4);
       gpu.cmd_len += len;
       flush_cmd_buffer(&gpu);
@@ -1042,7 +1047,11 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
       left = do_cmd_buffer(&gpu, list + 1, len, &cpu_cycles_sum, &cpu_cycles_last);
       if (left) {
         memcpy(gpu.cmd_buffer, list + 1 + len - left, left * 4);
-        pgxp_cmd_fill_none(0, left); /* RAM words: no shadow */
+        /* T3: attach RAM shadows to the leftover words (the tail of this
+         * link: list[1 + len - left + j] at list_psx + 4 + 4*(len-left+j)). */
+        for (j = 0; j < left; j++)
+          pgxp_cmd_dma_word(j, LE32TOH(list[1 + len - left + j]),
+                            list_psx + 4 + 4 * (len - left + j));
         gpu.cmd_len = left;
         log_anomaly(&gpu, "GPUdmaChain: %d/%d words left\n", left, len);
       }

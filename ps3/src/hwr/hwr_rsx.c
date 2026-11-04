@@ -1212,6 +1212,7 @@ static int self_test(int full)
             hwr_vtx *o = &vt[k * 6 + i];
             o->x = q[i][0] ? (k == 4 ? 8 : 16) : 0; o->y = q[i][1] ? y1 : y0;
             o->u = q[i][0]; o->v = q[i][1] * 0.999f;   /* stays in texel row 0 */
+            o->uw = o->u; o->vw = o->v; o->invw = 1.0f;   /* PGXP slice 1: identity texcoords (self-test vertices are not GTE-projected; invw must not stay 0 or the fragment program divides by zero) */
             o->r = o->g = o->b = 128;
             o->tpx = 0; o->tpy = tv; o->cx = 0; o->cy = 0;
             o->mode = (float)progs[k]; o->raw = 1;

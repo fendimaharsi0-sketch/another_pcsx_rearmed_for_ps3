@@ -27,6 +27,7 @@
 #include <assert.h>
 #include "psxmem.h"
 #include "psxmem_map.h"
+#include "pgxp.h"
 #include "r3000a.h"
 #include "psxhw.h"
 //#include "debug.h"
@@ -163,6 +164,10 @@ static int psxMemInitMap(void)
 		return -1;
 	}
 	psxRegs.ptrs.psxM = ptr;
+	/* T3: the PGXP RAM shadow array resolves RAM command lists by host
+	 * pointer; the base is stable for the process (only freed in
+	 * psxMemFreeMap, which clears it below). */
+	pgxp_set_ram_base((const uint32_t *)ptr);
 	psxRegs.ptrs.psxP = ptr + 0x200000;
 
 	ptr = psxMap(0x1f800000, 0x10000, 0, MAP_TAG_OTHER);
@@ -188,6 +193,8 @@ static void psxMemFreeMap(void)
 	if (psxRegs.ptrs.psxH) psxUnmap(psxRegs.ptrs.psxH, 0x10000, MAP_TAG_OTHER);
 	if (psxRegs.ptrs.psxR) psxUnmap(psxRegs.ptrs.psxR, 0x80000, MAP_TAG_OTHER);
 	psxRegs.ptrs.psxM = psxRegs.ptrs.psxH = psxRegs.ptrs.psxR = NULL;
+	/* T3: never resolve RAM lists against a freed base. */
+	pgxp_set_ram_base(NULL);
 	psxRegs.ptrs.psxP = NULL;
 }
 

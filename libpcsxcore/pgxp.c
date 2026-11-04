@@ -26,6 +26,41 @@ void pgxp_stats_reset(void) { memset(&pgxp_stats, 0, sizeof pgxp_stats); }
 static pgxp_shadow_t pgxp_gpr[32];
 static pgxp_shadow_t pgxp_gte[32]; /* data regs; only 12/13/14 (SXY) are used */
 
+/* T3: shadows for RAM + scratchpad words. 2MB RAM = 512K words (~10MB BSS);
+ * 1KB scratchpad = 256 words. The host RAM base is set by the core at
+ * memory init; pgxp_cmd_shadow_at uses it to resolve RAM command lists.
+ * PGXP_RAM_GUARD: polygon tails (a command is at most ~13 words) may read
+ * a few words past a RAM list that starts at the very end of RAM; the
+ * guard words stay zero (never written, wiped with the array), so such
+ * reads fall back safely instead of reading past the array. */
+#define PGXP_RAM_WORDS (0x200000 / 4)
+#define PGXP_SCRATCH_WORDS (0x400 / 4)
+#define PGXP_RAM_GUARD 64
+static pgxp_shadow_t pgxp_ram_shadow[PGXP_RAM_WORDS + PGXP_RAM_GUARD];
+static pgxp_shadow_t pgxp_scratch_shadow[PGXP_SCRATCH_WORDS];
+static const uint32_t *pgxp_ram_base; /* host RAM base, NULL until set */
+
+void pgxp_set_ram_base(const uint32_t *base) { pgxp_ram_base = base; }
+
+/* Map a PS1 address to its RAM/scratchpad shadow slot, or NULL. Segment
+ * stripped like lightrec's kunseg(): KSEG0 (0x8...) and KSEG1 (0xa...) fold
+ * onto KUSEG, so all aliases of one physical word share one slot. */
+static pgxp_shadow_t *pgxp_ram_slot(unsigned addr)
+{
+	unsigned phys;
+	if (addr >= 0xa0000000u) phys = addr - 0xa0000000u;
+	else phys = addr & ~0x80000000u;
+	if (phys < 0x00800000u) return &pgxp_ram_shadow[(phys & 0x1fffffu) / 4];
+	if (phys >= 0x1f800000u && phys < 0x1f800400u)
+		return &pgxp_scratch_shadow[(phys - 0x1f800000u) / 4];
+	return NULL;
+}
+
+const pgxp_shadow_t *pgxp_ram_shadow_at(unsigned psx_addr)
+{
+	return pgxp_ram_slot(psx_addr);
+}
+
 static inline unsigned pgxp_hash(int sx, int sy)
 {
 	/* unsigned arithmetic throughout: the signed product would overflow 32
@@ -43,6 +78,10 @@ void pgxp_next_frame(void)
 	/* T1: shadows are per-frame, like the cache (see header). */
 	memset(pgxp_gpr, 0, sizeof pgxp_gpr);
 	memset(pgxp_gte, 0, sizeof pgxp_gte);
+	/* T3: RAM + scratchpad shadows are per-frame, like the registers
+	 * (sizeof covers the guard words too, so they stay zero). */
+	memset(pgxp_ram_shadow, 0, sizeof pgxp_ram_shadow);
+	memset(pgxp_scratch_shadow, 0, sizeof pgxp_scratch_shadow);
 }
 
 void pgxp_push(int sx, int sy, float x, float y, int z)
@@ -213,9 +252,78 @@ void pgxp_cmd_fill_none(int start, int count)
 		pgxp_cmd_shadow[start + i].valid = 0;
 }
 
+/* T3: RAM shadow flow. */
+
+void pgxp_on_sw_ram(unsigned addr, unsigned word, int rt, int is_cop2)
+{
+	pgxp_shadow_t *slot;
+	const pgxp_shadow_t *src = NULL;
+	if (!pgxp_track) return;
+	slot = pgxp_ram_slot(addr);
+	if (!slot) return;
+	if (is_cop2) {
+		/* GTE source: SXY regs only; SXYP (15) reads SXY2, like MFC2. */
+		int s = (rt == 15) ? 14 : rt;
+		if (s >= 12 && s <= 14) src = &pgxp_gte[s];
+	} else if (rt != 0) {
+		src = &pgxp_gpr[rt]; /* r0 never carries a shadow */
+	}
+	/* Copy as-is only when the source shadow claims exactly the word
+	 * stored; anything else (stale shadow, unshadowed value, non-SXY
+	 * GTE reg) clears the slot so no stale shadow survives. Read-time
+	 * validation (slot.i == word at DMA/use time) is the second net. */
+	if (src && src->valid && src->i == word) *slot = *src;
+	else slot->valid = 0;
+}
+
+void pgxp_on_lw_ram(unsigned addr, unsigned word, int rt, int is_cop2)
+{
+	const pgxp_shadow_t *slot;
+	if (!pgxp_track) return;
+	slot = pgxp_ram_slot(addr);
+	if (is_cop2) {
+		if (rt == 15) {
+			/* LWC2 to SXYP shifts the FIFO, exactly like MTC2. */
+			pgxp_gte[12] = pgxp_gte[13];
+			pgxp_gte[13] = pgxp_gte[14];
+			if (slot && slot->valid && slot->i == word) pgxp_gte[14] = *slot;
+			else pgxp_gte[14].valid = 0;
+		} else if (rt >= 12 && rt <= 14) {
+			if (slot && slot->valid && slot->i == word) pgxp_gte[rt] = *slot;
+			else pgxp_gte[rt].valid = 0;
+		}
+		/* Other GTE regs carry no screen-coordinate shadow. */
+	} else if (rt != 0) {
+		if (slot && slot->valid && slot->i == word) pgxp_gpr[rt] = *slot;
+		else pgxp_gpr[rt].valid = 0;
+	}
+}
+
+void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr)
+{
+	const pgxp_shadow_t *slot;
+	if (idx < 0 || idx >= PGXP_CMD_LEN) return;
+	pgxp_cmd_shadow[idx].valid = 0;
+	if (!pgxp_track) return;
+	slot = pgxp_ram_slot(psx_addr);
+	if (slot && slot->valid && slot->i == word)
+		pgxp_cmd_shadow[idx] = *slot;
+	/* else: no shadow (same fallback as pgxp_cmd_fill_none). */
+}
+
 const pgxp_shadow_t *pgxp_cmd_shadow_at(const uint32_t *list, const uint32_t *base)
 {
-	if (!list || !base || list < base || list >= base + PGXP_CMD_LEN)
-		return NULL;
-	return &pgxp_cmd_shadow[list - base];
+	if (!list) return NULL;
+	if (base && list >= base && list < base + PGXP_CMD_LEN)
+		return &pgxp_cmd_shadow[list - base];
+	/* T3: a RAM command list (DMA direct path, GPUwriteDataMem) maps into
+	 * the RAM shadow array: the list is contiguous RAM words, and the
+	 * array is indexed by RAM word, so the list's shadows start at the
+	 * list's own word offset. do_poly validates each shadow against its
+	 * word at use time (sv->i == word), so a stale slot (RAM rewritten
+	 * after the shadow was recorded) falls back safely. */
+	if (pgxp_ram_base && list >= pgxp_ram_base &&
+	    list < pgxp_ram_base + PGXP_RAM_WORDS)
+		return &pgxp_ram_shadow[list - pgxp_ram_base];
+	return NULL;
 }

@@ -12,6 +12,7 @@
 #include "lightrec-config.h"
 #include "lightning-wrapper.h"
 #include "lightrec.h"
+#include "../../libpcsxcore/pgxp.h"
 #include "memmanager.h"
 #include "reaper.h"
 #include "recompiler.h"
@@ -37,6 +38,8 @@ static bool lightrec_block_is_fully_tagged(const struct block *block);
 
 static void lightrec_mtc2(struct lightrec_state *state, u8 reg, u32 data);
 static u32 lightrec_mfc2(struct lightrec_state *state, u8 reg);
+/* T3: defined below, used by lightrec_rw_helper. */
+static void lightrec_pgxp_cb(struct lightrec_state *state, u32 arg);
 
 static void lightrec_reap_block(struct lightrec_state *state, void *data);
 
@@ -450,6 +453,14 @@ static void lightrec_rw_helper(struct lightrec_state *state,
 	default:
 		break;
 	}
+
+	/* T3: RAM-shadow update for the C fallback path (unknown addresses;
+	 * LWL/LWR/SWL/SWR go through here too, but only full-word transfers
+	 * carry shadows). Runs after the access, like the JIT fast path. The
+	 * helpers gate on pgxp_track, so this is a no-op when off. */
+	if (op.i.op == OP_LW || op.i.op == OP_LWC2 ||
+	    op.i.op == OP_SW || op.i.op == OP_SWC2)
+		lightrec_pgxp_cb(state, op.opcode);
 }
 
 static void lightrec_rw_cb(struct lightrec_state *state, u32 arg)
@@ -732,6 +743,53 @@ static void lightrec_mtc_cb(struct lightrec_state *state, u32 arg)
 
 	lightrec_mtc(state, op, reg, data);
 	LR_DBG_LEAVE();
+}
+
+/* T3: PGXP RAM-shadow update for a JIT word load/store, called through the
+ * C wrapper after the memory op (emitter's rec_pgxp_mem, branch-around on
+ * pgxp_track) and from the C fallback (lightrec_rw_helper, unconditionally
+ * -- the helpers gate on pgxp_track themselves). arg = the opcode.
+ * Loads re-read the RAM word from the map: the destination register may
+ * still be in a host register or a load-delay temp, so it is not trusted
+ * here. Re-reading is safe because it only happens for RAM/scratchpad
+ * addresses (no read side effects); any other address invalidates the
+ * destination shadow without a read. */
+static void lightrec_pgxp_cb(struct lightrec_state *state, u32 arg)
+{
+	union code op = (union code) arg;
+	u32 addr, val;
+
+	if (op.i.op != OP_LW && op.i.op != OP_LWC2 &&
+	    op.i.op != OP_SW && op.i.op != OP_SWC2)
+		return;
+	addr = kunseg(state->regs.gpr[op.i.rs] + (s16)op.i.imm);
+	switch (op.i.op) {
+	case OP_LW:
+	case OP_LWC2:
+		if (!pgxp_ram_shadow_at(addr)) {
+			/* Not RAM/scratchpad (BIOS, I/O, unmapped): the value
+			 * is not a RAM vertex, so the destination shadow dies.
+			 * No memory is read (I/O reads can have side effects). */
+			pgxp_on_lw_ram(addr, 0, op.i.rt, op.i.op == OP_LWC2);
+			break;
+		}
+		if (addr < 0x00800000u)
+			val = LE32TOH(((const u32 *)
+				state->maps[PSX_MAP_KERNEL_USER_RAM].address)
+				[(addr & 0x1fffffu) >> 2]);
+		else
+			val = LE32TOH(((const u32 *)
+				state->maps[PSX_MAP_SCRATCH_PAD].address)
+				[(addr - 0x1f800000u) >> 2]);
+		pgxp_on_lw_ram(addr, val, op.i.rt, op.i.op == OP_LWC2);
+		break;
+	case OP_SW:
+		pgxp_on_sw_ram(addr, state->regs.gpr[op.i.rt], op.i.rt, 0);
+		break;
+	case OP_SWC2:
+		pgxp_on_sw_ram(addr, lightrec_mfc2(state, op.i.rt), op.i.rt, 1);
+		break;
+	}
 }
 
 void lightrec_rfe(struct lightrec_state *state)
@@ -2265,6 +2323,7 @@ struct lightrec_state * lightrec_init(char *argv0,
 	state->c_wrappers[C_WRAPPER_MFC] = lightrec_mfc_cb;
 	state->c_wrappers[C_WRAPPER_MTC] = lightrec_mtc_cb;
 	state->c_wrappers[C_WRAPPER_CP] = lightrec_cp_cb;
+	state->c_wrappers[C_WRAPPER_PGXP] = lightrec_pgxp_cb;
 
 	map = &maps[PSX_MAP_BIOS];
 	state->offset_bios = (uintptr_t)map->address - map->pc;

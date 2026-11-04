@@ -82,13 +82,44 @@ void pgxp_on_mtc2(int rt, int rd, unsigned data, int from_ram);
 void pgxp_on_notify(unsigned opcode, unsigned data);
 /* T2: shadows for GP0 command words written directly by the CPU.
  * pgxp_cmd_shadow_at() maps a command-list pointer to its parallel shadow
- * array (NULL when the list is not the CPU-write buffer, e.g. DMA lists
- * straight from RAM: those words have no shadow and fall back). */
+ * array: the CPU-write buffer maps to pgxp_cmd_shadow[], a RAM list maps
+ * into the RAM shadow array (T3, when the RAM base is known), anything else
+ * maps to NULL (safe fallback to the integer vertex). */
 typedef struct { int valid; unsigned i; float x, y, invw; } pgxp_shadow_t;
 void pgxp_cmd_write(int idx, unsigned word);
 void pgxp_cmd_shift(int left, int total);
 void pgxp_cmd_fill_none(int start, int count);
 const pgxp_shadow_t *pgxp_cmd_shadow_at(const uint32_t *list, const uint32_t *base);
+
+/* T3: RAM + scratchpad shadows (DuckStation's default memory mode, NOT CPU
+ * mode: no ALU tracking, no depth buffer). One shadow per RAM word (2MB =
+ * 512K words, ~10MB BSS) plus one per scratchpad word (1KB = 256 words).
+ * The host RAM base is set once by the core at memory init (psxMemInitMap);
+ * until then RAM lists resolve to NULL (safe fallback). Shadows are wiped
+ * every frame by pgxp_next_frame, like the register shadows. */
+void pgxp_set_ram_base(const uint32_t *base);
+/* Map a PS1 address to its RAM/scratchpad shadow slot, or NULL when the
+ * address is not RAM or scratchpad. Segments are stripped like lightrec's
+ * kunseg(), so all aliases of one physical word share one slot (RAM mirrors
+ * fold onto the same 2MB window). A bare "& 0x1fffff" mask would falsely
+ * map I/O (e.g. 0x1f801810 -> 0x1810) into RAM, so the range check comes
+ * first. */
+const pgxp_shadow_t *pgxp_ram_shadow_at(unsigned psx_addr);
+/* T3: RAM shadow flow for full-word transfers. addr = PS1 effective address,
+ * word = the game value transferred, rt = GPR (is_cop2=0) or GTE register
+ * (is_cop2=1, SXY regs 12/13/14 only; 15 maps to 14 like MFC2). Stores copy
+ * the source shadow as-is when it claims exactly this word, else clear the
+ * slot; loads carry the slot into the destination register only when the
+ * slot is valid and claims exactly this word, else invalidate it. Every
+ * hook returns immediately when pgxp_track is off. */
+void pgxp_on_sw_ram(unsigned addr, unsigned word, int rt, int is_cop2);
+void pgxp_on_lw_ram(unsigned addr, unsigned word, int rt, int is_cop2);
+/* T3: attach RAM shadows to command words copied from a DMA list into the
+ * command buffer. word = the game value of the copied word, psx_addr = the
+ * PS1 address that word came from. Attaches only when the slot is valid
+ * and claims exactly this word, else clears the entry (same fallback as
+ * pgxp_cmd_fill_none, which this replaces at DMA fill sites). */
+void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr);
 
 /* PGXP logging: per-window counters for hardware diagnosis (no more guessing).
  * All counters live in pgxp.c and are incremented from the core (lookup,

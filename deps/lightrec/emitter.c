@@ -11,6 +11,7 @@
 #include "lightning-wrapper.h"
 #include "optimizer.h"
 #include "regcache.h"
+#include "../../libpcsxcore/pgxp.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -1220,6 +1221,35 @@ static void call_to_c_wrapper(struct lightrec_cstate *state,
 	lightrec_regcache_mark_live(reg_cache, _jit);
 }
 
+/* T3: emit a PGXP RAM-shadow update for a word load/store, through the C
+ * wrapper. Only full-word transfers carry shadows; anything else is ignored
+ * (a partial transfer cannot carry a full-word shadow, and the read-time
+ * validation in pgxp makes a stale shadow fail safe). The call is branched
+ * around when tracking is off (pgxp_track mirrors the master switch at run
+ * time): when off, the emitted code is just a load and a branch, with no
+ * shadow maintenance and no behaviour change. */
+static void rec_pgxp_mem(struct lightrec_cstate *cstate,
+			 const struct block *block, u16 offset)
+{
+	struct regcache *reg_cache = cstate->reg_cache;
+	jit_state_t *_jit = block->_jit;
+	union code c = block->opcode_list[offset].c;
+	u8 tmp;
+	jit_node_t *skip;
+
+	if (c.i.op != OP_LW && c.i.op != OP_LWC2 &&
+	    c.i.op != OP_SW && c.i.op != OP_SWC2)
+		return;
+
+	tmp = lightrec_alloc_reg_temp(reg_cache, _jit);
+	jit_movi(tmp, (intptr_t)&pgxp_track);
+	jit_ldr_i(tmp, tmp);
+	skip = jit_beqi(tmp, 0);
+	call_to_c_wrapper(cstate, block, c.opcode, C_WRAPPER_PGXP);
+	jit_patch(skip);
+	lightrec_free_reg(reg_cache, tmp);
+}
+
 static void rec_io(struct lightrec_cstate *state,
 		   const struct block *block, u16 offset,
 		   bool load_rt, bool read_rt)
@@ -1733,6 +1763,12 @@ static void rec_store(struct lightrec_cstate *state,
 		return;
 	}
 
+	/* T3: RAM-shadow update for stores (mode-gated like loads; the C
+	 * fallback mode returns early above and is covered separately). */
+	if (mode == LIGHTREC_IO_RAM || mode == LIGHTREC_IO_SCRATCH ||
+	    mode == LIGHTREC_IO_DIRECT)
+		rec_pgxp_mem(state, block, offset);
+
 	if (is_swc2)
 		lightrec_discard_reg_if_loaded(state->reg_cache, REG_TEMP);
 }
@@ -2036,8 +2072,9 @@ static void rec_load(struct lightrec_cstate *state, const struct block *block,
 {
 	const struct opcode *op = &block->opcode_list[offset];
 	u32 flags = op->flags;
+	u32 mode = LIGHTREC_FLAGS_GET_IO_MODE(flags);
 
-	switch (LIGHTREC_FLAGS_GET_IO_MODE(flags)) {
+	switch (mode) {
 	case LIGHTREC_IO_RAM:
 		rec_load_ram(state, block, offset, code, swap_code, is_unsigned);
 		break;
@@ -2062,6 +2099,16 @@ static void rec_load(struct lightrec_cstate *state, const struct block *block,
 		rec_cp2_do_mtc2(state, block, offset, op->i.rt, REG_TEMP);
 		lightrec_discard_reg_if_loaded(state->reg_cache, REG_TEMP);
 	}
+
+	/* T3: RAM-shadow update, after the LWC2 epilogue (whose cop2_notify
+	 * would otherwise clear the just-loaded GTE shadow: notify sets it
+	 * unproven, this sets the real RAM shadow, so this must run last).
+	 * Only RAM/SCRATCH/DIRECT modes: BIOS and I/O never hold vertices, and
+	 * the default (C fallback) mode returns early above and is covered by
+	 * lightrec_rw_helper. */
+	if (mode == LIGHTREC_IO_RAM || mode == LIGHTREC_IO_SCRATCH ||
+	    mode == LIGHTREC_IO_DIRECT)
+		rec_pgxp_mem(state, block, offset);
 }
 
 static void rec_LB(struct lightrec_cstate *state, const struct block *block, u16 offset)

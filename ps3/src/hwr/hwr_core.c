@@ -627,37 +627,60 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
     if (umax > umin) umax--;
     if (vmax > vmin) vmax--;
     pgxp_resolve(t, nt, tsrc, rsx, rsy, tex, tex_ok);
-    /* PGXP T2: vertex stabilization from provenance-validated shadows.
-       Only vertices whose GP0 word was written directly by the CPU while
-       its shadow was live in a register move; DMA words and unshadowed
-       words keep integer positions. The shift is sub-pixel (the GTE
-       fraction), and both sides of a shared edge resolve identically when
-       they come from the same register flow. Gated on the master switch
-       only (no new setting). In VRAM-check mode this diverges from the
-       software reference exactly like texture correction already does. */
+    /* PGXP T2+T3: vertex stabilization + shadow texture from
+       provenance-validated shadows. Direct-write words carry T2 register
+       shadows; DMA words carry T3 RAM shadows (pgxp_cmd_shadow_at resolves
+       both). The shift is sub-pixel (the GTE fraction), and both sides of
+       a shared edge resolve identically when they come from the same flow.
+       Gated on the master switch only (no new setting). In VRAM-check mode
+       this diverges from the software reference exactly like texture
+       correction already does. */
     if (sh && pgxp_track) {
-        /* PGXP log: substitution + delta stats, and mixed-precision triangles
-           (positions substituted but texture affine). ox cancels in the delta. */
-        int tri_sub[2] = { 0, 0 };
-        for (i = 0; i < nt; i++) {
-            const pgxp_shadow_t *sv = &sh[xy_idx[tsrc[i]]];
-            float dx, dy;
-            pgxp_stats.sub_verts++;
-            if (sv->valid) {
+        /* Per-triangle all-or-nothing: a triangle is substituted only when
+           ALL three vertices have shadows validated against their own words
+           (sv->i == word). The use-time check is what makes RAM lists safe:
+           a word rewritten after its shadow was recorded fails here and
+           falls back. Substituted positions always pair with shadow invw,
+           never with affine or cache texture, so T3 cannot introduce the
+           mixed-precision wobble. A triangle without full shadows keeps
+           exactly what pgxp_resolve gave it (integer positions + cache
+           texture or affine). ox cancels in the delta. */
+        int tri_sub[2] = { 0, 0 }, tri_shtex[2] = { 0, 0 };
+        int k, j;
+        for (k = 0; k + 2 < nt; k += 3) {
+            const pgxp_shadow_t *sv[3];
+            int tri = k / 3, all = 1;
+            pgxp_stats.sub_verts += 3;
+            for (j = 0; j < 3; j++) {
+                int s = tsrc[k + j];
+                sv[j] = &sh[xy_idx[s]];
+                if (!sv[j]->valid || sv[j]->i != le32(l + xy_idx[s])) { all = 0; break; }
+            }
+            if (!all) continue;
+            for (j = 0; j < 3; j++) {
+                int s = tsrc[k + j];
+                pv *v = &t[k + j];
+                float dx, dy;
                 pgxp_stats.sub_applied++;
-                tri_sub[i / 3] = 1;
-                dx = sv->x - (float)rsx[tsrc[i]]; if (dx < 0) dx = -dx;
-                dy = sv->y - (float)rsy[tsrc[i]]; if (dy < 0) dy = -dy;
+                tri_sub[tri] = 1; tri_shtex[tri] = 1;
+                dx = sv[j]->x - (float)rsx[s]; if (dx < 0) dx = -dx;
+                dy = sv[j]->y - (float)rsy[s]; if (dy < 0) dy = -dy;
                 if (dx > pgxp_stats.sub_max_dx) pgxp_stats.sub_max_dx = dx;
                 if (dy > pgxp_stats.sub_max_dy) pgxp_stats.sub_max_dy = dy;
                 if (dx > 1.5f || dy > 1.5f) pgxp_stats.sub_big++;
-                t[i].x = sv->x + (float)st.ox;
-                t[i].y = sv->y + (float)st.oy;
+                v->x = sv[j]->x + (float)st.ox;
+                v->y = sv[j]->y + (float)st.oy;
+                v->uw = v->u * sv[j]->invw;
+                v->vw = v->v * sv[j]->invw;
+                v->invw = sv[j]->invw;
             }
         }
+        /* PGXP log: mixed-precision triangles (positions substituted but
+           texture NOT from shadow). Under the all-or-nothing rule this is
+           always 0; the counter stays as a rule-violation detector. */
         if (tex)
             for (i = 0; i < nt / 3; i++)
-                if (tri_sub[i] && !tex_ok[i]) pgxp_stats.tex_mixed++;
+                if (tri_sub[i] && !tri_shtex[i]) pgxp_stats.tex_mixed++;
     }
     ps1_sample_shift(t, nt);
     tex_setup(tex, raw, cx, cy, umin, umax, vmin, vmax, ta, ca);
