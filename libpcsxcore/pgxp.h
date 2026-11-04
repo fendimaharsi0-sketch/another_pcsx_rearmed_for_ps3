@@ -121,6 +121,16 @@ void pgxp_on_lw_ram(unsigned addr, unsigned word, int rt, int is_cop2);
  * pgxp_cmd_fill_none, which this replaces at DMA fill sites). */
 void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr);
 
+/* Edge-consistent substitution map (option A). Keyed by integer screen
+ * position (pre-draw-offset, same keys as pgxp_resolve), value = precise
+ * float position + invw from a validated shadow. First-writer wins per
+ * frame; a hash collision with a different position is NOT recorded (the
+ * later position simply gets no borrow — safe fallback, never a wrong
+ * float). Wiped every frame by pgxp_next_frame. Record/lookup return
+ * immediately (miss) when pgxp_track is off. */
+void pgxp_edge_record(int sx, int sy, float x, float y, float invw);
+int pgxp_edge_lookup(int sx, int sy, float *x, float *y, float *invw);
+
 /* PGXP logging: per-window counters for hardware diagnosis (no more guessing).
  * All counters live in pgxp.c and are incremented from the core (lookup,
  * command shadows, NCLIP) and the RSX layer (substitution, texture resolve,
@@ -136,7 +146,10 @@ void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr);
  * Every field answers one diagnostic question:
  *  cmd_unique/ambig/none: reverse-lookup health (how often a GP0 word finds
  *    exactly one live register shadow, several, or none).
- *  sub_verts/sub_applied: how many drawn vertices T2 actually moved.
+ *  sub_verts/sub_applied: how many drawn vertices were moved (own shadow
+ *    + borrowed); sub_borrowed: how many of those came from the edge map
+ *    (a vertex without its own shadow borrowing a position recorded by
+ *    another vertex at the same integer position in the same batch).
  *  sub_max_dx/dy, sub_big: substitution size; legit shadows differ from the
  *    integer by < 1px (same GTE value, truncated vs exact), so sub_big
  *    (> 1.5px) is the smoking gun for a misaligned/wrong shadow.
@@ -152,7 +165,7 @@ void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr);
  *  toobig_drop: triangles do_poly dropped as oversized (pre-override). */
 typedef struct {
     unsigned long cmd_unique, cmd_ambig, cmd_none;
-    unsigned long sub_verts, sub_applied;
+    unsigned long sub_verts, sub_applied, sub_borrowed;
     float sub_max_dx, sub_max_dy;
     unsigned long sub_big;
     unsigned long tex_persp, tex_affine, tex_mixed;

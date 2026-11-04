@@ -608,6 +608,12 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
             }
         } else p[i].u = p[i].v = 0.f;
         if (tex && raw) { p[i].r = p[i].g = p[i].b = 128.f; } else colour(&p[i], c);
+        /* PGXP gate: identity unless a correction overwrites it below
+           (pgxp_resolve when texture is on, substitution when the master is
+           on). This is what makes skipping pgxp_resolve safe: without it,
+           uw/vw/invw here would be uninitialized stack values, not identity
+           (do_poly never set them — resolve was their only writer). */
+        p[i].uw = p[i].u; p[i].vw = p[i].v; p[i].invw = 1.0f;
     }
     if (tex) {
         uint32_t clut = uvw[0] >> 16;
@@ -626,57 +632,94 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
        a thin line of the neighbouring tile along polygon seams (Tekken 3 skies) */
     if (umax > umin) umax--;
     if (vmax > vmin) vmax--;
-    pgxp_resolve(t, nt, tsrc, rsx, rsy, tex, tex_ok);
-    /* PGXP T2+T3: vertex stabilization + shadow texture from
+    /* PGXP gate: when texture correction is off (master off, or the texture
+       sub-option off), skip the resolve call entirely — no cache lookups,
+       identity already set in vertex setup above. tex_ok stays {0,0} (its
+       zero-initialization); nothing reads it. The affine count is kept
+       honest: these triangles are drawn affine. */
+    if (hwr_pgxp_tex)
+        pgxp_resolve(t, nt, tsrc, rsx, rsy, tex, tex_ok);
+    else if (tex)
+        for (i = 0; i + 2 < nt; i += 3) pgxp_stats.tex_affine++;
+    /* PGXP T2+T3+edge: vertex stabilization + shadow texture from
        provenance-validated shadows. Direct-write words carry T2 register
        shadows; DMA words carry T3 RAM shadows (pgxp_cmd_shadow_at resolves
-       both). The shift is sub-pixel (the GTE fraction), and both sides of
-       a shared edge resolve identically when they come from the same flow.
+       both). The shift is sub-pixel (the GTE fraction). Edge consistency
+       comes from the per-frame position map (see below): every vertex at
+       a given integer position in a batch gets the same treatment.
        Gated on the master switch only (no new setting). In VRAM-check mode
        this diverges from the software reference exactly like texture
        correction already does. */
     if (sh && pgxp_track) {
-        /* Per-triangle all-or-nothing: a triangle is substituted only when
-           ALL three vertices have shadows validated against their own words
-           (sv->i == word). The use-time check is what makes RAM lists safe:
-           a word rewritten after its shadow was recorded fails here and
-           falls back. Substituted positions always pair with shadow invw,
-           never with affine or cache texture, so T3 cannot introduce the
-           mixed-precision wobble. A triangle without full shadows keeps
-           exactly what pgxp_resolve gave it (integer positions + cache
-           texture or affine). ox cancels in the delta. */
+        /* Edge-consistent per-vertex substitution (option A): each drawn
+           vertex is decided independently — no triangle veto. A vertex
+           with a validated own shadow (sv->i == word) substitutes from it.
+           A vertex without one borrows the precise float recorded in the
+           per-frame position map for its integer position (rsx, rsy),
+           if any — so every vertex at a given integer position in this
+           batch gets the SAME treatment (same float, or all integer),
+           regardless of draw order. A vertex with neither stays integer
+           with exactly what pgxp_resolve gave it. The pre-pass records
+           every validated own shadow before any draw, so a no-shadow
+           vertex drawn BEFORE its shadowed neighbour still borrows.
+           Substituted positions always pair with shadow/borrowed invw,
+           never with affine or cache texture, so tex_mixed stays a
+           violation detector (always 0). Use-time validation (sv->i ==
+           word) is what makes RAM lists safe: a word rewritten after its
+           shadow was recorded fails here and falls back. Known limitation:
+           cross-batch order-dependence persists (a position drawn integer
+           in batch 1 and substituted in batch 2 of the same frame still
+           disagrees) — a frame-wide pre-pass is impossible in a streaming
+           renderer; this is rare and far fewer cracks than per-triangle
+           veto. ox cancels in the delta. */
         int tri_sub[2] = { 0, 0 }, tri_shtex[2] = { 0, 0 };
         int k, j;
+        /* Pre-pass: record every validated own shadow into the position
+           map (first-writer wins), before any substitution. */
         for (k = 0; k + 2 < nt; k += 3) {
-            const pgxp_shadow_t *sv[3];
-            int tri = k / 3, all = 1;
+            for (j = 0; j < 3; j++) {
+                int s = tsrc[k + j];
+                const pgxp_shadow_t *sv = &sh[xy_idx[s]];
+                if (sv->valid && sv->i == le32(l + xy_idx[s]))
+                    pgxp_edge_record(rsx[s], rsy[s], sv->x, sv->y, sv->invw);
+            }
+        }
+        /* Draw pass: own shadow first, else map borrow, else integer. */
+        for (k = 0; k + 2 < nt; k += 3) {
+            int tri = k / 3;
             pgxp_stats.sub_verts += 3;
             for (j = 0; j < 3; j++) {
                 int s = tsrc[k + j];
-                sv[j] = &sh[xy_idx[s]];
-                if (!sv[j]->valid || sv[j]->i != le32(l + xy_idx[s])) { all = 0; break; }
-            }
-            if (!all) continue;
-            for (j = 0; j < 3; j++) {
-                int s = tsrc[k + j];
+                const pgxp_shadow_t *sv = &sh[xy_idx[s]];
                 pv *v = &t[k + j];
-                float dx, dy;
+                float fx, fy, fi, dx, dy;
+                int borrowed = 0;
+                if (sv->valid && sv->i == le32(l + xy_idx[s])) {
+                    fx = sv->x; fy = sv->y; fi = sv->invw;
+                    pgxp_edge_record(rsx[s], rsy[s], fx, fy, fi); /* belt and braces: the pre-pass already covered this vertex */
+                } else if (pgxp_edge_lookup(rsx[s], rsy[s], &fx, &fy, &fi)) {
+                    borrowed = 1;
+                } else {
+                    continue; /* stays integer + pgxp_resolve texture */
+                }
                 pgxp_stats.sub_applied++;
+                if (borrowed) pgxp_stats.sub_borrowed++;
                 tri_sub[tri] = 1; tri_shtex[tri] = 1;
-                dx = sv[j]->x - (float)rsx[s]; if (dx < 0) dx = -dx;
-                dy = sv[j]->y - (float)rsy[s]; if (dy < 0) dy = -dy;
+                dx = fx - (float)rsx[s]; if (dx < 0) dx = -dx;
+                dy = fy - (float)rsy[s]; if (dy < 0) dy = -dy;
                 if (dx > pgxp_stats.sub_max_dx) pgxp_stats.sub_max_dx = dx;
                 if (dy > pgxp_stats.sub_max_dy) pgxp_stats.sub_max_dy = dy;
                 if (dx > 1.5f || dy > 1.5f) pgxp_stats.sub_big++;
-                v->x = sv[j]->x + (float)st.ox;
-                v->y = sv[j]->y + (float)st.oy;
-                v->uw = v->u * sv[j]->invw;
-                v->vw = v->v * sv[j]->invw;
-                v->invw = sv[j]->invw;
+                v->x = fx + (float)st.ox;
+                v->y = fy + (float)st.oy;
+                v->uw = v->u * fi;
+                v->vw = v->v * fi;
+                v->invw = fi;
             }
         }
         /* PGXP log: mixed-precision triangles (positions substituted but
-           texture NOT from shadow). Under the all-or-nothing rule this is
+           texture NOT from shadow/borrowed invw). Every substituted vertex
+           pairs with shadow/borrowed invw by construction, so this is
            always 0; the counter stays as a rule-violation detector. */
         if (tex)
             for (i = 0; i < nt / 3; i++)

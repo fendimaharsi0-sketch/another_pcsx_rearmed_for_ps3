@@ -1466,7 +1466,7 @@ int hooks_dump_vram(const char *name)
    (partial windows flushed on toggle have frames < 60). */
 static void pgxp_log_line(int on, int frames)
 {
-    logf_("pgxp [%s] frames %d: T2 sub %lu/%lu cmd u %lu a %lu n %lu | dmax %.2f,%.2f big %lu | tex persp %lu affine %lu mixed %lu | lk hit %lu miss %lu | nclip tot %lu flip %lu restore %lu | degen %lu toobig %lu\n",
+    logf_("pgxp [%s] frames %d: T2 sub %lu/%lu cmd u %lu a %lu n %lu | dmax %.2f,%.2f big %lu | tex persp %lu affine %lu mixed %lu | lk hit %lu miss %lu | nclip tot %lu flip %lu restore %lu | degen %lu toobig %lu borrow %lu\n",
         on ? "ON" : "OFF", frames,
         pgxp_stats.sub_applied, pgxp_stats.sub_verts,
         pgxp_stats.cmd_unique, pgxp_stats.cmd_ambig, pgxp_stats.cmd_none,
@@ -1474,7 +1474,8 @@ static void pgxp_log_line(int on, int frames)
         pgxp_stats.tex_persp, pgxp_stats.tex_affine, pgxp_stats.tex_mixed,
         pgxp_stats.lk_hit, pgxp_stats.lk_miss,
         pgxp_stats.nclip_total, pgxp_stats.nclip_flip, pgxp_stats.nclip_restore,
-        pgxp_stats.degen_skip, pgxp_stats.toobig_drop);
+        pgxp_stats.degen_skip, pgxp_stats.toobig_drop,
+        pgxp_stats.sub_borrowed);
 }
 
 static int present_hook(int x, int y, int w, int h, int bgr24)

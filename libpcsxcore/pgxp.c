@@ -69,8 +69,30 @@ static inline unsigned pgxp_hash(int sx, int sy)
 	return ((unsigned)sx * 73856093u ^ (unsigned)sy * 19349663u) & PGXP_CACHE_MASK;
 }
 
+/* Edge-consistent substitution map (option A). Keyed by integer screen
+ * position (pre-draw-offset, same keys as pgxp_resolve), value = precise
+ * float position + invw from a validated shadow. First-writer wins per
+ * frame; a hash collision with a different position is NOT recorded (the
+ * later position simply gets no borrow — safe fallback, never a wrong
+ * float). Single-slot hash like the slice-1 cache, but a much bigger table
+ * (64K slots) so collisions are rare; a 1024x512 direct array would be
+ * 10MB and is deliberately NOT used. Wiped every frame by pgxp_next_frame
+ * (memset, valid = 0). Storage is declared here (before pgxp_next_frame);
+ * the record/lookup functions are defined below, after pgxp_lookup. */
+#define PGXP_EDGE_BITS 16
+#define PGXP_EDGE_SIZE (1 << PGXP_EDGE_BITS)
+#define PGXP_EDGE_MASK (PGXP_EDGE_SIZE - 1)
+typedef struct { int valid; int sx, sy; float x, y, invw; } pgxp_edge_t;
+static pgxp_edge_t pgxp_edge_map[PGXP_EDGE_SIZE];
+
 void pgxp_next_frame(void)
 {
+	/* Gate: when the master is off, nothing reads any PGXP array (every hook
+	 * is gated on pgxp_track, and hwr_pgxp_tex is 0 so do_poly skips the
+	 * cache lookup), so skip the gen bump and all wipes below. The first
+	 * next_frame after re-enabling runs the normal path, so no transition
+	 * wipe beyond it is needed. */
+	if (!pgxp_track) return;
 	if (++pgxp_gen == 0) {
 		memset(pgxp_cache, 0, sizeof pgxp_cache);
 		pgxp_gen = 1;
@@ -82,6 +104,8 @@ void pgxp_next_frame(void)
 	 * (sizeof covers the guard words too, so they stay zero). */
 	memset(pgxp_ram_shadow, 0, sizeof pgxp_ram_shadow);
 	memset(pgxp_scratch_shadow, 0, sizeof pgxp_scratch_shadow);
+	/* Edge map: per-frame, like everything above. */
+	memset(pgxp_edge_map, 0, sizeof pgxp_edge_map);
 }
 
 void pgxp_push(int sx, int sy, float x, float y, int z)
@@ -114,6 +138,35 @@ int pgxp_lookup(int sx, int sy, float *x, float *y, float *invw)
 	if (e->y < (float)sy - 0.02f || e->y > (float)sy + 1.02f) { pgxp_stats.lk_miss++; return 0; }
 	*x = e->x; *y = e->y; *invw = e->invw;
 	pgxp_stats.lk_hit++;
+	return 1;
+}
+
+/* Edge map record/lookup (storage declared above, before pgxp_next_frame). */
+static inline unsigned pgxp_edge_hash(int sx, int sy)
+{
+	/* Same multiplicative constants as the slice-1 cache hash; unsigned
+	 * arithmetic throughout (signed overflow would be UB). */
+	return ((unsigned)sx * 73856093u ^ (unsigned)sy * 19349663u) & PGXP_EDGE_MASK;
+}
+
+void pgxp_edge_record(int sx, int sy, float x, float y, float invw)
+{
+	pgxp_edge_t *e;
+	if (!pgxp_track) return;
+	e = &pgxp_edge_map[pgxp_edge_hash(sx, sy)];
+	if (e->valid) return; /* first-writer wins: an occupied slot — same
+		position re-recorded, or a different position colliding — is left
+		alone. Never overwrite, never borrow a wrong float. */
+	e->valid = 1; e->sx = sx; e->sy = sy; e->x = x; e->y = y; e->invw = invw;
+}
+
+int pgxp_edge_lookup(int sx, int sy, float *x, float *y, float *invw)
+{
+	pgxp_edge_t *e;
+	if (!pgxp_track) return 0;
+	e = &pgxp_edge_map[pgxp_edge_hash(sx, sy)];
+	if (!e->valid || e->sx != sx || e->sy != sy) return 0;
+	*x = e->x; *y = e->y; *invw = e->invw;
 	return 1;
 }
 

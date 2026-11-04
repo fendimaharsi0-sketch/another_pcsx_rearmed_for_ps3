@@ -144,8 +144,16 @@ int config_game_active(void) { return game_on; }
  * mirrored, so the two mirrors can never drift apart. */
 void config_mirror_gte_pgxp(void)
 {
+    int old_track = pgxp_track;
     gte_pgxp = cfg.pgxp_enable ? ((cfg.pgxp_texture ? 1 : 0) | (cfg.pgxp_culling ? 2 : 0)) : 0;
     pgxp_track = cfg.pgxp_enable;
+    /* Gate: only a master CHANGE re-points the JIT (lightrec_pgxp_gate
+     * updates the state's copied ops + flushes every block, so all code
+     * matches the new registration). Sub-option flips and repeat mirror
+     * calls with the same master value do not invalidate. NULL state
+     * (boot, no game, interpreter CPU) is skipped inside the gate. */
+    if (pgxp_track != old_track)
+        lightrec_pgxp_gate(pgxp_track);
 }
 
 void config_game_begin(const char *key)

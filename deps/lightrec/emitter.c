@@ -1224,30 +1224,22 @@ static void call_to_c_wrapper(struct lightrec_cstate *state,
 /* T3: emit a PGXP RAM-shadow update for a word load/store, through the C
  * wrapper. Only full-word transfers carry shadows; anything else is ignored
  * (a partial transfer cannot carry a full-word shadow, and the read-time
- * validation in pgxp makes a stale shadow fail safe). The call is branched
- * around when tracking is off (pgxp_track mirrors the master switch at run
- * time): when off, the emitted code is just a load and a branch, with no
- * shadow maintenance and no behaviour change. */
+ * validation in pgxp makes a stale shadow fail safe). Gate: the call is
+ * emitted only when tracking is on at compile time (pgxp_track mirrors the
+ * master switch); when off, nothing is emitted at all — no branch-around,
+ * no shadow maintenance, no behaviour change. All live blocks match the
+ * current master because lightrec_pgxp_gate flushes them on every toggle. */
 static void rec_pgxp_mem(struct lightrec_cstate *cstate,
 			 const struct block *block, u16 offset)
 {
-	struct regcache *reg_cache = cstate->reg_cache;
-	jit_state_t *_jit = block->_jit;
 	union code c = block->opcode_list[offset].c;
-	u8 tmp;
-	jit_node_t *skip;
 
 	if (c.i.op != OP_LW && c.i.op != OP_LWC2 &&
 	    c.i.op != OP_SW && c.i.op != OP_SWC2)
 		return;
 
-	tmp = lightrec_alloc_reg_temp(reg_cache, _jit);
-	jit_movi(tmp, (intptr_t)&pgxp_track);
-	jit_ldr_i(tmp, tmp);
-	skip = jit_beqi(tmp, 0);
+	if (!pgxp_track) return;
 	call_to_c_wrapper(cstate, block, c.opcode, C_WRAPPER_PGXP);
-	jit_patch(skip);
-	lightrec_free_reg(reg_cache, tmp);
 }
 
 static void rec_io(struct lightrec_cstate *state,

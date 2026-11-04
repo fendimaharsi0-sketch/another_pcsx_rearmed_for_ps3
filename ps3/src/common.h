@@ -82,6 +82,7 @@ extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9
 extern int gte_pgxp;   /* core, libpcsxcore/pgxp.c: bitmask (1 = texture, 2 = culling), mirrored from cfg by config_mirror_gte_pgxp() */
 extern int pgxp_track;   /* T1: 1 when the PGXP master switch is on, mirrored from cfg */
 void config_mirror_gte_pgxp(void);   /* recompute gte_pgxp from cfg.pgxp_enable/texture/culling */
+void lightrec_pgxp_gate(int on);   /* JIT gate, libpcsxcore/lightrec/plugin.c: on a master change, re-point cop2_notify in the state's copied ops + flush all blocks (skipped when Lightrec is not running) */
 void pgxp_next_frame(void);   /* core, libpcsxcore/pgxp.c: invalidate the GTE vertex cache (new frame) */
 void config_load(void);
 void config_save(void);

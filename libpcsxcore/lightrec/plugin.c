@@ -10,6 +10,7 @@
 #endif
 
 #include "lightrec.h"
+#include "lightrec-private.h"
 #include "../cdrom.h"
 #include "../gpu.h"
 #include "../gte.h"
@@ -119,6 +120,23 @@ static void cop2_notify(struct lightrec_state *state, u32 op, u32 data)
 	 * if FPS drops. */
 	(void)state;
 	pgxp_on_notify(op, data);
+}
+
+/* PGXP gate: the master switch fully disconnects the JIT hooks. lightrec_init
+ * memcpy'd lightrec_ops into state->ops, so this re-points the state's OWN
+ * copy (the const table is untouched) and then flushes every compiled block,
+ * so all live code matches the new registration: with NULL, the emitter
+ * inlines MFC2/MTC2 again and rec_pgxp_mem emits nothing; with cop2_notify,
+ * both hooks are back. Called only on a master change, from
+ * config_mirror_gte_pgxp (menu toggle, game begin/end). NULL state (boot
+ * before init, no game running, interpreter CPU) skips both steps; the next
+ * init uses the current ops. Toggling happens with the game paused in the
+ * menu, so flushing all blocks is safe (no block is executing). */
+void lightrec_pgxp_gate(int on)
+{
+	if (!lightrec_state) return;
+	lightrec_state->ops.cop2_notify = on ? cop2_notify : NULL;
+	lightrec_invalidate_all(lightrec_state);
 }
 
 static bool has_interrupt(void)
