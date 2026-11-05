@@ -82,8 +82,13 @@ void config_save(void);
 void config_game_begin(const char *game);   /* at game start: its file, if any, applies */
 void config_game_end(void);                 /* back to the settings for all games */
 int  config_game_active(void);              /* the running game uses its own settings */
-void config_game_enable(int on);            /* in game: give it its own settings / remove them */
 int  config_game_exists(const char *game);
+int  config_game_delete(const char *game);   /* remove configs/<game>.ini, 1 = deleted */
+/* shared settings panel (menu.c): file helpers, no game_on/in_game changes */
+int  config_panel_overlay(const char *key, settings_t *s);  /* overlay the title's file if it exists */
+void config_panel_global(settings_t *out);  /* the settings for all games while one runs */
+int  config_panel_apply_title(const char *key, const settings_t *now, settings_t *baseline, int ingame);
+int  config_panel_apply_global(const settings_t *now, settings_t *baseline, int ingame);
 #define SCREEN_MIN 80
 #define SCREEN_MAX 130
 

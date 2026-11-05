@@ -912,10 +912,12 @@ static void vmc_slot_picker(int slot)
     vmc_message(title, "Memory card set", vmc_names[sel - 1], "Next launch only.");
 }
 
-static void draw_settings(int sel, int y0, int in_game)
+static void draw_settings(int sel, int y0, int in_game, int highlight)
 {
     /* sel is a GLOBAL settings_items index; the page it sits on is derived,
-       so both callers keep passing the same sel they already track. */
+       so the caller keeps passing the same sel it already tracks. highlight
+       is 0 while the selection sits on an apply row below the page (the
+       page row the user came from must not look selected as well). */
     int pg = set_page_of(sel), rows = set_page_counts[pg], i;
     {   /* page navigation row, above the items: L1/R1 flank the page title.
            Text only: the overlay font is ASCII 32-126, so no triangle glyphs
@@ -932,8 +934,8 @@ static void draw_settings(int sel, int y0, int in_game)
         int g = set_page_items[pg][i];
         char v[64];
         int y = y0 + i * SET_ROW;
-        if (g == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
-        ovl_text(50, y, settings_items[g].label, g == sel ? C_ACCENT : C_TEXT);
+        if (g == sel && highlight) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+        ovl_text(50, y, settings_items[g].label, g == sel && highlight ? C_ACCENT : C_TEXT);
         setting_value(g, v, sizeof v);
         ovl_text(520, y, "<", C_DIM);
         ovl_text(550, y, v, C_TEXT);
@@ -947,52 +949,180 @@ static void draw_settings(int sel, int y0, int in_game)
                                                               : "Interpreter if a game misbehaves.", C_DIM);
 }
 
-static void settings_screen(void)
+extern void game_settings_changed(void);   /* main.c: re-apply cfg to the running game */
+
+/* ---------------- shared settings panel ----------------
+ * One panel for both entry points: Triangle on the home game list and
+ * Settings in the pause quick menu. title_key is the ROM file name without
+ * extension for a scanned game row / the running game, or NULL for the
+ * disc entry, Boot BIOS, an empty list, or the in-game BIOS (global only).
+ * in_game keeps its old meaning: in a game, every change applies live
+ * (game_settings_changed) and the engine switch runs on close; at home,
+ * changes only land in the files when applied or on back.
+ * Load rule: if the title has its own configs/<key>.ini, its per-game keys
+ * overlay cfg on entry; otherwise cfg stays as the global values. The rows
+ * and pages are identical either way. The header names the title when one
+ * is selected ("Settings: <key>", display-truncated), else "Settings for
+ * all games".
+ * Apply rows (panel-level, not per-page, fixed below the page rows):
+ * "Apply to this title only" over "Apply to global setting". Down from a
+ * page's last row reaches the first apply row, Down again the second; Up
+ * reverses; the column wraps (first page row <-> last apply row); L1/R1
+ * flips return to the page's remembered row. X applies and the panel stays
+ * open with a confirmation. With no title the title button is hidden.
+ * Back (Circle, and Triangle at home) AUTO-SAVES and closes, never
+ * discards: the target is picked at back time from whether the title's
+ * .ini exists then (title-apply split if it does, global-apply if not).
+ * A back-save never creates a .ini that did not exist, and never deletes
+ * one. After a home back-save cfg is the global baseline again and the
+ * list's own-settings tags refresh; after an in-game back-save cfg stays
+ * as the saved effective values (no revert: in-game edits were live).
+ * CPU switch (in game only): if cfg.dynarec at close differs from the
+ * entry value, the live-switch-on-resume logic runs as before, with the
+ * message returned through close_msg for the quick menu to show. */
+static void settings_panel(const char *title_key, int in_game, char *close_msg, size_t close_msg_n)
 {
-    int sel = 0, i;
-    logf_("menu: settings\n");
+    char panel_key[256];
+    const char *old_name = menu_name;
+    const char *panel_msg = NULL;
+    settings_t baseline;
+    int has_title = title_key && title_key[0];
+    int has_personal, sel = 0, apply = -1, i, cpu_entry;
+    if (has_title) snprintf(panel_key, sizeof panel_key, "%s", title_key);
+    else panel_key[0] = 0;
+    logf_("menu: settings%s%s\n", has_title ? ": " : "", panel_key);
     menu_name = "settings";
     for (i = 0; i < NPAGES; i++) set_page_row[i] = 0;   /* fresh panel: page 0, row 0 */
+    /* baseline = the settings for all games at entry (home: entry cfg, which
+       is global; in game: the launch snapshot, not the effective values). */
+    if (in_game) config_panel_global(&baseline);
+    else baseline = cfg;
+    has_personal = has_title ? config_panel_overlay(panel_key, &cfg) : 0;
+    if (has_personal) logf_("settings: this title's own settings from configs/%s.ini\n", panel_key);
+    cpu_entry = cfg.dynarec;   /* in game: the effective engine at entry, as before */
     while (!app_exit_requested) {
         uint32_t p;
         char pg_ind[16];
+        int applied = 0, n_apply = has_title ? 2 : 1;
         frame_begin(0);
         p = input_pressed();
-        /* Up/Down move within the current page; L1/R1 flip pages (wrapping)
-           and restore the row each page was left on. sel stays a GLOBAL index. */
-        if (p & PAD_UP) { int pg = set_page_of(sel), rw = set_row_of(sel);
-                          rw = (rw + set_page_counts[pg] - 1) % set_page_counts[pg];
-                          sel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
-        if (p & PAD_DOWN) { int pg = set_page_of(sel), rw = set_row_of(sel);
-                            rw = (rw + 1) % set_page_counts[pg];
-                            sel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
-        if (p & PAD_L1) { int pg = set_page_of(sel);
-                          set_page_row[pg] = set_row_of(sel);
-                          pg = (pg + NPAGES - 1) % NPAGES;
-                          sel = set_page_items[pg][set_page_row[pg]]; }
-        if (p & PAD_R1) { int pg = set_page_of(sel);
-                          set_page_row[pg] = set_row_of(sel);
-                          pg = (pg + 1) % NPAGES;
-                          sel = set_page_items[pg][set_page_row[pg]]; }
-        if (p & (PAD_LEFT | PAD_CROSS)) setting_change(sel, p & PAD_LEFT ? -1 : 1, 0);
-        if (p & PAD_RIGHT) setting_change(sel, 1, 0);
+        if (apply >= 0) {
+            /* On an apply row: sel still holds the page row we came from,
+               so L1/R1 flips from that page, and Up/Down walk the column. */
+            if (p & PAD_UP) { if (apply == 0) apply = -1; else apply--; }
+            if (p & PAD_DOWN) { if (apply == n_apply - 1) { int pg = set_page_of(sel);
+                                  apply = -1; sel = set_page_items[pg][0]; set_page_row[pg] = 0; }
+                                else apply++; }
+            if (p & (PAD_L1 | PAD_R1)) { int pg = set_page_of(sel);
+                                         apply = -1; set_page_row[pg] = set_row_of(sel);
+                                         pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
+                                         sel = set_page_items[pg][set_page_row[pg]]; }
+            if (p & PAD_CROSS) {
+                if (has_title && apply == 0) {
+                    if (config_panel_apply_title(panel_key, &cfg, &baseline, in_game)) {
+                        has_personal = 1;
+                        panel_msg = "Saved to this title only";
+                    } else panel_msg = "Save failed";
+                } else {
+                    panel_msg = config_panel_apply_global(&cfg, &baseline, in_game)
+                              ? "Saved to global settings" : "Save failed";
+                }
+                applied = 1;
+            }
+            /* Left/Right do nothing on apply rows. */
+        } else {
+            /* Up/Down move within the current page, except at the edges,
+               where the column continues onto the apply rows (and wraps). */
+            if (p & PAD_UP) { int pg = set_page_of(sel), rw = set_row_of(sel);
+                              if (rw == 0) apply = n_apply - 1;
+                              else { rw--; sel = set_page_items[pg][rw]; set_page_row[pg] = rw; } }
+            if (p & PAD_DOWN) { int pg = set_page_of(sel), rw = set_row_of(sel);
+                                if (rw == set_page_counts[pg] - 1) apply = 0;
+                                else { rw++; sel = set_page_items[pg][rw]; set_page_row[pg] = rw; } }
+            if (p & (PAD_L1 | PAD_R1)) { int pg = set_page_of(sel);
+                                         set_page_row[pg] = set_row_of(sel);
+                                         pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
+                                         sel = set_page_items[pg][set_page_row[pg]]; }
+            if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) {
+                setting_change(sel, p & PAD_LEFT ? -1 : 1, in_game);
+                if (in_game) game_settings_changed();
+            }
+        }
         if (p & (PAD_CIRCLE | PAD_TRIANGLE)) {
-            config_save();
-            logf_("menu: back to game list\n");
-            menu_name = "game list";
+            /* Back auto-saves (never discards). Target by the file's
+               existence NOW, not at entry: a title-apply during this panel
+               may have created the file since. */
+            int ok = (has_title && config_game_exists(panel_key))
+                   ? config_panel_apply_title(panel_key, &cfg, &baseline, in_game)
+                   : config_panel_apply_global(&cfg, &baseline, in_game);
+            if (!ok) logf_("menu: settings back-save failed\n");
+            if (!in_game) {
+                cfg = baseline;   /* the list operates on the settings for all games */
+                check_own_settings();   /* a newly created .ini shows its tag at once */
+                logf_("menu: back to game list\n");
+            } else if (cfg.dynarec != cpu_entry) {
+                /* Live engine switch on resume, as before: the next
+                   retro_run re-reads pcsx_rearmed_drc (option_value answers
+                   from cfg.dynarec) and upstream update_variables swaps the
+                   engine (Notify BEFORE_SAVE -> Shutdown -> Init -> Notify
+                   AFTER_LOAD). Only the Interpreter -> Dynarec direction
+                   syncs Lightrec's thread-mode global first: set_threaded
+                   only touches the global when not on Dynarec (no restart,
+                   no live state), so the fresh Lightrec starts in the picked
+                   thread mode. From Dynarec, do NOT call it: it would
+                   restart Lightrec without a register sync. Thread-mode-only
+                   changes stay next-launch. */
+                if (!cpu_entry && cfg.dynarec) {
+                    extern void lightrec_plugin_set_threaded(int on) __attribute__((weak));
+                    if (lightrec_plugin_set_threaded) lightrec_plugin_set_threaded(cfg.dynarec_thread);
+                }
+                if (close_msg && close_msg_n > 0) snprintf(close_msg, close_msg_n, "CPU switches live on resume");
+            } else if (close_msg && close_msg_n > 0) close_msg[0] = 0;
+            menu_name = old_name;
             return;
         }
+        if (!applied && p) panel_msg = NULL;   /* a fresh input clears a stale confirmation */
+        if (in_game) ovl_fill(0, 0, OVL_W, OVL_H, C_PANEL);   /* the old inline page filled the screen */
         snprintf(pg_ind, sizeof pg_ind, "%d / %d", set_page_of(sel) + 1, NPAGES);
-        header("Settings for all games", pg_ind);
-        draw_settings(sel, 118, 0);
+        if (has_title) {
+            char hdr[300];
+            snprintf(hdr, sizeof hdr, "Settings: %.50s", panel_key);
+            header(hdr, pg_ind);
+        } else header("Settings for all games", pg_ind);
+        draw_settings(sel, 118, in_game, apply < 0);
         {
+            /* Apply section, one 27 px row pitch like the page rows: status
+               (title only), stacked buttons with an explanation under each,
+               then the back behaviour. All lines fit the panel width
+               (OVL_W - 2*MARGIN at FONT_W 16 = 72 chars; the global line is
+               shortened from the longer draft so it is not clipped). */
+            int y = 440, k = 0;
+            if (has_title) {
+                ovl_text(50, y, has_personal ? "This title has its own settings."
+                                             : "This title has no personal settings yet.", C_DIM);
+                y += SET_ROW;
+                if (apply == 0) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+                ovl_text(50, y, "Apply to this title only", apply == 0 ? C_ACCENT : C_TEXT);
+                ovl_text(50, y + SET_ROW, "Saves these values to this title only.", C_DIM);
+                y += 2 * SET_ROW; k = 1;
+            }
+            if (apply == k) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            ovl_text(50, y, "Apply to global setting", apply == k ? C_ACCENT : C_TEXT);
+            ovl_text(50, y + SET_ROW, "Overwrites global settings. This title's own settings are kept.", C_DIM);
+            y += 2 * SET_ROW;
+            ovl_text(50, y, "Back saves to this title if it has its own settings, else global.", C_DIM);
+            y += SET_ROW;
+            if (panel_msg) ovl_text(50, y, panel_msg, C_ACCENT);
+        }
+        if (!in_game) {
             char b[200];
             snprintf(b, sizeof b, "BIOS: %s", hooks_bios_status());
             ovl_text(50, OVL_H - 82, b, C_DIM);
         }
-        footer("Up/Down select    Left/Right change    Circle back");
+        footer("Up/Down select    Left/Right change    X apply    Circle back");
         frame_end();
     }
+    menu_name = old_name;
 }
 
 /* ---------------- game list ---------------- */
@@ -1358,6 +1488,33 @@ static void draw_cover_panel(const char *title, const char *line2)
     }
 }
 
+/* Yes/No confirm for deleting a title's personal settings. Same layout and
+   buttons as the VMC-import and copy-disc confirms (X confirms, Circle
+   goes back): the page name in the header bar, the question in accent,
+   the details below, footer "X delete    Circle back". 1 = confirmed
+   (X), 0 = back (Circle) or exit. (No generic confirm helper exists in
+   this file — those confirms are inline loops — so this factors the
+   identical pattern rather than duplicating the loop a third time.) */
+static int confirm_delete_personal(const char *title)
+{
+    char q[300];
+    while (!app_exit_requested) {
+        uint32_t p;
+        frame_begin(0);
+        p = input_pressed();
+        header("Personal settings", NULL);
+        ovl_text(MARGIN, 110, "Delete personal settings?", C_ACCENT);
+        snprintf(q, sizeof q, "Delete personal settings for %s?", title);
+        text_fit(MARGIN, 170, q, C_TEXT);
+        ovl_text(MARGIN, 210, "This cannot be undone.", C_DIM);
+        footer("X delete    Circle back");
+        frame_end();
+        if (p & PAD_CIRCLE) return 0;
+        if (p & PAD_CROSS) return 1;
+    }
+    return 0;
+}
+
 /* list entry 0 is the disc in the drive, entry 1 is Boot BIOS, entries 2.. the game files */
 const char *menu_run(void)
 {
@@ -1400,8 +1557,42 @@ const char *menu_run(void)
             }
             continue;
         }
-        if (p & PAD_TRIANGLE) { settings_screen(); continue; }
+        if (p & PAD_TRIANGLE) {
+            /* A scanned game row opens the shared panel for that title (its
+               own file overlays the global values if it exists); the disc
+               entry, Boot BIOS, and an empty list open it global-only. */
+            char tkey[256]; const char *tk = NULL;
+            if (sel >= 2 && sel - 2 < ngames) {
+                const char *b = strrchr(games[sel - 2], '/');
+                snprintf(tkey, sizeof tkey, "%s", b ? b + 1 : games[sel - 2]);
+                { char *dot = strrchr(tkey, '.'); if (dot) *dot = 0; }
+                tk = tkey;
+            }
+            settings_panel(tk, 0, NULL, 0);
+            check_own_settings();   /* a newly created .ini shows its tag at once */
+            continue;
+        }
         if (p & PAD_SQUARE) { rescan(); check_own_settings(); sel = ngames ? 2 : 0; top = 0; disc_identify_start(); continue; }
+        if ((p & PAD_R3) && sel >= 2 && sel - 2 < ngames && own_cfg[sel - 2]) {
+            /* R3 deletes this title's personal settings, after a confirm.
+               Silent no-op otherwise (disc/BIOS row, or no personal file). */
+            char key[256]; const char *b = strrchr(games[sel - 2], '/');
+            snprintf(key, sizeof key, "%s", b ? b + 1 : games[sel - 2]);
+            { char *dot = strrchr(key, '.'); if (dot) *dot = 0; }
+            if (confirm_delete_personal(key)) {
+                if (config_game_delete(key)) {
+                    logf_("menu: deleted personal settings for %s\n", key);
+                    check_own_settings();   /* the tag disappears at once */
+                    snprintf(disc_msg, sizeof disc_msg, "Personal settings deleted.");
+                } else {
+                    logf_("menu: could not delete personal settings for %s\n", key);
+                    snprintf(disc_msg, sizeof disc_msg, "Could not delete personal settings.");
+                }
+                disc_msg2[0] = 0;
+                disc_msg_frames = 240;
+            }
+            continue;
+        }
         if (sel < top) top = sel;
         if (sel >= top + rows) top = sel - rows + 1;
 
@@ -1488,12 +1679,21 @@ const char *menu_run(void)
                 ovl_text(MARGIN, OVL_H - 134, disc_msg, C_ACCENT);
             }
         }
-        footer2(sel == 0 && disc_identify_result(NULL, 0) == 1
-                    ? "X play   Circle copy to HDD   Triangle settings   Square rescan"
-                    : sel == 1
-                    ? "X boot BIOS    Triangle settings    Square rescan    L1 R1 page"
-                    : "X play    Triangle settings    Square rescan    L1 R1 page",
-                "In game: SELECT + START opens the menu (save states, settings)");
+        {   /* R3 hint only when the selected title has personal settings */
+            char foot[256];
+            if (sel >= 2 && sel - 2 < ngames && own_cfg[sel - 2]) {
+                snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 page    R3 delete personal settings");
+                if (prompt_width(foot) > OVL_W - 2 * MARGIN)
+                    snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 page    R3 delete settings");
+            } else
+                snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 page");
+            footer2(sel == 0 && disc_identify_result(NULL, 0) == 1
+                        ? "X play   Circle copy to HDD   Triangle settings   Square rescan"
+                        : sel == 1
+                        ? "X boot BIOS    Triangle settings    Square rescan    L1 R1 page"
+                        : foot,
+                    "In game: SELECT + START opens the menu (save states, settings)");
+        }
         frame_end();
     }
     cover_release();
@@ -1815,7 +2015,7 @@ static int disc_swap_screen(char *out_label, size_t out_len)
 
 int menu_ingame(void)
 {
-    static const char *items[] = { "Resume", "Save state", "Load state", "Swap disc", "Reset", "Joystick mode", "Settings", "Cheats", "Own settings for this game",
+    static const char *items[] = { "Resume", "Save state", "Load state", "Swap disc", "Reset", "Joystick mode", "Settings", "Cheats",
                                    "Quit to game list", "Dump VRAM (debug)" };
     /* Action ids are the items[] indexes. Swap disc sits above Reset and
        is shown for any running disc (not the BIOS): it is NOT gated on
@@ -1823,13 +2023,14 @@ int menu_ingame(void)
        can swap to any scanned image. The Cheats row only exists when
        the global gate is on (and the running game has a serial); the Dump
        row only when VRAM check is on. qitems maps display rows to action
-       ids, rebuilt every frame so a gate toggle in the settings page below
-       takes effect when returning here. */
-    int qitems[11], N = 0;
+       ids, rebuilt every frame so a gate toggle in the shared settings
+       panel takes effect when returning here. */
+    int qitems[10], N = 0;
     static int slot;             /* kept while the app runs */
-    int sel = 0, settings = 0, ssel = 0, cpu_entry = -1;
+    int sel = 0;
     const char *msg = NULL;
     char info[40] = "";
+    char close_msg[64] = "";
     logf_("menu: in-game menu opened\n");
     menu_name = "in-game";
     game_state_info(slot, info, sizeof info);
@@ -1841,57 +2042,11 @@ int menu_ingame(void)
         if (!app_game_is_bios()) qitems[N++] = 3;
         qitems[N++] = 4; qitems[N++] = 5; qitems[N++] = 6;
         if (cfg.cheat_enable && !app_game_is_bios() && hooks_game_serial()[0]) qitems[N++] = 7;
-        qitems[N++] = 8; qitems[N++] = 9;
-        if (cfg.vram_check) qitems[N++] = 10;
+        qitems[N++] = 8;
+        if (cfg.vram_check) qitems[N++] = 9;
         if (sel >= N) sel = N - 1;
-        frame_begin(!settings);          /* the settings page covers the whole screen */
+        frame_begin(1);          /* the quick menu always draws over the game */
         p = input_pressed();
-        if (settings) {
-            char pg_ind[16];
-            if (p & PAD_UP) { int pg = set_page_of(ssel), rw = set_row_of(ssel);
-                              rw = (rw + set_page_counts[pg] - 1) % set_page_counts[pg];
-                              ssel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
-            if (p & PAD_DOWN) { int pg = set_page_of(ssel), rw = set_row_of(ssel);
-                                rw = (rw + 1) % set_page_counts[pg];
-                                ssel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
-            if (p & PAD_L1) { int pg = set_page_of(ssel);
-                              set_page_row[pg] = set_row_of(ssel);
-                              pg = (pg + NPAGES - 1) % NPAGES;
-                              ssel = set_page_items[pg][set_page_row[pg]]; }
-            if (p & PAD_R1) { int pg = set_page_of(ssel);
-                              set_page_row[pg] = set_row_of(ssel);
-                              pg = (pg + 1) % NPAGES;
-                              ssel = set_page_items[pg][set_page_row[pg]]; }
-            if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) { setting_change(ssel, p & PAD_LEFT ? -1 : 1, 1); game_settings_changed(); }
-            if (p & (PAD_CIRCLE | PAD_TRIANGLE)) {
-                settings = 0; config_save();
-                if (cpu_entry >= 0 && cfg.dynarec != cpu_entry) {
-                    /* Live engine switch: the next retro_run re-reads
-                       pcsx_rearmed_drc (option_value answers from cfg.dynarec)
-                       and upstream update_variables swaps the engine
-                       (Notify BEFORE_SAVE -> Shutdown -> Init -> Notify AFTER_LOAD).
-                       From Interpreter, sync Lightrec's thread-mode global first:
-                       set_threaded only touches the global when not on Dynarec
-                       (no restart, no live state), so the fresh Lightrec starts
-                       in the picked thread mode. From Dynarec, do NOT call it:
-                       it would restart Lightrec without a register sync.
-                       Thread-mode-only changes stay next-launch. */
-                    if (!cpu_entry && cfg.dynarec) {
-                        extern void lightrec_plugin_set_threaded(int on) __attribute__((weak));
-                        if (lightrec_plugin_set_threaded) lightrec_plugin_set_threaded(cfg.dynarec_thread);
-                    }
-                    msg = "CPU switches live on resume";
-                }
-                cpu_entry = -1;
-            }
-            ovl_fill(0, 0, OVL_W, OVL_H, C_PANEL);
-            snprintf(pg_ind, sizeof pg_ind, "%d / %d", set_page_of(ssel) + 1, NPAGES);
-            header(config_game_active() ? "Settings for this game" : "Settings for all games", pg_ind);
-            draw_settings(ssel, 118, 1);
-            footer("Up/Down select    Left/Right change    Circle back");
-            frame_end();
-            continue;
-        }
         if (p & PAD_UP) sel = (sel + N - 1) % N;
         if (p & PAD_DOWN) sel = (sel + 1) % N;
         if ((sel == 1 || sel == 2) && (p & (PAD_LEFT | PAD_RIGHT))) {
@@ -1921,14 +2076,20 @@ int menu_ingame(void)
             case 5:
                 cfg.analog ^= 1;
                 game_settings_changed();   /* applies the port type immediately */
-                config_save();             /* persist now: per-game if Own on, else global */
+                config_save();             /* persist now: per-game if the title has its own settings, else global */
                 msg = cfg.analog ? "Joystick mode: analog" : "Joystick mode: digital";
                 break;
             /* finish this frame (the paused menu) first: starting another one without
                presenting this one made the screen blink */
-            case 6: settings = 1; ssel = 0; cpu_entry = cfg.dynarec;
-                    for (i = 0; i < NPAGES; i++) set_page_row[i] = 0;
-                    break;
+            case 6: {
+                /* The shared panel, for the running game (BIOS: global only).
+                   Its close message, if any, is the CPU live-switch notice. */
+                const char *k = app_game_is_bios() ? NULL : app_game_name();
+                close_msg[0] = 0;
+                settings_panel(k, 1, close_msg, sizeof close_msg);
+                if (close_msg[0]) msg = close_msg;
+                break;
+            }
             case 7: {
                 static char cm[64];
                 if (cheat_screen()) {
@@ -1937,13 +2098,8 @@ int menu_ingame(void)
                 } else msg = NULL;
                 break;
             }
-            case 8:
-                config_game_enable(!config_game_active());
-                game_settings_changed();
-                msg = config_game_active() ? "Changes now apply to this game only" : "This game uses the settings for all games";
-                break;
-            case 9: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
-            case 10: {
+            case 8: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
+            case 9: {
                 static char dm[64];
                 int n = game_dump_vram();
                 if (n) snprintf(dm, sizeof dm, "Dump %d written to USRDIR/dumps", n);
@@ -1965,8 +2121,7 @@ int menu_ingame(void)
                 if (n > 0) snprintf(line, sizeof line, "%s: %d on", items[a], n);
                 else snprintf(line, sizeof line, "%s", items[a]);
             }
-            else if (a == 8) snprintf(line, sizeof line, "%s: %s", items[a], config_game_active() ? "On" : "Off");
-            else snprintf(line, sizeof line, "%s", items[a]);
+            else snprintf(line, sizeof line, "%s", items[a]);   /* Quit, Dump: plain labels */
             if (i == sel) ovl_fill(305, y - 7, 670, 42, C_SEL);
             ovl_text(330, y, line, i == sel ? C_ACCENT : C_TEXT);
         }

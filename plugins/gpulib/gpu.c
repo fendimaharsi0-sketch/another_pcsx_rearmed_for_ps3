@@ -1196,11 +1196,14 @@ static void GPUupdateLace_(void)
   if (!gpu.state.fb_dirty_display_area)
     return;
 
-  if (gpu.frameskip.set) {
-    if (!gpu.frameskip.frame_ready)
-      return;
-    gpu.frameskip.frame_ready = 0;
-  }
+  /* Only a frame the GPU actually skipped may be dropped here. The old
+     frame_ready token was produced only by decide_frameskip, so any
+     presentation without a fresh token dropped rendered frames: on the
+     PS3 frontend (no interval, no advice) that capped software + Auto
+     at ~40fps while emulation stayed at 100%. A rendered frame
+     (active == 0) must always be presented. */
+  if (gpu.frameskip.set && gpu.frameskip.active)
+    return;
 #endif
 
   if (gpu_async_enabled(&gpu))
