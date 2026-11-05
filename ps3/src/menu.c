@@ -912,12 +912,14 @@ static void vmc_slot_picker(int slot)
     vmc_message(title, "Memory card set", vmc_names[sel - 1], "Next launch only.");
 }
 
-static void draw_settings(int sel, int y0, int in_game, int highlight)
+static void draw_settings(int sel, int y0, int in_game, int highlight, const char *help)
 {
     /* sel is a GLOBAL settings_items index; the page it sits on is derived,
        so the caller keeps passing the same sel it already tracks. highlight
        is 0 while the selection sits on an apply row below the page (the
-       page row the user came from must not look selected as well). */
+       page row the user came from must not look selected as well). help
+       overrides the help line when non-NULL: the apply rows' explanations,
+       shown only while the cursor sits on them, like the other rows' help. */
     int pg = set_page_of(sel), rows = set_page_counts[pg], i;
     {   /* page navigation row, above the items: L1/R1 flank the page title.
            Text only: the overlay font is ASCII 32-126, so no triangle glyphs
@@ -944,8 +946,8 @@ static void draw_settings(int sel, int y0, int in_game, int highlight)
     /* No scrolling anymore: the longest page has 9 rows, SET_VISIBLE is 17,
        so the old scroll triangles are gone (they would have lied: on a page
        the row below the last one is not another setting). */
-    ovl_text(50, y0 + rows * SET_ROW + 12, settings_items[sel].help, C_DIM);
-    if (sel == 0) ovl_text(50, y0 + rows * SET_ROW + 40, in_game ? "(engine switches live on resume)"
+    ovl_text(50, y0 + rows * SET_ROW + 12, help ? help : settings_items[sel].help, C_DIM);
+    if (sel == 0 && highlight) ovl_text(50, y0 + rows * SET_ROW + 40, in_game ? "(engine switches live on resume)"
                                                               : "Interpreter if a game misbehaves.", C_DIM);
 }
 
@@ -1089,13 +1091,22 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
             snprintf(hdr, sizeof hdr, "Settings: %.50s", panel_key);
             header(hdr, pg_ind);
         } else header("Settings for all games", pg_ind);
-        draw_settings(sel, 118, in_game, apply < 0);
+        {   /* The apply rows' explanations live on the help line, shown only
+               while the cursor sits on them (like the page rows' help),
+               not as permanent rows under the buttons. */
+            const char *apply_help = NULL;
+            if (apply >= 0)
+                apply_help = (has_title && apply == 0) ? "Saves these values to this title only."
+                                                      : "Overwrites global settings. This title's own settings are kept.";
+            draw_settings(sel, 118, in_game, apply < 0, apply_help);
+        }
         {
             /* Apply section, one 27 px row pitch like the page rows: status
-               (title only), stacked buttons with an explanation under each,
-               then the back behaviour. All lines fit the panel width
-               (OVL_W - 2*MARGIN at FONT_W 16 = 72 chars; the global line is
-               shortened from the longer draft so it is not clipped). */
+               (title only), stacked buttons, then the back behaviour. The
+               buttons' explanations are NOT permanent rows here: they show
+               on the help line while the cursor sits on the button (see
+               draw_settings). All lines fit the panel width
+               (OVL_W - 2*MARGIN at FONT_W 16 = 72 chars). */
             int y = 440, k = 0;
             if (has_title) {
                 ovl_text(50, y, has_personal ? "This title has its own settings."
@@ -1103,13 +1114,11 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
                 y += SET_ROW;
                 if (apply == 0) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
                 ovl_text(50, y, "Apply to this title only", apply == 0 ? C_ACCENT : C_TEXT);
-                ovl_text(50, y + SET_ROW, "Saves these values to this title only.", C_DIM);
-                y += 2 * SET_ROW; k = 1;
+                y += SET_ROW; k = 1;
             }
             if (apply == k) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
             ovl_text(50, y, "Apply to global setting", apply == k ? C_ACCENT : C_TEXT);
-            ovl_text(50, y + SET_ROW, "Overwrites global settings. This title's own settings are kept.", C_DIM);
-            y += 2 * SET_ROW;
+            y += SET_ROW;
             ovl_text(50, y, "Back saves to this title if it has its own settings, else global.", C_DIM);
             y += SET_ROW;
             if (panel_msg) ovl_text(50, y, panel_msg, C_ACCENT);
@@ -1532,8 +1541,48 @@ const char *menu_run(void)
         p = input_pressed();
         if (p & PAD_UP) sel = (sel + n - 1) % n;
         if (p & PAD_DOWN) sel = (sel + 1) % n;
-        if (p & PAD_L1) sel = sel > rows ? sel - rows : 0;
-        if (p & PAD_R1) sel = sel + rows < n ? sel + rows : n - 1;
+        if (p & (PAD_L1 | PAD_R1)) {
+            /* Letter jump (game list only; the settings pages keep L1/R1
+               as page flips, and the card pickers keep them as page
+               scrolls): R1 moves to the first game of the next
+               first-letter group, L1 to the first game of the previous
+               group, wrapping around the list. Groups are the shown file
+               name's first character (case-insensitive); the list is
+               sorted by that name, so groups appear in order and a letter
+               with no games is simply skipped. From the disc/BIOS rows
+               (no letter) R1 goes to the first game, L1 to the last. */
+            if (ngames) {
+                int dir = (p & PAD_R1) ? 1 : -1, gi = sel >= 2 ? sel - 2 : -1, j, tgt = -1;
+                if (gi < 0) {
+                    tgt = dir > 0 ? 0 : ngames - 1;
+                } else {
+                    int cur = toupper((unsigned char)base_name(games[gi])[0]);
+                    if (dir > 0) {
+                        for (j = 1; j <= ngames && tgt < 0; j++) {
+                            int k = (gi + j) % ngames;
+                            if (toupper((unsigned char)base_name(games[k])[0]) != cur) tgt = k;
+                        }
+                    } else {
+                        int prev = -1;
+                        for (j = 1; j <= ngames && prev < 0; j++) {
+                            int k = (gi + ngames - j) % ngames;
+                            if (toupper((unsigned char)base_name(games[k])[0]) != cur) prev = k;
+                        }
+                        if (prev >= 0) {
+                            /* rewind to the first game of that group */
+                            int g = toupper((unsigned char)base_name(games[prev])[0]), k;
+                            tgt = prev;
+                            for (k = 0; k < ngames; k++) {
+                                int b = (tgt + ngames - 1) % ngames;
+                                if (toupper((unsigned char)base_name(games[b])[0]) != g) break;
+                                tgt = b;
+                            }
+                        }
+                    }
+                }
+                if (tgt >= 0) sel = tgt + 2;
+            }
+        }
         if (p & PAD_CROSS) {
             if (sel == 0) { const char *d = start_disc(); if (d) { cover_release(); return d; } continue; }
             if (sel == 1) {   /* Boot BIOS: the PS1 BIOS menu, no disc */
@@ -1682,15 +1731,15 @@ const char *menu_run(void)
         {   /* R3 hint only when the selected title has personal settings */
             char foot[256];
             if (sel >= 2 && sel - 2 < ngames && own_cfg[sel - 2]) {
-                snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 page    R3 delete personal settings");
+                snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 letter    R3 delete personal settings");
                 if (prompt_width(foot) > OVL_W - 2 * MARGIN)
-                    snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 page    R3 delete settings");
+                    snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 letter    R3 delete settings");
             } else
-                snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 page");
+                snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 letter");
             footer2(sel == 0 && disc_identify_result(NULL, 0) == 1
                         ? "X play   Circle copy to HDD   Triangle settings   Square rescan"
                         : sel == 1
-                        ? "X boot BIOS    Triangle settings    Square rescan    L1 R1 page"
+                        ? "X boot BIOS    Triangle settings    Square rescan    L1 R1 letter"
                         : foot,
                     "In game: SELECT + START opens the menu (save states, settings)");
         }
