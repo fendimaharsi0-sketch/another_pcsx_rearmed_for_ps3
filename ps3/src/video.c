@@ -752,6 +752,9 @@ static void game_rect(float *x0, float *y0, float *x1, float *y1, float *shown)
     case ASPECT_FULL: shape = scr_aspect; break;
     default: shape = 4.f / 3.f; break;
     }
+    /* widescreen: the 3D was drawn for 16:9 (gte_widescreen), shown that wide
+       whatever the aspect setting (on a 4:3 TV, as wide as it goes) */
+    if (cfg.widescreen) { shape = 16.f / 9.f; *shown = 1.f; }
     if (shape > scr_aspect) { shape = scr_aspect; }
     if (*shown > 1.f) *shown = 1.f;
     w = aw * shape / scr_aspect;       /* works for non-square pixels (480p/576p) too */

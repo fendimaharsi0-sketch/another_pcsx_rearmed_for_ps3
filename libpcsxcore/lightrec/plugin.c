@@ -21,6 +21,7 @@
 #include "../psxinterpreter.h"
 #include "../psxhle.h"
 #include "../psxevents.h"
+#include "../pgxp_lite.h"
 
 #include "../frontend/main.h"
 
@@ -133,12 +134,28 @@ static void lightrec_transition_from_pcsx(struct lightrec_state *state)
 	}
 }
 
+static u32 last_mem, last_val, c1, c2;   /* poll_skip: the last hardware read */
+
 static void hw_write_byte(struct lightrec_state *state,
 			  u32 op, void *host, u32 mem, u32 val)
 {
+	static u32 cd_index = ~0u;      /* the CD-ROM register bank last selected */
+
 	lightrec_transition_to_pcsx(state);
 
 	psxHwWrite8(&psxRegs, mem, val);
+	/* a write: not a plain polling loop. Except the CD-ROM's bank select written
+	   again with the bank already selected: the BIOS waits for the drive by
+	   selecting bank 1 and reading the interrupt flags, again and again (1.6
+	   million times a second while it shows its logo: 80% of the time on the PS3).
+	   Selecting the same bank again changes nothing, so the loop may be skipped
+	   like any other (poll_skip). */
+	if ((mem & 0x1fffffff) == 0x1f801800) {
+		if ((val & 3) != cd_index)
+			last_mem = 0;
+		cd_index = val & 3;
+	} else
+		last_mem = 0;
 
 	lightrec_transition_from_pcsx(state);
 }
@@ -149,6 +166,7 @@ static void hw_write_half(struct lightrec_state *state,
 	lightrec_transition_to_pcsx(state);
 
 	psxHwWrite16(&psxRegs, mem, val);
+	last_mem = 0;   /* a write: not a plain polling loop */
 
 	lightrec_transition_from_pcsx(state);
 }
@@ -159,6 +177,7 @@ static void hw_write_word(struct lightrec_state *state,
 	lightrec_transition_to_pcsx(state);
 
 	psxHwWrite32(&psxRegs, mem, val);
+	last_mem = 0;   /* a write: not a plain polling loop */
 
 	lightrec_transition_from_pcsx(state);
 }
@@ -172,31 +191,45 @@ static void hw_write_word(struct lightrec_state *state,
  * cycles as the time before, the CPU is in such a loop: time moves on by that
  * many cycles per read, without running the loop, until the value changes or
  * the next event is due. Only registers whose reads change nothing.
+ *
+ * A hardware write in between means it is not such a loop. Rayman read the DMA
+ * interrupt register between pieces of real work, the pieces were skipped with
+ * the time, and the game ran at 10 fps (73 million reads "skipped"): the DMA
+ * interrupt and control registers are never taken (a game checks them between
+ * pieces of work), a DMA channel's busy bit only in a loop of at most 32 cycles.
+ * Build 90 took every register only up to 32 cycles, and the BIOS's own waits
+ * while it shows its logo, longer, ran again: the status registers below are
+ * taken up to 256 cycles apart, as before build 90.
  */
 unsigned int lightrec_poll_skips, lightrec_poll_addr;
+/* reads of the same register with the same value at the same interval (up to
+   1024 cycles) that were not skipped: what a slow wait polls (debug log) */
+unsigned int lightrec_poll_missed, lightrec_poll_missed_addr, lightrec_poll_missed_gap;
+extern int psx_debug_trace;   /* libpcsxcore/misc.c: front end debug log */
 
-static bool poll_safe(u32 mem)
+/* the longest interval between reads a loop polling mem may have (0: never) */
+static u32 poll_limit(u32 mem)
 {
 	switch (mem & 0x1fffffff) {
 	case 0x1f801070: case 0x1f801074:   /* interrupt status / mask */
 	case 0x1f801044:                    /* pad/memory card status */
 	case 0x1f801800: case 0x1f801803:   /* CD-ROM status, interrupt enable/flags */
 	case 0x1f801814:                    /* GPU status */
-	case 0x1f8010f0: case 0x1f8010f4:   /* DMA control, DMA interrupts */
-		return true;
+		return 256;
 	}
 	/* DMA channel control (the busy bit): 0x1f801088 + 0x10 * channel */
-	return (mem & 0x1fffff8f) == 0x1f801088 && ((mem >> 4) & 0xf) >= 8 && ((mem >> 4) & 0xf) <= 0xe;
+	if ((mem & 0x1fffff8f) == 0x1f801088 && ((mem >> 4) & 0xf) >= 8 && ((mem >> 4) & 0xf) <= 0xe)
+		return 32;
+	return 0;
 }
 
 static u32 poll_skip(u32 mem, u32 val, int size)
 {
-	static u32 last_mem, last_val, c1, c2;
 	static int last_size;
 	u32 diff = psxRegs.cycle - c1;
 
 	if (mem == last_mem && size == last_size && val == last_val
-	    && diff > 0 && diff < 256 && diff == c1 - c2 && poll_safe(mem)) {
+	    && diff > 0 && diff == c1 - c2 && diff <= poll_limit(mem)) {
 		u32 n = 0;
 		while ((s32)(psxRegs.next_interupt - psxRegs.cycle) > (s32)diff && val == last_val) {
 			psxRegs.cycle += diff;
@@ -209,6 +242,11 @@ static u32 poll_skip(u32 mem, u32 val, int size)
 			lightrec_poll_skips += n;
 			lightrec_poll_addr = mem;
 		}
+	} else if (psx_debug_trace && mem == last_mem && size == last_size && val == last_val
+	           && diff > 0 && diff == c1 - c2 && diff <= 1024) {
+		lightrec_poll_missed++;
+		lightrec_poll_missed_addr = mem;
+		lightrec_poll_missed_gap = diff;
 	}
 
 	c2 = c1; c1 = psxRegs.cycle;
@@ -624,6 +662,14 @@ static void lightrec_plugin_execute_internal(bool block_only)
 		psxInt.ExecuteBlock(&psxRegs, 0);
 	} else {
 		u32 cycles_lightrec = cycles_pcsx * 1024;
+		/* PGXP-lite follows SWC2 of the GTE's screen coordinates: blocks
+		   compiled before it was switched on store them inline, unseen */
+		if (unlikely(!!pgxp_lite_on != !!lightrec_swc2_hook)) {
+			lightrec_swc2_hook = pgxp_lite_on ? pgxp_lite_swc2 : NULL;
+			/* both ways: blocks compiled while ON keep the C call otherwise,
+			   so an OFF switch would still pay it on every SWC2 store */
+			lightrec_recompile_all(lightrec_state);
+		}
 		if (unlikely(use_lightrec_interpreter)) {
 			psxRegs.pc = lightrec_run_interpreter(lightrec_state,
 							      psxRegs.pc,

@@ -21,9 +21,61 @@ static const uint16_t *vram;
 static void (*sync_cb)(void);
 static int full_mode;                  /* dev->full at attach */
 
-typedef struct { float x, y, u, v, r, g, b; } pv;   /* a primitive's vertex while it is set up */
+/* where a polygon's time goes (all of do_poly, then its parts; for the log) */
+unsigned long long hwr_poly_t_all, hwr_poly_t_parse, hwr_poly_t_shift, hwr_poly_t_setup, hwr_poly_t_emit;
+unsigned int hwr_poly_n;
+/* only one polygon in PG_SAMPLE is timed (the log multiplies): reading the
+   timebase costs about as much as a short step, ten times per polygon.
+   Timed only while the debug log runs (psx_debug_trace, set at game start):
+   with it off, no timebase is ever read here. */
+#define PG_SAMPLE 8
+static int pg_timed;
+extern int psx_debug_trace;   /* libpcsxcore/misc.c: front end debug log */
+#if defined(__powerpc__) || defined(__PPC__)
+#define PG_TB() (pg_timed ? __builtin_ppc_get_timebase() : 0ull)
+#else
+#define PG_TB() 0ull
+#endif
 
-static hwr_vtx vb[VCAP], sv[SCAP];
+typedef struct { float x, y, u, v, r, g, b, ox, oy, ow; int16_t qx, qy, qz, qpad; } pv;   /* a primitive's vertex while it is set up;
+                                                     ox, oy, ow: PGXP-lite offset and depth (do_poly only),
+                                                     qx, qy, qz: the same as the vertex's pgx, pgy, pgz */
+
+/* PGXP-lite (core: libpcsxcore/pgxp_lite.c), weak so the host tools link without the core */
+extern int pgxp_lite_on __attribute__((weak));
+int pgxp_lite_find(uint32_t sxy, float *dx, float *dy, float *z) __attribute__((weak));
+struct pgxp_cand { float dx, dy, z; uint32_t seq; };   /* as in libpcsxcore/pgxp_lite.h */
+int pgxp_lite_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c) __attribute__((weak));
+int pgxp_lite_cands(uint32_t sxy, struct pgxp_cand *c) __attribute__((weak));
+void pgxp_lite_prefetch(const uint32_t *const *ptr, const uint32_t *words, int n) __attribute__((weak));
+static int pg_poly;                    /* the primitive being emitted has PGXP-lite offsets */
+unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;   /* polygons drawn with / without them (log) */
+int hwr_pgxp_first;                    /* host tests: the first vertex of a word, as before build 86 */
+/* where PGXP's time goes in the renderer (timebase ticks, PowerPC; for the log) */
+unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth;
+
+/* Small integers to float from tables. On the PS3's PPU an integer reaches a
+   floating-point register only through memory, and loading it straight after
+   storing it waits for the store (a "load-hit-store", about 40 cycles): a
+   polygon's corners, texture coordinates and colours were 7 of them per corner.
+   The tables give the same, exact values. */
+static float f_byte[256];               /* 0..255 */
+static float f_s11hi[64], f_s11lo[32];  /* an 11-bit signed number: hi[v >> 5 & 63] + lo[v & 31] */
+static void cvt_init(void)
+{
+    int i;
+    for (i = 0; i < 256; i++) f_byte[i] = (float)i;
+    for (i = 0; i < 64; i++) f_s11hi[i] = (float)(((i << 5) ^ 1024) - 1024);
+    for (i = 0; i < 32; i++) f_s11lo[i] = (float)i;
+}
+static inline float s11f(uint32_t v) { return f_s11hi[(v >> 5) & 63] + f_s11lo[v & 31]; }
+
+static hwr_vtx vb_own[VCAP], sv[SCAP];
+/* the vertices of the batch being built: in the backend's memory when it offers
+   that (vtx_area: the RSX reads them from there; they were copied, a millisecond
+   per frame in 3D games on the PS3), else in vb_own. NULL between batches. */
+static hwr_vtx *vb;
+static int vcap, vzero;                 /* vertices vb holds; bytes of it already claimed (dcbz) */
 static int nv, nsv;
 static hwr_op ops[OPCAP];
 static int nops;
@@ -35,6 +87,7 @@ static struct {
     int twmx, twmy, twox, twoy;        /* texture window */
     int dx0, dy0, dx1, dy1;            /* draw area, inclusive */
     int ox, oy;                        /* draw offset */
+    float oxf, oyf;                    /* the same as floats */
     int mset, mchk;                    /* E6: set bit 15 on drawn pixels, skip pixels with bit 15 */
 } st;
 
@@ -51,7 +104,10 @@ static int gb[4];                       /* the open group's covered area (ints, 
 static int pb[4];                       /* the last emitted primitive's area */
 static float gx0, gy0, gx1, gy1;        /* area covered by the open group */
 static int cur_prog;                   /* program variant of the primitive being emitted */
-static int cur_spr;                    /* 1 = the primitive being emitted is a textured sprite (do_rect) */
+static int cur_spr;                    /* it is a textured sprite (the sprite filter), set before emit() */
+/* the backend: sprites are drawn differently from other textured primitives (its
+   sprite and texture filters differ); else they are not told apart at all */
+int hwr_sprites_apart;
 
 static inline uint32_t le32(const uint32_t *p)
 {
@@ -78,7 +134,7 @@ static void ecmd(uint32_t w)
     case 0xe2: st.twmx = w & 31; st.twmy = (w >> 5) & 31; st.twox = (w >> 10) & 31; st.twoy = (w >> 15) & 31; break;
     case 0xe3: st.dx0 = w & 1023; st.dy0 = (w >> 10) & 511; break;
     case 0xe4: st.dx1 = w & 1023; st.dy1 = (w >> 10) & 511; break;
-    case 0xe5: st.ox = sx11(w); st.oy = sx11(w >> 11); break;
+    case 0xe5: st.ox = sx11(w); st.oy = sx11(w >> 11); st.oxf = s11f(w); st.oyf = s11f(w >> 11); break;
     case 0xe6: st.mset = w & 1; st.mchk = (w >> 1) & 1; break;
     }
 }
@@ -113,11 +169,25 @@ static void submit(void)
     close_group();
     if (nops && dev) dev->submit(dev, ops, nops, vb, nv);
     nops = 0; nv = 0;
+    vb = NULL;                          /* the backend's area is used up */
 }
 
 static void reserve(int n)
 {
-    if (nv + nsv + 2 * n > VCAP || nsv + n > SCAP || nops + 3 > OPCAP) submit();
+    if (vb && (nv + nsv + 2 * n > vcap || nsv + n > SCAP || nops + 3 > OPCAP)) submit();
+    if (!vb) {
+        if (dev && dev->vtx_area) vb = dev->vtx_area(dev, &vcap);
+        if (!vb || vcap < 64) { vb = vb_own; vcap = VCAP; }
+        vzero = 0;
+    }
+#if defined(__powerpc__) || defined(__PPC__)
+    if (vb != vb_own) {
+        /* the lines about to be written are claimed with dcbz: a plain store into
+           a line the cache does not hold reads it from memory first */
+        int need = (nv + nsv + 2 * n) * (int)sizeof *vb;
+        for (; vzero < need; vzero += 128) __asm__ volatile("dcbz 0,%0" : : "r"((char *)vb + vzero) : "memory");
+    }
+#endif
 }
 
 static hwr_op *op_for(int blend, const int *sc)
@@ -184,6 +254,9 @@ static void put(hwr_vtx *d, const pv *p)
     *d = tmpl;
     d->x = p->x; d->y = p->y; d->u = p->u; d->v = p->v;
     d->r = p->r; d->g = p->g; d->b = p->b;
+    if (pg_poly) {
+        d->pgx = p->qx; d->pgy = p->qy; d->pgz = p->qz;   /* (see do_poly) */
+    }
 }
 
 /* p: n vertices forming n/3 triangles */
@@ -194,6 +267,13 @@ static void emit(const pv *p, int n, int semi, int textured, const int *sc)
     reserve(n);
     set_prog();
     prim_area(p, n, sc);
+    if (pg_poly) {   /* the upscaled pass may draw up to 2 pixels from the native one */
+        pb[0] -= 2; pb[1] -= 2; pb[2] += 2; pb[3] += 2;
+        if (pb[0] < sc[0]) pb[0] = sc[0];
+        if (pb[1] < sc[1]) pb[1] = sc[1];
+        if (pb[2] > sc[2]) pb[2] = sc[2];
+        if (pb[3] > sc[3]) pb[3] = sc[3];
+    }
     tmpl.a = st.mset ? 1 : 0;
     tmpl.z = 0.f;
     if (semi && textured) {
@@ -471,6 +551,63 @@ static float hwr_dy(void) { static float v = 9; if (v == 9) { const char *e = ge
 #define DY HWR_DY
 #endif
 
+static int tri_is_sprite(const pv *a, const pv *b, const pv *c);
+
+/* 2D drawn with polygons, one texel per pixel (sprite_dir below): the PS1 shows
+ * texel u0 + k on pixel k going right and u0 - k going left (a mirrored sprite),
+ * both as whole native pixels. Sampled at pixel centres, an increasing coordinate
+ * needs only the bias; a decreasing one falls a whole texel short (u0 - k - 0.5
+ * floors to u0 - k - 1: every column one texel over, and the last one from
+ * outside the sprite, a thin line along its edge or along every seam of a sprite
+ * built from tiles), so it gets just under one texel more. This holds for every
+ * sample inside a native pixel, so at every resolution scale, unlike the half
+ * pixel moves below, which are right only at 1x: upscaled, they put sprite
+ * polygons and their textures half a native pixel off rectangles and each other
+ * (hairline gaps and overlaps between the pieces of 2D scenes). A sprite polygon
+ * has whole-pixel corners, which keep their pixels without the coverage move,
+ * so it gets none (DuckStation's flipped-sprite handling, from Beetle PSX HW). */
+static void sprite_sample_shift(pv *t, int n, int sx, int sy)
+{
+    int k;
+    const float su = sx > 0 ? 1.f / 256.f : 1.f - 1.f / 256.f, sv = sy > 0 ? 1.f / 256.f : 1.f - 1.f / 256.f;
+    for (k = 0; k + 2 < n; k += 3) {
+        pv *a = &t[k], *b = &t[k + 1], *c = &t[k + 2];
+        float e1x = b->x - a->x, e1y = b->y - a->y, e2x = c->x - a->x, e2y = c->y - a->y;
+        float ix = 1.f / (e1x * e2y - e2x * e1y);
+        float *pa[3] = { &a->r, &a->g, &a->b };
+        int i;
+        a->u += su; b->u += su; c->u += su; a->v += sv; b->v += sv; c->v += sv;
+        for (i = 0; i < 3; i++) {                     /* colours as for any polygon */
+            size_t off = (size_t)((char *)pa[i] - (char *)a);
+            float va = *pa[i], vb = *(float *)((char *)b + off), vc = *(float *)((char *)c + off);
+            float s = -0.5f * ((vc - va) * e1x - (vb - va) * e2x) * ix;
+            *(float *)((char *)a + off) += s; *(float *)((char *)b + off) += s; *(float *)((char *)c + off) += s;
+        }
+    }
+}
+
+/* Every triangle sprite-like (tri_is_sprite) with exactly one texel per pixel
+ * across and down: returns 1 and the directions of u along x and v along y. */
+static int sprite_dir(const pv *t, int n, int *sx, int *sy)
+{
+    int k, dx = 0, dy = 0;
+    for (k = 0; k + 2 < n; k += 3) {
+        const pv *a = &t[k], *b = &t[k + 1], *c = &t[k + 2];
+        float e1x = b->x - a->x, e1y = b->y - a->y, e2x = c->x - a->x, e2y = c->y - a->y;
+        float det = e1x * e2y - e2x * e1y;
+        float gu = (b->u - a->u) * e2y - (c->u - a->u) * e1y;     /* du/dx * det */
+        float gv = (c->v - a->v) * e1x - (b->v - a->v) * e2x;     /* dv/dy * det */
+        int ku, kv;
+        if (!tri_is_sprite(a, b, c)) return 0;
+        ku = gu == det ? 1 : gu == -det ? -1 : 0;
+        kv = gv == det ? 1 : gv == -det ? -1 : 0;
+        if (!ku || !kv || (dx && ku != dx) || (dy && kv != dy)) return 0;
+        dx = ku; dy = kv;
+    }
+    *sx = dx; *sy = dy;
+    return dx != 0;
+}
+
 static void ps1_sample_shift(pv *t, int n)
 {
     int k, i;
@@ -496,8 +633,10 @@ static void ps1_sample_shift(pv *t, int n)
 
 static void colour(pv *p, uint32_t c)
 {
-    p->r = (float)(c & 0xff); p->g = (float)((c >> 8) & 0xff); p->b = (float)((c >> 16) & 0xff);
+    p->r = f_byte[c & 0xff]; p->g = f_byte[(c >> 8) & 0xff]; p->b = f_byte[(c >> 16) & 0xff];
 }
+
+#include "pgxp_depth.h"   /* corner depths made to fit one surface */
 
 /* DuckStation IsPossibleSpritePolygon, integer-exact: a textured triangle is
    sprite-like when its UV mapping is separable — U varies only with X and V
@@ -537,21 +676,29 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
 {
     uint32_t w0 = le32(l), cmd = w0 >> 24, uvw[4] = { 0 };
     int gour = cmd & 0x10, quad = cmd & 8, tex = cmd & 4, semi = cmd & 2, raw = cmd & 1;
-    int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0, spr = 0;
-    int umin = 255, umax = 0, vmin = 255, vmax = 0, nt = 0;
+    int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0;
+    int umin = 255, umax = 0, vmin = 255, vmax = 0, nt = 0, pg = 0, spr = 0, s1 = 0, sdx = 0, sdy = 0;
+    uint32_t xys[4];
+    const uint32_t *xyp[4];
     pv p[4], t[6];
+    unsigned long long pt0, pt1;
+    pg_timed = psx_debug_trace && !(++hwr_poly_n & (PG_SAMPLE - 1));
+    pt0 = PG_TB();
     for (i = 0; i < n; i++) {
         uint32_t c = w0, xy;
         if (gour && i) { if (l + idx >= end) return; c = le32(l + idx++); }
         if (l + idx >= end) return;
+        xyp[i] = l + idx;
         xy = le32(l + idx++);
-        p[i].x = (float)(sx11(xy) + st.ox); p[i].y = (float)(sx11(xy >> 16) + st.oy);
+        xys[i] = xy;
+        p[i].x = (s11f(xy) + st.oxf); p[i].y = (s11f(xy >> 16) + st.oyf);
+        p[i].ox = p[i].oy = p[i].ow = 0.f;
         if (tex) {
             if (l + idx >= end) return;
             uvw[i] = le32(l + idx++);
             {
                 int u = uvw[i] & 0xff, v = (uvw[i] >> 8) & 0xff;
-                p[i].u = (float)u; p[i].v = (float)v;
+                p[i].u = f_byte[u]; p[i].v = f_byte[v];
                 if (u < umin) umin = u;
                 if (u > umax) umax = u;
                 if (v < vmin) vmin = v;
@@ -565,25 +712,199 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
         cx = (clut & 0x3f) * 16; cy = (clut >> 6) & 0x1ff;
         set_texpage(uvw[1] >> 16);
     }
-    if (!scissor(sc)) return;
+    if (!scissor(sc)) { hwr_poly_t_all += PG_TB() - pt0; return; }
+    pt1 = PG_TB(); hwr_poly_t_parse += pt1 - pt0;
+    /* PGXP-lite: every vertex found among recent GTE results is drawn at its exact
+       position, the others at whole pixels, decided per vertex only: polygons that
+       share a corner then always agree on it, so no gap opens along their edge
+       (a rule on the whole polygon put a shared, found corner at its exact place
+       in one polygon and at whole pixels in the next). */
+    if (&pgxp_lite_on && pgxp_lite_on && pgxp_lite_cands) {
+        float z[4][2];
+        struct pgxp_cand cd[4][2];
+        int found = 0, nz = 0, exact = 0, nc[4], amb = 0, pick[4] = { 0, 0, 0, 0 };
+        float zalt[4] = { 0.f, 0.f, 0.f, 0.f };
+        unsigned long long t0, t1;
+        /* (also works out the projections still queued: timed on its own) */
+        if (pgxp_lite_prefetch) pgxp_lite_prefetch((const uint32_t *const *)xyp, xys, n);
+        t0 = PG_TB();
+        for (i = 0; i < n; i++) {
+            /* by its value; the packet word's address (the game stored the GTE's
+               result there itself) only tells which of a word's two vertices it is.
+               The place drawn is always the one the table by value holds (merged
+               with a vertex on the same point, welded to a neighbour): a corner
+               found by address in one polygon and by value in the next was drawn
+               at two places, thin slits all over RE3's Jill */
+            struct pgxp_cand a;
+            nc[i] = pgxp_lite_cands(xys[i], cd[i]);
+            if (pgxp_lite_cand_at && pgxp_lite_cand_at(xyp[i], xys[i], &a) > 0) {
+                exact++;
+                if (!nc[i]) { cd[i][0] = a; nc[i] = 1; }
+                else if (nc[i] > 1) {
+                    float d0 = cd[i][0].z - a.z, d1 = cd[i][1].z - a.z;
+                    if (d0 < 0.f) d0 = -d0;
+                    if (d1 < 0.f) d1 = -d1;
+                    if (d1 < d0) cd[i][0] = cd[i][1];
+                    nc[i] = 1;
+                }
+            }
+            if (nc[i]) found++;
+            if (nc[i] > 1) amb |= 1 << i;
+        }
+        /* A word that stands for two vertices: the polygon takes the one projected
+           much closer in time to its other corners (a wall's corner, not the
+           fighter's in front). When it is not clearly closer (two vertices of one
+           object, the front and back of Jill's body, projected among each other),
+           every polygon draws the corner at the first one's place: polygons around
+           it that chose differently opened a Y-shaped slit. Only the depth is then
+           chosen per polygon (z[1]). */
+        if (amb && !hwr_pgxp_first) {
+            uint32_t smin = 0, smax = 0, ref = 0; int k = 0;
+            for (i = 0; i < n; i++) if (nc[i] == 1) {
+                uint32_t q = cd[i][0].seq;
+                if (!k || (int32_t)(q - smin) < 0) smin = q;
+                if (!k || (int32_t)(q - smax) > 0) smax = q;
+                ref = q; k++;
+            }
+            for (i = 0; i < n; i++)
+                if (nc[i] > 1) {
+                    uint32_t d0 = cd[i][0].seq - ref, d1 = cd[i][1].seq - ref, lo, hi;
+                    if ((int32_t)d0 < 0) d0 = -d0;
+                    if ((int32_t)d1 < 0) d1 = -d1;
+                    lo = d0 < d1 ? d0 : d1; hi = d0 < d1 ? d1 : d0;
+                    if (k && hi / 4 > lo + (smax - smin) + 16) pick[i] = d1 < d0;
+                    else { pick[i] = 0; zalt[i] = cd[i][1].z; }
+                }
+            amb = 0;
+            hwr_pgxp_amb++;
+        }
+        t1 = PG_TB(); hwr_pgxp_t_find += t1 - t0; t0 = t1;
+        if (amb && !hwr_pgxp_first) {
+            float best = 0.f;
+            int m, first = 1;
+            for (m = 0; m < 16; m++) {
+                float zz[4], px[4], py[4], sc = 0.f, lo = 0.f, hi = 0.f;
+                uint32_t smin = 0, smax = 0;
+                int k = 0, allz = 1;
+                if (m & ~amb) continue;
+                for (i = 0; i < n; i++) {
+                    const struct pgxp_cand *c = nc[i] ? &cd[i][(m >> i) & 1] : NULL;
+                    px[i] = p[i].x + (c ? c->dx : 0.f); py[i] = p[i].y + (c ? c->dy : 0.f);
+                    zz[i] = c ? c->z : 0.f;
+                    if (zz[i] <= 0.f) allz = 0;
+                    else { if (!lo || zz[i] < lo) lo = zz[i]; if (zz[i] > hi) hi = zz[i]; }
+                    if (c) {
+                        if (!k || (int32_t)(c->seq - smin) < 0) smin = c->seq;
+                        if (!k || (int32_t)(c->seq - smax) > 0) smax = c->seq;
+                        k++;
+                    }
+                }
+                if (allz && !pgxp_depths_fit(px, py, zz, n)) sc = 1e7f;
+                sc += (float)(smax - smin < 1000000u ? smax - smin : 1000000u);
+                if (lo > 0.f) sc += (hi / lo - 1.f) * 0.5f;
+                if (first || sc < best) { best = sc; first = 0; for (i = 0; i < n; i++) pick[i] = (m >> i) & 1; }
+            }
+            hwr_pgxp_amb++;
+        }
+        t1 = PG_TB(); hwr_pgxp_t_pick += t1 - t0; t0 = t1;
+        for (i = 0; i < n; i++) {
+            if (nc[i]) {
+                const struct pgxp_cand *c = &cd[i][pick[i]];
+                p[i].ox = c->dx; p[i].oy = c->dy; z[i][0] = c->z;
+            } else { p[i].ox = p[i].oy = 0.f; z[i][0] = 0.f; }
+            z[i][1] = zalt[i];
+            if (z[i][0] > 0.f) nz++;
+        }
+        /* A corner found alone is still drawn where it was found. Builds 82-85 put
+           it back at whole pixels (meant for a CPU-made wall whose corner shared a
+           pixel with a fighter's vertex), but a vertex must be at the same place in
+           every polygon that has it: the neighbouring polygon kept it exact, and a
+           thin gap opened along their edge (GT2's cars). Only counted now. */
+        if (found == 1 && !exact) hwr_pgxp_alone++;
+        pg = found > 0;
+        if (pg) hwr_pgxp_polys++;
+        else hwr_pgxp_misses++;
+        /* perspective-correct textures (setting 2): only when every corner of the
+           polygon has its depth from the GTE; otherwise the whole polygon stays flat
+           (affine, like the PS1). A guessed depth for the missing corner bent the
+           texture, and the next frame, with the corner found again, it snapped back:
+           textures jumping, or squeezed into a corner so they looked like another */
+        if (pg && pgxp_lite_on >= 2 && tex) {
+            float zz[4], px[4], py[4], zmax = 0.f;
+            int alt = 0, m, ok = 0;
+            for (i = 0; i < n; i++) { px[i] = p[i].x + p[i].ox; py[i] = p[i].y + p[i].oy; }
+            /* a vertex that shares its pixel with another vertex this frame has two
+               depths: when every corner has one, try each choice and keep the one
+               whose corners agree best (the first that fitted let a palm tree behind
+               Nina in Tekken 3 take her depth whenever hers was stored first) */
+            if (nz == n) {
+                float bhi = 0.f, blo = 1.f, zb[4];
+                for (i = 0; i < n; i++) if (z[i][1] != 0.f) alt |= 1 << i;
+                for (m = 0; m < 16; m++) {
+                    float lo, hi;
+                    if (m & ~alt) continue;
+                    for (i = 0; i < n; i++) zz[i] = (m >> i) & 1 ? z[i][1] : z[i][0];
+                    if (!pgxp_depths_fit(px, py, zz, n)) continue;
+                    lo = hi = zz[0];
+                    for (i = 1; i < n; i++) { if (zz[i] < lo) lo = zz[i]; if (zz[i] > hi) hi = zz[i]; }
+                    if (!ok || hi * blo < bhi * lo) { bhi = hi; blo = lo; for (i = 0; i < n; i++) zb[i] = zz[i]; ok = 1; }   /* hi / lo smallest */
+                }
+                if (ok) for (i = 0; i < n; i++) zz[i] = zb[i];
+            }
+            /* otherwise repair the odd corner (pgxp_depth.h) rather than drawing the
+               polygon flat for a frame */
+            if (!ok && nz >= n - 1) {
+                for (i = 0; i < n; i++) zz[i] = z[i][0];
+                ok = pgxp_depths(px, py, zz, n);
+                if (ok) hwr_pgxp_misfit++;
+            }
+            if (ok) {
+                float iz;
+                for (i = 0; i < n; i++) if (zz[i] > zmax) zmax = zz[i];
+                iz = 1.f / zmax;
+                for (i = 0; i < n; i++) p[i].ow = zz[i] * iz;
+            }
+            if (p[0].ow > 0.f) hwr_pgxp_persp++;
+            else hwr_pgxp_flat++;
+        }
+        hwr_pgxp_t_depth += PG_TB() - t0;
+    }
+    if (pg) {   /* the vertices' pgx, pgy, pgz (1/1024 pixel; depth 0: affine, as the PS1):
+                   all stored, then all loaded, so only the first load waits (see f_byte) */
+        volatile int32_t q[12];
+        for (i = 0; i < n; i++) {
+            q[3 * i] = (int32_t)(p[i].ox * 1024.f); q[3 * i + 1] = (int32_t)(p[i].oy * 1024.f);
+            q[3 * i + 2] = (int32_t)(p[i].ow * 32767.f);
+        }
+        for (i = 0; i < n; i++) { p[i].qx = (int16_t)q[3 * i]; p[i].qy = (int16_t)q[3 * i + 1]; p[i].qz = (int16_t)q[3 * i + 2]; }
+    }
     if (!too_big(&p[0], &p[1], &p[2])) { t[nt++] = p[0]; t[nt++] = p[1]; t[nt++] = p[2]; }
     if (quad && !too_big(&p[1], &p[2], &p[3])) { t[nt++] = p[1]; t[nt++] = p[2]; t[nt++] = p[3]; }
-    if (!nt) return;
+    if (!nt) { hwr_poly_t_all += PG_TB() - pt0; return; }
     /* axis-aligned check on the triangles actually drawn, before the sample
        shift (which preserves all vertex differences, so it cannot change it) */
-    spr = tex ? poly_is_sprite(t, nt) : 0;
+    if (tex && hwr_sprites_apart) spr = poly_is_sprite(t, nt);
+    if (tex && !pg) s1 = sprite_dir(t, nt, &sdx, &sdy);   /* whole-pixel corners only (no PGXP) */
     /* the PS1 never draws the right and bottom edge, so a polygon mapping texels
        0..64 shows 0..63: clamping to 64 let upscaled edge pixels pick texel 64,
-       a thin line of the neighbouring tile along polygon seams (Tekken 3 skies) */
-    if (umax > umin) umax--;
-    if (vmax > vmin) vmax--;
-    ps1_sample_shift(t, nt);
+       a thin line of the neighbouring tile along polygon seams (Tekken 3 skies).
+       Mirrored, the edge left out holds the lowest texel: 64..0 shows 64..1. */
+    if (umax > umin) { if (s1 && sdx < 0) umin++; else umax--; }
+    if (vmax > vmin) { if (s1 && sdy < 0) vmin++; else vmax--; }
+    pt1 = PG_TB();
+    if (s1) sprite_sample_shift(t, nt, sdx, sdy); else ps1_sample_shift(t, nt);
+    { unsigned long long q = PG_TB(); hwr_poly_t_shift += q - pt1; pt1 = q; }
     tex_setup(tex, raw, cx, cy, umin, umax, vmin, vmax, ta, ca);
-    if (!prepare(tex, ta[0], ta[1], ta[2], ta[3], ca[0], ca[1], ca[2])) return;
-    if (!mask_prepare(t, nt, sc)) return;
-    cur_spr = spr; emit(t, nt, semi, tex, sc);
+    if (!prepare(tex, ta[0], ta[1], ta[2], ta[3], ca[0], ca[1], ca[2])) { hwr_poly_t_all += PG_TB() - pt0; return; }
+    if (!mask_prepare(t, nt, sc)) { hwr_poly_t_all += PG_TB() - pt0; return; }
+    { unsigned long long q = PG_TB(); hwr_poly_t_setup += q - pt1; pt1 = q; }
+    pg_poly = pg;
+    cur_spr = spr;
+    emit(t, nt, semi, tex, sc);
+    pg_poly = 0;
     grow_bbox(t, nt, sc);
     hwr_stats.prims++;
+    { unsigned long long q = PG_TB(); hwr_poly_t_emit += q - pt1; hwr_poly_t_all += q - pt0; }
 }
 
 static void line(const pv *a, const pv *b, int semi, const int *sc)
@@ -648,7 +969,7 @@ static void do_line(const uint32_t *l, const uint32_t *end)
     if (!prepare(0, 0, 0, 0, 0, 0, 0, 0)) return;
     memset(&prev, 0, sizeof prev);
     colour(&prev, w0);
-    { uint32_t xy = le32(l + 1); prev.x = (float)(sx11(xy) + st.ox); prev.y = (float)(sx11(xy >> 16) + st.oy); }
+    { uint32_t xy = le32(l + 1); prev.x = (s11f(xy) + st.oxf); prev.y = (s11f(xy >> 16) + st.oyf); }
     for (;;) {
         uint32_t c = w0, xy;
         if (l + idx >= end) break;
@@ -663,7 +984,7 @@ static void do_line(const uint32_t *l, const uint32_t *end)
         idx++;
         memset(&cur, 0, sizeof cur);
         colour(&cur, c);
-        cur.x = (float)(sx11(xy) + st.ox); cur.y = (float)(sx11(xy >> 16) + st.oy);
+        cur.x = (s11f(xy) + st.oxf); cur.y = (s11f(xy >> 16) + st.oyf);
         line(&prev, &cur, semi, sc);
         prev = cur;
         if (!poly) break;
@@ -680,7 +1001,7 @@ static void do_rect(const uint32_t *l, const uint32_t *end)
     pv p[4], t[6];
     if (l + 1 >= end) return;
     xy = le32(l + 1);
-    x = (float)(sx11(xy) + st.ox); y = (float)(sx11(xy >> 16) + st.oy);
+    x = (s11f(xy) + st.oxf); y = (s11f(xy >> 16) + st.oyf);
     if (tex) { if (l + idx >= end) return; uvw = le32(l + idx++); }
     if (size == 0) { uint32_t wh; if (l + idx >= end) return; wh = le32(l + idx++); w = wh & 0x3ff; h = (wh >> 16) & 0x1ff; }
     else w = h = size == 1 ? 1 : size == 2 ? 8 : 16;
@@ -705,7 +1026,8 @@ static void do_rect(const uint32_t *l, const uint32_t *end)
         if (!prepare(tex, ta[0], ta[1], ta[2], ta[3], ca[0], ca[1], ca[2])) return;
     }
     if (!mask_prepare(t, 6, sc)) return;
-    cur_spr = tex ? 1 : 0; emit(t, 6, semi, tex, sc);
+    cur_spr = tex && hwr_sprites_apart; /* a textured sprite */
+    emit(t, 6, semi, tex, sc);
     grow_bbox(t, 6, sc);
     hwr_stats.prims++;
 }
@@ -760,6 +1082,8 @@ int hwr_present(int x, int y, int w, int h, int bgr24)
 void hwr_attach(hwr_dev *d, const uint16_t *v, void (*cb)(void))
 {
     dev = d; vram = v; sync_cb = cb; full_mode = d->full;
+    vb = NULL;
+    cvt_init();
     nv = nsv = nops = 0; grp_open = 0;
     batch_open = 0; ndirty = 0; frame_snaps = frame_overflow = 0;
     memset(&hwr_stats, 0, sizeof hwr_stats);

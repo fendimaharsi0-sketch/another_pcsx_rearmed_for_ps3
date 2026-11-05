@@ -27,6 +27,7 @@
 #include "gte.h"
 #include "psxhle.h"
 #include "psxinterpreter.h"
+#include "pgxp_lite.h"
 #include <stddef.h>
 #include <assert.h>
 #include "../include/compiler_features.h"
@@ -1062,7 +1063,10 @@ OP(gteLWC2e_stall) {
 }
 
 OP(gteSWC2) {
-	psxMemWrite32(regs_, _oB_, MFC2(&regs_->CP2, _Rt_));
+	u32 v = MFC2(&regs_->CP2, _Rt_);
+	psxMemWrite32(regs_, _oB_, v);
+	if (unlikely(pgxp_lite_on) && _Rt_ >= 12 && _Rt_ <= 15)
+		pgxp_lite_swc2(_oB_, v);
 }
 
 OP(gteSWC2_stall) {

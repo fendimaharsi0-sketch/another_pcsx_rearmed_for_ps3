@@ -6,8 +6,8 @@
 #include <stddef.h>
 #include <ppu-types.h>
 
-#define APP_ID    "PCSR00001"
-#define APP_TITLE "PCSX-ReARMed for PS3"
+#define APP_ID    "PCSR00002"
+#define APP_TITLE "Another PCSX-ReARMed for PS3"
 #define APP_VERSION "0.1 (build 72)"   /* logs only; not shown in the game list (version lives on the release page) */
 #ifndef APP_DIR   /* overridable for the host UI tests */
 #define APP_DIR   "/dev_hdd0/game/" APP_ID "/USRDIR"
@@ -45,7 +45,7 @@ typedef struct {
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
     int sprite_texfilter; /* RSX sprite filter: same 0/1/2 values as texfilter, default nearest; applies to textured GP0 sprites (do_rect) and to textured polygons whose UV mapping is axis-aligned (U only with X, V only with Y, like DuckStation); other polygons keep texfilter */
     int aspect;         /* ASPECT_* */
-    int widescreen;     /* GTE widescreen 16:9: 0 off (default), 1 on — RTPS/RTPT scale the projected X offset 3/4 (see gte_widescreen); pair with Aspect = Stretch to screen on a 16:9 TV */
+    int widescreen;     /* GTE widescreen 16:9: 0 off (default), 1 on — RTPS/RTPT scale the projected X offset 3/4 (see gte_widescreen); Aspect is forced to 16:9 while on */
     int frameskip;      /* 0 off, 1 auto */
     int dithering;
     int show_fps;
@@ -71,7 +71,7 @@ typedef struct {
     char mc1_shared[256]; /* library card file name for slot 1 Shared (saves/imported/<name>), global only; empty = default pcsx-card1.mcd */
     char mc2_shared[256]; /* same for slot 2 Shared (default pcsx-card2.mcd) */
     char last_dir[512];
-    int turbo_cd;       /* upstream TurboCD: instant CD seeks + faster reads; auto-off during XA audio and FMV */
+    int cd_speed;       /* CD-ROM speed: 0 normal, 1 turbo (data reads and seeks twice as fast; audio keeps its speed), 2 max (the core's TurboCD: instant seeks + faster reads) */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
     /* colour correction (Color page, per game): -10..+10, 0 neutral, no enable
        toggle — all zero is the picture as it is, and the panel bypasses the
@@ -81,9 +81,11 @@ typedef struct {
     int color_saturation;
     int color_temperature;
     int color_gamma;        /* gamma curve: + brightens midtones, - darkens them; 0 and 1 never move */
+    int pgxp;               /* PGXP-lite: 1 GTE vertices at sub-pixel positions (RSX renderer), 2 also perspective-correct textures */
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
+extern int cdr_speed_up;     /* core, libpcsxcore/cdrom.c: 2 = data reads and seeks twice as fast, mirrored from cfg.cd_speed */
 void config_load(void);
 void config_save(void);
 /* per-game settings: configs/<game>.ini (game = ROM file name without extension) */

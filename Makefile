@@ -95,7 +95,7 @@ OBJS += libpcsxcore/cdriso.o libpcsxcore/cdrom.o libpcsxcore/cdrom-async.o \
 	libpcsxcore/psxevents.o libpcsxcore/r3000a.o \
 	libpcsxcore/sio.o libpcsxcore/spu.o libpcsxcore/gpu.o \
 	libpcsxcore/pad.o
-OBJS += libpcsxcore/gte.o libpcsxcore/gte_nf.o libpcsxcore/gte_divider.o
+OBJS += libpcsxcore/gte.o libpcsxcore/gte_nf.o libpcsxcore/gte_divider.o libpcsxcore/pgxp_lite.o
 #OBJS += libpcsxcore/debug.o libpcsxcore/socket.o libpcsxcore/disr3000a.o
 
 ifeq "$(ARCH)" "arm"

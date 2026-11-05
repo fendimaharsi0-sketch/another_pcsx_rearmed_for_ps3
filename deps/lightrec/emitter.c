@@ -1696,6 +1696,14 @@ static void rec_store(struct lightrec_cstate *state,
 	union code c = block->opcode_list[offset].c;
 	bool is_swc2 = c.i.op == OP_SWC2;
 
+	/* PGXP-lite sees stores of screen coordinates to RAM (not those to the
+	   scratchpad: many per vertex in some games, and C calls cost) */
+	if (is_swc2 && lightrec_swc2_hook && c.i.rt >= 12 && c.i.rt <= 15
+	    && mode != LIGHTREC_IO_SCRATCH) {
+		rec_io(state, block, offset, true, false);
+		return;
+	}
+
 	if (is_swc2) {
 		switch (mode) {
 		case LIGHTREC_IO_RAM:

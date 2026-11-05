@@ -92,6 +92,8 @@
 
 static bool reset_pending = false;
 
+static int bios_boot;   /* retro_load_game loaded "bios:" (no disc) */
+
 static retro_video_refresh_t video_cb;
 static retro_input_poll_t input_poll_cb;
 static retro_input_state_t input_state_cb;
@@ -2020,6 +2022,7 @@ bool retro_load_game(const struct retro_game_info *info)
       BIOS menu with no disc, so the BIOS memory-card manager can run.
       The frontend only offers it when a real BIOS file is present. */
    bool is_bios = (strcmp(info->path, "bios:") == 0);
+   bios_boot = is_bios;
 
    update_variables(false);
    /* a front end that loads several games in one session: the BIOS files and the
@@ -2188,9 +2191,35 @@ bool retro_load_game(const struct retro_game_info *info)
       }
    }
 
+   if (is_bios)
+   {
+      /* the region of a BIOS file there is (psxMemReset takes any, but the
+         video timing should match it) */
+      static const u8 order[] = { PSX_REGION_US, PSX_REGION_EU, PSX_REGION_JP };
+      CdromId[0] = '\0';
+      CdromLabel[0] = '\0';
+      Config.PsxRegion = PSX_REGION_US;
+      for (i = 0; i < ARRAY_SIZE(order); i++)
+         if (Config.Bios[order[i]][0] && strcmp(Config.Bios[order[i]], "HLE")) {
+            Config.PsxRegion = order[i];
+            break;
+         }
+      Config.PsxType = Config.PsxRegion == PSX_REGION_EU ? PSX_TYPE_PAL : PSX_TYPE_NTSC;
+   }
+
    load_memcards();
    plugin_call_rearmed_cbs();
-   SysReset();
+   if (is_bios)
+   {
+      /* the whole boot, as upstream's "Run BIOS": without it the BIOS is
+         stopped at its shell to start a disc */
+      int slow = Config.SlowBoot;
+      Config.SlowBoot = 2;
+      SysReset();
+      Config.SlowBoot = slow;
+   }
+   else
+      SysReset();
 
    if (is_bios)
       ret = 0;   /* no exe to load: the BIOS menu itself runs after SysReset */
@@ -3526,11 +3555,22 @@ void retro_run(void)
    {
       reset_pending = false;
       prepare_bios(get_bios_config_hle());
-      SysReset();
-      if (CheckResetManualExe())
-         ;
-      else if (Config.HLE)
-         LoadCdromMainExe(NULL);
+      if (bios_boot)
+      {
+         /* Boot BIOS (no disc): the whole boot again, to the BIOS's menu */
+         int slow = Config.SlowBoot;
+         Config.SlowBoot = 2;
+         SysReset();
+         Config.SlowBoot = slow;
+      }
+      else
+      {
+         SysReset();
+         if (CheckResetManualExe())
+            ;
+         else if (Config.HLE)
+            LoadCdromMainExe(NULL);
+      }
    }
 
    set_vout_fb();
@@ -3838,6 +3878,14 @@ static void load_memcards(void)
             else
                snprintf(mcdpath, sizeof(Config.Mcd1), "%s/pcsx-card%d.mcd", dir, c);
          }
+      }
+      /* "file:<name>": that card file in the save directory (the PS3 front
+         end, for the BIOS's own menu); only a plain file name is taken */
+      else if (!strncmp(var.value, "file:", 5) && dir && var.value[5] && var.value[5] != '.'
+               && !strchr(var.value + 5, '/') && !strchr(var.value + 5, '\\')
+               && strlen(dir) + 1 + strlen(var.value + 5) < sizeof(Config.Mcd1)) {
+         memcard_type[c - 1] = MEMCARDTYPE_SHARED;
+         snprintf(mcdpath, sizeof(Config.Mcd1), "%s/%s", dir, var.value + 5);
       }
       else {
          memcard_type[c - 1] = MEMCARDTYPE_NONE;

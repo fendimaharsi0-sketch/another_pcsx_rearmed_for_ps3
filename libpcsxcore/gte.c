@@ -26,6 +26,7 @@
 #include "gte.h"
 #include "gte_arm.h"
 #include "psxmem.h"
+#include "pgxp_lite.h"
 #include "../include/compiler_features.h"
 #include "../include/arm_features.h"
 
@@ -599,6 +600,26 @@ static inline s64 gte_wide_x(s64 proj)
     return gte_widescreen ? proj * 3 / 4 : proj;
 }
 
+/* PGXP-lite (pgxp_lite.h): the vertex just projected, in floating point, kept
+   with its sub-pixel offset from the whole-pixel result and its depth. Every
+   projected vertex is stored, so that an older entry under the same word is
+   never used for it:
+   - the usual case: the precise offset and the depth;
+   - the divider saturated or the result was clamped (a vertex very close to the
+     camera, or off screen): the PS1's own position (offset 0), but the depth, so
+     a textured polygon reaching to it still gets perspective (its texture used
+     to switch between straight and warped as the vertex came and went);
+   - behind the camera: no depth either. Only the usual sf=1 form. */
+static noinline void pgxp_lite_rtp(psxCP2Regs *regs, s32 vx, s32 vy, s32 vz, u32 h,
+	s32 sz3, s16 sx, s16 sy)
+{
+	/* only the GTE's integers: worked out later, many together (pgxp_lite.c) */
+	pgxp_lite_project((s64)gteTRX * 4096 + gteR11 * vx + gteR12 * vy + gteR13 * vz,
+	                  (s64)gteTRY * 4096 + gteR21 * vx + gteR22 * vy + gteR23 * vz,
+	                  (s64)gteTRZ * 4096 + gteR31 * vx + gteR32 * vy + gteR33 * vz,
+	                  h, gteOFX, gteOFY, sx, sy, ((u32)sz3 * 2 > h) | (gte_widescreen ? 2 : 0));
+}
+
 static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 {
 	s32 vx = gteVX0, vy = gteVY0, vz = gteVZ0;
@@ -628,6 +649,8 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 
 	gteSX2 = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)gteIR1 * quotient)) >> 16);
 	gteSY2 = limG2(&flags, mac0flags(&flags, gteOFY + (s64)gteIR2 * quotient) >> 16);
+	if (unlikely(pgxp_lite_on) && shift)
+		pgxp_lite_rtp(regs, vx, vy, vz, gteH, sz3, gteSX2, gteSY2);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
 	gteIR0 = limH(&flags, mac0 >> 12);
@@ -664,6 +687,8 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 		fSZ(v) = sz3;
 		fSX(v) = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)ir1 * quotient)) >> 16);
 		fSY(v) = limG2(&flags, mac0flags(&flags, gteOFY + (s64)ir2 * quotient) >> 16);
+		if (unlikely(pgxp_lite_on) && shift)
+			pgxp_lite_rtp(regs, vx, vy, vz, h, sz3, fSX(v), fSY(v));
 	}
 
 	gteMAC1 = mac1;

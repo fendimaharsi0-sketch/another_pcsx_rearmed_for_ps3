@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "gpu.h"
+#include "../../libpcsxcore/pgxp_lite.h"
 #include "gpu_hooks.h"
 #include "gpu_timing.h"
 #include "gpu_async.h"
@@ -409,6 +410,7 @@ void GPUwriteStatus(uint32_t data)
       break;
     case 0x05:
       src_x = data & 0x3ff; src_y = (data >> 10) & 0x1ff;
+      if (pgxp_lite_on) pgxp_lite_flip(data & 0x7ffff);   // PGXP-lite: a buffer flip starts a game frame (kill-gated: no call at all while off)
       changed = src_x != gpu.screen.src_x || src_y != gpu.screen.src_y;
       frame = *gpu.state.frame_count;
       // last_flip_frame check allows frameskip on dheight games
@@ -661,6 +663,8 @@ int do_vram_copy(uint16_t *vram, const uint32_t *ex_regs, const uint32_t *params
   uint32_t x, y;
 
   renderer_flush_queues();
+  if (gpu_frontend_hooks.vram_copy && gpu_frontend_hooks.vram_copy(sx, sy, dx, dy, w, h, msb))
+    return 4;
   if (gpu_frontend_hooks.vram_read)
     gpu_frontend_hooks.vram_read(sx, sy, w, h);
 

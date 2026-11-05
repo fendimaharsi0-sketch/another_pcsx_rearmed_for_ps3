@@ -14,7 +14,7 @@
 
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .turbo_cd = 0, .cheat_enable = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0,
+    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .pgxp = 0,
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -49,13 +49,14 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "mc1_mode", F(mc1_mode), 0, 2, 1 },
     { "mc2_mode", F(mc2_mode), 0, 2, 1 },
     { "analog", F(analog), 0, 1, 1 },
-    { "turbo_cd", F(turbo_cd), 0, 1, 1 },
+    { "cd_speed", F(cd_speed), 0, 2, 1 },
     { "cheat_enable", F(cheat_enable), 0, 1, 0 },
     { "color_brightness", F(color_brightness), -10, 10, 1 },
     { "color_contrast", F(color_contrast), -10, 10, 1 },
     { "color_saturation", F(color_saturation), -10, 10, 1 },
     { "color_temperature", F(color_temperature), -10, 10, 1 },
     { "color_gamma", F(color_gamma), -10, 10, 1 },
+    { "pgxp", F(pgxp), 0, 2, 1 },
 };
 #define NINTS (sizeof ints / sizeof ints[0])
 #define IV(s, i) (*(int *)((char *)(s) + ints[i].off))
@@ -70,6 +71,7 @@ static int read_file(const char *path, settings_t *s, int game)
     char line[600];
     int version = 1;
     unsigned i;
+    int legacy_turbo = -1, seen_cd_speed = 0;   /* legacy "turbo_cd" key, see below */
     FILE *f = fopen(path, "r");
     if (!f) return 0;
     while (fgets(line, sizeof line, f)) {
@@ -84,13 +86,21 @@ static int read_file(const char *path, settings_t *s, int game)
             if (!strcmp(k, ints[i].key) && (!game || ints[i].game)) {
                 int v = atoi(eq);
                 if (v >= ints[i].min && v <= ints[i].max) IV(s, i) = v;
+                if (!strcmp(k, "cd_speed")) seen_cd_speed = 1;
             }
+        /* legacy key: "turbo_cd" (0/1) was the old Turbo CD switch; 1 is the
+           old Max, now cd_speed 2. Applied only when the file has no cd_speed
+           of its own, so a file that already migrated never replays it; the
+           key is dropped on the next write (it is no longer in ints[]). */
+        if (!strcmp(k, "turbo_cd")) legacy_turbo = atoi(eq);
         if (!game && !strcmp(k, "last_dir")) snprintf(s->last_dir, sizeof s->last_dir, "%s", eq);
         if (!game && !strcmp(k, "vmc_source")) snprintf(s->vmc_source, sizeof s->vmc_source, "%s", eq);
         if (!game && !strcmp(k, "mc1_shared")) snprintf(s->mc1_shared, sizeof s->mc1_shared, "%s", eq);
         if (!game && !strcmp(k, "mc2_shared")) snprintf(s->mc2_shared, sizeof s->mc2_shared, "%s", eq);
         if (!strcmp(k, "version")) version = atoi(eq);
     }
+    if (!seen_cd_speed && (legacy_turbo == 0 || legacy_turbo == 1))
+        s->cd_speed = legacy_turbo ? 2 : 0;
     fclose(f);
     return version;
 }
@@ -158,6 +168,7 @@ void config_game_begin(const char *key)
     game_on = read_file(game_path, &cfg, 1) > 0;
     if (game_on) logf_("settings: this game's own settings from %s\n", game_path);
     gte_widescreen = cfg.widescreen;   /* the game's own widescreen, or the global one */
+    cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1;   /* the game's own CD speed, or the global one */
 }
 
 void config_game_end(void)
@@ -169,6 +180,7 @@ void config_game_end(void)
     }
     game_on = in_game = 0;
     gte_widescreen = cfg.widescreen;   /* back to the settings for all games */
+    cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1;   /* back to the CD speed for all games */
 }
 
 void config_save(void)

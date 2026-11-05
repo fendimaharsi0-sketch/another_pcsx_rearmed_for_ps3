@@ -34,6 +34,18 @@ B=$ROOT/build
 GEN=$B/gen
 mkdir -p "$B/obj" "$GEN" "$B/pkg/USRDIR"
 
+# build provenance for the home corner (menu.c) and the startup log: branch
+# + short commit of the tree being built. CI checks out the branch, so git
+# answers; a tree without .git (or a failed git) falls back to "unknown"
+# instead of failing the build. A "+" suffix means tracked files differ
+# from HEAD (uncommitted changes); the build dir itself is untracked, so it
+# never triggers the marker.
+BRANCH=${GITHUB_REF_NAME:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}
+[ "$BRANCH" = HEAD ] && BRANCH=unknown
+COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
+if [ "$COMMIT" != unknown ] && [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]; then COMMIT="$COMMIT+"; fi
+printf '#define BUILD_BRANCH "%s"\n#define BUILD_COMMIT "%s"\n' "$BRANCH" "$COMMIT" >"$GEN/build_info.h"
+
 echo "== core ($DYNAREC)"
 make -C "$CORE" -f Makefile.libretro platform=psl1ght DYNAREC=$DYNAREC \
     EXTRA_CFLAGS="${CORE_CFLAGS:-}" -j"$JOBS" >"$B/core.log" 2>&1 || { tail -30 "$B/core.log"; exit 1; }
@@ -139,11 +151,11 @@ ppu-gcc -mcpu=cell -Wl,--gc-sections -L$PSL1GHT/ppu/lib $OBJS "$B/libcore.a" \
     -lrsx -lgcm_sys -lio -laudio -lsysutil -lsysmodule -lrt -llv2 -lm -o "$B/$NAME.elf"
 ppu-strip "$B/$NAME.elf" -o "$B/${NAME}_stripped.elf"
 sprxlinker "$B/${NAME}_stripped.elf"
-CID=UP0001-PCSR00001_00-0000000000000001
+CID=UP0001-PCSR00002_00-0000000000000001
 make_self_npdrm "$B/${NAME}_stripped.elf" "$B/pkg/USRDIR/EBOOT.BIN" $CID >/dev/null
 ls -la "$B/pkg/USRDIR/"   # staging state in the log, visible even if the next check trips
 test -s "$B/pkg/USRDIR/EBOOT.BIN" || { echo "ERROR: EBOOT.BIN missing after make_self_npdrm" >&2; exit 1; }
-sfo --title "PCSX-ReARMed for PS3" --appid PCSR00001 -f "$PS3DEV/bin/sfo.xml" "$B/pkg/PARAM.SFO" >/dev/null
+sfo --title "Another PCSX-ReARMed for PS3" --appid PCSR00002 -f "$PS3DEV/bin/sfo.xml" "$B/pkg/PARAM.SFO" >/dev/null
 cp "$ROOT/data/ICON0.PNG" "$B/pkg/ICON0.PNG"   # the XMB icon (320x176, transparent background)
 cp "$ROOT/data/PIC1.PNG" "$B/pkg/PIC1.PNG"     # the XMB background (1920x1080)
 cp "$ROOT/data/ps1titles.txt" "$B/pkg/USRDIR/"   # disc titles (tools/make_titles.py, libretro-database, CC BY-SA 4.0)

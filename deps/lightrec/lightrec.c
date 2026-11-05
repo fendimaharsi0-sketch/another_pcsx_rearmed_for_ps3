@@ -149,6 +149,45 @@ void lightrec_debug_counts(u32 *c, u64 *t)
 unsigned int lightrec_bad_accesses;
 u32 lightrec_bad_access_addr, lightrec_bad_access_pc;
 
+/* Debug log (psx_debug_trace): what the recompiled code's calls into C are, as
+   they cost on a slow host (the PS3's PPU: registers saved and restored each
+   time). Memory accesses (direct and generic) by region of the address, the
+   coprocessor moves, the GTE commands; the PC of the last RAM or BIOS access
+   (those should be direct once their block is recompiled). */
+enum { CC_RAM, CC_BIOS, CC_SCRATCH, CC_IRQ, CC_DMA, CC_TIMER, CC_CD, CC_GPU, CC_MDEC, CC_SPU, CC_HW, CC_OTHER, CC_N };
+static u32 cc_rw[CC_N], cc_rwg[CC_N], cc_mfc, cc_mtc, cc_cp, cc_mem_pc;
+static int cc_region(u32 a)
+{
+	if (a < 0x800000) return CC_RAM;
+	if (a >= 0x1fc00000 && a < 0x1fc80000) return CC_BIOS;
+	if (a >= 0x1f800000 && a < 0x1f800400) return CC_SCRATCH;
+	if (a >= 0x1f801070 && a < 0x1f801078) return CC_IRQ;
+	if (a >= 0x1f801080 && a < 0x1f801100) return CC_DMA;
+	if (a >= 0x1f801100 && a < 0x1f801130) return CC_TIMER;
+	if (a >= 0x1f801800 && a < 0x1f801804) return CC_CD;
+	if (a >= 0x1f801810 && a < 0x1f801818) return CC_GPU;
+	if (a >= 0x1f801820 && a < 0x1f801828) return CC_MDEC;
+	if (a >= 0x1f801c00 && a < 0x1f802000) return CC_SPU;
+	if (a >= 0x1f801000 && a < 0x1f803000) return CC_HW;
+	return CC_OTHER;
+}
+static void cc_count(u32 *t, const struct lightrec_state *state, union code op)
+{
+	u32 a = kunseg(state->regs.gpr[op.i.rs] + (s16)op.i.imm);
+	int r = cc_region(a);
+	t[r]++;
+	if (r <= CC_BIOS) cc_mem_pc = state->curr_pc;
+}
+/* out: CC_N direct, CC_N generic, mfc, mtc, GTE commands, last RAM/BIOS pc; then zeroed */
+int lightrec_debug_ccalls(u32 *out)
+{
+	int i;
+	for (i = 0; i < CC_N; i++) { out[i] = cc_rw[i]; out[CC_N + i] = cc_rwg[i]; cc_rw[i] = cc_rwg[i] = 0; }
+	out[2 * CC_N] = cc_mfc; out[2 * CC_N + 1] = cc_mtc; out[2 * CC_N + 2] = cc_cp; out[2 * CC_N + 3] = cc_mem_pc;
+	cc_mfc = cc_mtc = cc_cp = 0;
+	return 2 * CC_N + 4;
+}
+
 static void lightrec_swl(struct lightrec_state *state,
 			 const struct lightrec_mem_map_ops *ops,
 			 u32 opcode, void *host, u32 addr, u32 data)
@@ -187,6 +226,8 @@ static void lightrec_swr(struct lightrec_state *state,
 	ops->sw(state, opcode, host, addr, data);
 }
 
+void (*lightrec_swc2_hook)(u32 addr, u32 data);
+
 static void lightrec_swc2(struct lightrec_state *state, union code op,
 			  const struct lightrec_mem_map_ops *ops,
 			  void *host, u32 addr)
@@ -194,6 +235,8 @@ static void lightrec_swc2(struct lightrec_state *state, union code op,
 	u32 data = lightrec_mfc2(state, op.i.rt);
 
 	ops->sw(state, op.opcode, host, addr, data);
+	if (lightrec_swc2_hook && op.i.rt >= 12 && op.i.rt <= 15)
+		lightrec_swc2_hook(addr, data);
 }
 
 static u32 lightrec_lwl(struct lightrec_state *state,
@@ -455,7 +498,7 @@ static void lightrec_rw_helper(struct lightrec_state *state,
 static void lightrec_rw_cb(struct lightrec_state *state, u32 arg)
 {
 	LR_DBG_ENTER(LR_C_RW, state->curr_pc, arg);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_count(cc_rw, state, (union code) arg); }
 	lightrec_rw_helper(state, (union code) arg, NULL, NULL, 0);
 	LR_DBG_LEAVE();
 }
@@ -492,6 +535,7 @@ static void lightrec_rw_generic_cb_(struct lightrec_state *state, u32 arg)
 	if (op_flag_movi(op->flags))
 		c.i.imm = 0;
 
+	if (psx_debug_trace) cc_count(cc_rwg, state, c);
 	lightrec_rw_helper(state, c, &op->flags, block, offset);
 }
 
@@ -584,7 +628,7 @@ u32 lightrec_mfc(struct lightrec_state *state, union code op)
 static void lightrec_mfc_cb(struct lightrec_state *state, union code op)
 {
 	LR_DBG_ENTER(LR_C_MFC, state->curr_pc, op.opcode);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_mfc++; }
 	u32 rt = lightrec_mfc(state, op);
 
 	if (op.i.op == OP_SWC2)
@@ -717,7 +761,7 @@ void lightrec_mtc(struct lightrec_state *state, union code op, u8 reg, u32 data)
 static void lightrec_mtc_cb(struct lightrec_state *state, u32 arg)
 {
 	LR_DBG_ENTER(LR_C_MTC, state->curr_pc, arg);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_mtc++; }
 	union code op = (union code) arg;
 	u32 data;
 	u8 reg;
@@ -761,7 +805,7 @@ void lightrec_cp(struct lightrec_state *state, union code op)
 static void lightrec_cp_cb(struct lightrec_state *state, u32 arg)
 {
 	LR_DBG_ENTER(LR_C_CP, state->curr_pc, arg);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_cp++; }
 	lightrec_cp(state, (union code) arg);
 	LR_DBG_LEAVE();
 }
@@ -2372,6 +2416,20 @@ void lightrec_invalidate(struct lightrec_state *state, u32 addr, u32 len)
 void lightrec_invalidate_all(struct lightrec_state *state)
 {
 	memset(state->code_lut, 0, lut_elm_size(state) * CODE_LUT_SIZE);
+}
+
+void lightrec_recompile_all(struct lightrec_state *state)
+{
+	/* clearing the code table alone (lightrec_invalidate_all) lets the old blocks
+	   be found again in the block cache */
+	if (ENABLE_THREADED_COMPILER) {
+		lightrec_recompiler_pause(state->rec);
+		lightrec_reaper_reap(state->reaper);
+	}
+	lightrec_invalidate_all(state);
+	lightrec_free_all_blocks(state->block_cache);
+	if (ENABLE_THREADED_COMPILER)
+		lightrec_recompiler_unpause(state->rec);
 }
 
 void lightrec_set_unsafe_opt_flags(struct lightrec_state *state, u32 flags)
