@@ -1,4 +1,9 @@
-/* Port to the PCSX-ReARMed PS3 fork's final pass (video.c): single-pass
+/* DIAGNOSTIC (temporary, REVERT after the test): all 25 uniforms
+   hardcoded to their defaults as consts, so no Set call is needed.
+   If the picture renders (non-black), the shader + binding + drawing
+   are proven fine and the Set path alone is the failure; if still
+   black, the problem is NOT Set. ---
+   Port to the PCSX-ReARMed PS3 fork's final pass (video.c): single-pass
    fragment program (fp40), compiled by build.sh into shaders.h.
    Base: CRT-Hybrid-Lottes-Fast curved v3.4.2 (PS3 .cg, below).
    Adaptations (see the body): the RetroArch input struct is gone — sizes
@@ -69,31 +74,31 @@
 /* Uniforms, set by video.c every frame from cfg (see crt_set_constants).
    The 20 effect parameters keep the .cg names so the lookup matches;
    gateY/bob come from Magpie v4.13 (virtual resolution gate + bob). */
-uniform float CURVATURE;
-uniform float TRINITRON_CURVE;
-uniform float CORNER;
-uniform float MASK;
-uniform float MASK_SIZE;
-uniform float MASK_INTENSITY;
-uniform float SCANLINE_THINNESS;
-uniform float BEAM_DILATION;
-uniform float SCAN_BLUR;
-uniform float COLOR_BLEED;
-uniform float DOT_CRAWL;
-uniform float CRAWL_SPEED;
-uniform float DOT_SIZE;
-uniform float DOT_REACH;
-uniform float COLOR_TEMP;
-uniform float VIBRANCY;
-uniform float BRIGHT_BOOST;
-uniform float BLOOM_AMOUNT;
-uniform float CRT_GAMMA;
-uniform float CRT_OUT_GAMMA;
-uniform float2 texture_size;   /* render-target size (tw, th) */
-uniform float2 output_size;    /* screen size (scr_w, scr_h) */
-uniform float frame_count;     /* presented frames (video.c vs.frames) */
-uniform float gateY;           /* virtual resolution Y: 240 or 480 */
-uniform float bob;             /* bob flicker: 0 off, 1 on */
+const float CURVATURE = 0.02;
+const float TRINITRON_CURVE = 0.0;
+const float CORNER = 3.0;
+const float MASK = 4.0;
+const float MASK_SIZE = 1.0;
+const float MASK_INTENSITY = 0.5;
+const float SCANLINE_THINNESS = 0.5;
+const float BEAM_DILATION = 0.5;
+const float SCAN_BLUR = 0.20;
+const float COLOR_BLEED = 0.0;
+const float DOT_CRAWL = 0.30;
+const float CRAWL_SPEED = 0.75;
+const float DOT_SIZE = 2.0;
+const float DOT_REACH = 1.0;
+const float COLOR_TEMP = 0.0;
+const float VIBRANCY = 0.10;
+const float BRIGHT_BOOST = 1.1;
+const float BLOOM_AMOUNT = 0.25;
+const float CRT_GAMMA = 2.4;
+const float CRT_OUT_GAMMA = 2.2;
+const float2 texture_size = float2(320.0, 240.0);   /* DIAG: fixed, typical PS1 res */
+const float2 output_size = float2(1920.0, 1080.0);   /* DIAG: fixed */
+const float frame_count = 0.0;   /* DIAG: fixed, no crawl motion */
+const float gateY = 240.0;   /* DIAG: fixed */
+const float bob = 0.0;   /* DIAG: fixed off */
 
 half3 CrtsMask(float2 pos, half dark) {
     if (MASK == 0.0) return half3(1.0, 1.0, 1.0);
