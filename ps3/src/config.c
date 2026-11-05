@@ -15,6 +15,7 @@
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
     .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .turbo_cd = 0, .cheat_enable = 0,
+    .crt_enable = 0, .crt_gate = 240, .crt_bob = 0, .crt_curvature = 2, .crt_trinitron = 0, .crt_corner = 300, .crt_mask = 4, .crt_mask_size = 100, .crt_mask_int = 50, .crt_scanline = 50, .crt_beam = 50, .crt_scan_blur = 20, .crt_bleed = 0, .crt_crawl = 30, .crt_crawl_speed = 75, .crt_dot_size = 200, .crt_dot_reach = 100, .crt_temp = 0, .crt_vibrancy = 10, .crt_bright = 110, .crt_bloom = 25, .crt_gamma = 240, .crt_out_gamma = 220,
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -51,6 +52,29 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "analog", F(analog), 0, 1, 1 },
     { "turbo_cd", F(turbo_cd), 0, 1, 1 },
     { "cheat_enable", F(cheat_enable), 0, 1, 0 },
+    { "crt_enable", F(crt_enable), 0, 1, 1 },
+    { "crt_gate", F(crt_gate), 240, 480, 1 },
+    { "crt_bob", F(crt_bob), 0, 1, 1 },
+    { "crt_curvature", F(crt_curvature), 0, 25, 1 },
+    { "crt_trinitron", F(crt_trinitron), 0, 1, 1 },
+    { "crt_corner", F(crt_corner), 0, 1100, 1 },
+    { "crt_mask", F(crt_mask), 0, 7, 1 },
+    { "crt_mask_size", F(crt_mask_size), 10, 400, 1 },
+    { "crt_mask_int", F(crt_mask_int), 0, 100, 1 },
+    { "crt_scanline", F(crt_scanline), 0, 100, 1 },
+    { "crt_beam", F(crt_beam), 0, 100, 1 },
+    { "crt_scan_blur", F(crt_scan_blur), 0, 50, 1 },
+    { "crt_bleed", F(crt_bleed), -200, 200, 1 },
+    { "crt_crawl", F(crt_crawl), 0, 100, 1 },
+    { "crt_crawl_speed", F(crt_crawl_speed), 0, 200, 1 },
+    { "crt_dot_size", F(crt_dot_size), 50, 400, 1 },
+    { "crt_dot_reach", F(crt_dot_reach), 25, 400, 1 },
+    { "crt_temp", F(crt_temp), -100, 100, 1 },
+    { "crt_vibrancy", F(crt_vibrancy), -100, 200, 1 },
+    { "crt_bright", F(crt_bright), 50, 200, 1 },
+    { "crt_bloom", F(crt_bloom), 0, 100, 1 },
+    { "crt_gamma", F(crt_gamma), 10, 500, 1 },
+    { "crt_out_gamma", F(crt_out_gamma), 10, 500, 1 },
 };
 #define NINTS (sizeof ints / sizeof ints[0])
 #define IV(s, i) (*(int *)((char *)(s) + ints[i].off))

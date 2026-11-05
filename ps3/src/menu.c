@@ -385,20 +385,22 @@ static const item_t settings_items[] = {
     { "Analog joystick", "DualShock analog sticks on, or a digital pad. When on, Left stick as D-pad and Right stick as buttons are bypassed (the stick and D-pad stay independent)." },
     { "Turbo CD", "Faster CD loads: instant seeks + quicker reads. Auto-off during XA audio and FMV." },
     { "Enable cheats", "Master switch for cheats. The Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off. Cheats write to game memory every frame and can crash games or corrupt saves." },
+    { "Enable", "CRT shader on the final picture. Off by default." },
+    { "Setting", "X opens the full shader settings screen: all parameters, paged with L1/R1." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 30 settings are grouped into 5 pages, flipped with L1/R1 (top row).
+   The 32 settings are grouped into 6 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
    up to NSET, and the host test checks uniqueness and the grouping itself. */
-#define NPAGES 5
+#define NPAGES 6
 static const char *set_page_titles[NPAGES] = {
-    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves"
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "CRT filter"
 };
 static const int set_page_items[NPAGES][9] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
@@ -406,9 +408,10 @@ static const int set_page_items[NPAGES][9] = {
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
+    { 30, 31 },                                  /* CRT filter: Enable, Setting */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 2 };
+typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 2 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -478,11 +481,14 @@ static void setting_value(int i, char *b, size_t n)
     case 27: snprintf(b, n, "%s", cfg.analog ? "On (DualShock)" : "Off (digital pad)"); break;
     case 28: snprintf(b, n, "%s", cfg.turbo_cd ? "On" : "Off"); break;
     case 29: snprintf(b, n, "%s", cfg.cheat_enable ? "On" : "Off"); break;
+    case 30: snprintf(b, n, "%s", cfg.crt_enable ? "On" : "Off"); break;
+    case 31: snprintf(b, n, "%s", ">"); break;
     }
 }
 
 static void setting_value(int i, char *b, size_t n);
 static void setting_change_(int i, int dir, int in_game);
+static void crt_shader_screen(void);
 static void screen_size_page(int in_game);
 static void vmc_import_page(void);
 static void vmc_slot_picker(int slot);
@@ -558,6 +564,8 @@ static void setting_change_(int i, int dir, int in_game)
             else cheat_reset_all();
         }
         break;
+    case 30: cfg.crt_enable ^= 1; break;
+    case 31: break;   /* Setting: Left/Right do nothing; X opens the shader screen (panel input) */
     }
 }
 
@@ -1010,8 +1018,14 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
         p = input_pressed();
         if (apply >= 0) {
             /* On an apply row: sel still holds the page row we came from,
-               so L1/R1 flips from that page, and Up/Down walk the column. */
-            if (p & PAD_UP) { if (apply == 0) apply = -1; else apply--; }
+               so L1/R1 flips from that page, and Up/Down walk the column.
+               Up from the first apply row goes to the LAST page row
+               explicitly (mirroring Down's wrap from the last apply row
+               to the first page row): returning to sel here would strand
+               Up on the first row after a Down wrap reset sel to it. */
+            if (p & PAD_UP) { if (apply == 0) { int pg = set_page_of(sel);
+                                  apply = -1; sel = set_page_items[pg][set_page_counts[pg] - 1]; set_page_row[pg] = set_page_counts[pg] - 1; }
+                              else apply--; }
             if (p & PAD_DOWN) { if (apply == n_apply - 1) { int pg = set_page_of(sel);
                                   apply = -1; sel = set_page_items[pg][0]; set_page_row[pg] = 0; }
                                 else apply++; }
@@ -1045,7 +1059,8 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
                                          set_page_row[pg] = set_row_of(sel);
                                          pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
                                          sel = set_page_items[pg][set_page_row[pg]]; }
-            if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) {
+            if ((p & PAD_CROSS) && sel == 31) crt_shader_screen();
+            else if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) {
                 setting_change(sel, p & PAD_LEFT ? -1 : 1, in_game);
                 if (in_game) game_settings_changed();
             }
@@ -1767,6 +1782,95 @@ extern void game_settings_changed(void);
  * save). Circle discards everything pending: the game was never touched,
  * so there is nothing to undo. Unsupported codes show their reason and
  * cannot be toggled; the state file keeps names, never indices. */
+#define CRT_ROWS 12
+
+/* Full-screen CRT shader settings, opened from the CRT filter page's
+   Setting row. Edits cfg directly; the panel's back auto-save persists
+   (to personal/global per the panel rules), so this screen saves nothing
+   itself. Paged with L1/R1 like the cheat screen. */
+static void crt_shader_screen(void)
+{
+    /* kind: 0 = float x100 (step), 1 = mask int (cycles 0-7),
+       2 = gate (toggles 240/480), 3 = toggle (flips 0/1) */
+    static const struct { const char *label; int *field; int min, max, step, kind; } params[] = {
+        { "Virtual resolution gate", &cfg.crt_gate, 240, 480, 0, 2 },
+        { "Bob flicker", &cfg.crt_bob, 0, 1, 0, 3 },
+        { "Curvature", &cfg.crt_curvature, 0, 25, 1, 0 },
+        { "Trinitron curve", &cfg.crt_trinitron, 0, 1, 0, 3 },
+        { "Corner round", &cfg.crt_corner, 0, 1100, 100, 0 },
+        { "Mask type", &cfg.crt_mask, 0, 7, 1, 1 },
+        { "Mask size", &cfg.crt_mask_size, 10, 400, 5, 0 },
+        { "Mask intensity", &cfg.crt_mask_int, 0, 100, 5, 0 },
+        { "Scanline intensity", &cfg.crt_scanline, 0, 100, 10, 0 },
+        { "Beam dilation", &cfg.crt_beam, 0, 100, 5, 0 },
+        { "Horizontal blur", &cfg.crt_scan_blur, 0, 50, 5, 0 },
+        { "Color bleed", &cfg.crt_bleed, -200, 200, 5, 0 },
+        { "Dot crawl", &cfg.crt_crawl, 0, 100, 5, 0 },
+        { "Crawl speed", &cfg.crt_crawl_speed, 0, 200, 5, 0 },
+        { "Dot size", &cfg.crt_dot_size, 50, 400, 25, 0 },
+        { "Dot reach", &cfg.crt_dot_reach, 25, 400, 25, 0 },
+        { "Color temp", &cfg.crt_temp, -100, 100, 5, 0 },
+        { "Vibrancy", &cfg.crt_vibrancy, -100, 200, 5, 0 },
+        { "Brightness boost", &cfg.crt_bright, 50, 200, 5, 0 },
+        { "Bloom", &cfg.crt_bloom, 0, 100, 5, 0 },
+        { "CRT gamma in", &cfg.crt_gamma, 10, 500, 10, 0 },
+        { "CRT gamma out", &cfg.crt_out_gamma, 10, 500, 10, 0 },
+    };
+    int n = (int)(sizeof params / sizeof params[0]), sel = 0, top = 0;
+    static int held_frames;
+
+    logf_("menu: crt shader screen (%d params)\n", n);
+    while (!app_exit_requested) {
+        uint32_t p;
+        int r;
+        frame_begin(0);
+        p = input_pressed();
+        {   /* a held direction repeats after a moment (same as the cheat screen) */
+            uint32_t h = (input_pad(0)->buttons | input_pad(1)->buttons) & (PAD_UP | PAD_DOWN);
+            held_frames = h ? held_frames + 1 : 0;
+            if (held_frames > 20 && held_frames % 3 == 0) p |= h;
+        }
+        if (p & PAD_UP) sel = (sel + n - 1) % n;
+        if (p & PAD_DOWN) sel = (sel + 1) % n;
+        if (p & PAD_L1) sel = sel > CRT_ROWS ? sel - CRT_ROWS : 0;
+        if (p & PAD_R1) sel = sel + CRT_ROWS < n ? sel + CRT_ROWS : n - 1;
+        if (sel < top) top = sel;
+        if (sel >= top + CRT_ROWS) top = sel - CRT_ROWS + 1;
+        if (p & (PAD_LEFT | PAD_RIGHT)) {
+            int dir = (p & PAD_LEFT) ? -1 : 1;
+            int *v = params[sel].field;
+            if (params[sel].kind == 2) *v = (*v == 240) ? 480 : 240;
+            else if (params[sel].kind == 3) *v ^= 1;
+            else if (params[sel].kind == 1) *v = (*v + dir + 8) % 8;
+            else {
+                *v += dir * params[sel].step;
+                if (*v < params[sel].min) *v = params[sel].min;
+                if (*v > params[sel].max) *v = params[sel].max;
+            }
+        }
+        if (p & PAD_CIRCLE) break;
+        header("CRT filter", "Shader settings");
+        for (r = 0; r < CRT_ROWS; r++) {
+            int idx = top + r, y = 90 + r * 44;
+            char val[32];
+            int *v, valw;
+            if (idx >= n) break;
+            v = params[idx].field;
+            if (params[idx].kind == 2) snprintf(val, sizeof val, "%d", *v);
+            else if (params[idx].kind == 3) snprintf(val, sizeof val, "%s", *v ? "On" : "Off");
+            else if (params[idx].kind == 1) snprintf(val, sizeof val, "%d", *v);
+            else snprintf(val, sizeof val, "%.2f", *v / 100.0f);
+            if (idx == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            valw = ovl_text_width(val);
+            ovl_text(OVL_W - MARGIN - valw, y, val, C_DIM);
+            text_fit_r(MARGIN, y, params[idx].label, idx == sel ? C_ACCENT : C_TEXT,
+                       OVL_W - MARGIN - valw - 24);
+        }
+        footer("L1 R1 page   Left/Right change   Circle back");
+        frame_end();
+    }
+}
+
 #define CHT_ROWS 12
 static int cheat_screen(void)
 {

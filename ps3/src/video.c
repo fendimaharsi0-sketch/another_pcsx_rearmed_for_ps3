@@ -59,12 +59,12 @@ static u8 *frames; static u32 frames_off;
 static u32 *ovl; static u32 ovl_off; static int ovl_full_flush = 1;
 
 static rsxVertexProgram *vp; static void *vp_ucode;
-static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad;
+static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad, *fp_crt;
 static int fxaa_test(void);
 static void bind_texture(u32 unit, u8 location, u32 offset, unsigned w, unsigned h, u32 pitch, int linear, int swap_rb);
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog);
-static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, blit_unit, fxaa_unit;
+static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, fp_crt_off, blit_unit, fxaa_unit, crt_unit;
 /* dithering of the RSX renderer's picture (video_set_dither): PS1 pixels per
    texture unit of the game texture; quick: menu redraws skip the smoothing */
 static int dith_on, quick; static float dith_nw, dith_nh;
@@ -148,6 +148,8 @@ int video_init(void)
     fp_fxaa = (rsxFragmentProgram *)fxaa_fpo;
     if (!(fp_blit_off = load_fp(fp_blit, &blit_unit))) return 0;
     if (!(fp_fxaa_off = load_fp(fp_fxaa, &fxaa_unit))) return 0;
+    fp_crt = (rsxFragmentProgram *)crt_fpo;
+    if (!(fp_crt_off = load_fp(fp_crt, &crt_unit))) return 0;
     {   /* dithering variants: same samplers as the plain ones */
         u32 ub, uf;
         fp_blitd = (rsxFragmentProgram *)blitd_fpo;
@@ -430,11 +432,12 @@ void video_set_dither(int on, float native_w, float native_h) { dith_on = on; di
 void video_redraw_quick(int on) { quick = on; }
 
 /* clip-space rectangle <- texture rectangle (normalised). prog: bit 0 FXAA, bit 1
-   PS1 dithering (the texture is the game picture: dith_nw/nh give PS1 pixels) */
+   PS1 dithering (the texture is the game picture: dith_nw/nh give PS1 pixels),
+   bit 2 CRT shader (no dithering variant: the CRT program replaces the blit) */
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog)
 {
-    int fxaa = prog & 1, dith = (prog & 2) != 0;
+    int fxaa = prog & 1, dith = (prog & 2) != 0, crt = (prog & 4) != 0;
     float n0 = u0 * dith_nw, n1 = u1 * dith_nw, m0 = v0 * dith_nh, m1 = v1 * dith_nh;
     float *q;
     u32 off;
@@ -457,7 +460,8 @@ static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, off + 24, 32, 2, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
     rsxLoadVertexProgram(rsx_ctx, vp, vp_ucode);
     video_vp_epoch++;          /* the hardware renderer reloads its own program */
-    if (fxaa) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_fxaad : fp_fxaa, dith ? fp_fxaad_off : fp_fxaa_off, GCM_LOCATION_RSX);
+    if (crt) rsxLoadFragmentProgramLocation(rsx_ctx, fp_crt, fp_crt_off, GCM_LOCATION_RSX);
+    else if (fxaa) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_fxaad : fp_fxaa, dith ? fp_fxaad_off : fp_fxaa_off, GCM_LOCATION_RSX);
     else rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_blitd : fp_blit, dith ? fp_blitd_off : fp_blit_off, GCM_LOCATION_RSX);
     rsxDrawVertexArray(rsx_ctx, GCM_TYPE_TRIANGLE_STRIP, 0, 4);
 }
@@ -647,11 +651,55 @@ static void clip_to_screen(float *x0, float *y0, float *x1, float *y1, float *u0
 static int border_dirty = 3, drew_game, drew_other;   /* frames whose borders still need clearing: one per display buffer */
 static float last_rect[4];
 
+/* CRT shader uniforms, from cfg every frame (video.c reads cfg directly,
+   so panel/fullscreen edits apply live, no restart). Effect parameters are
+   stored x100 in cfg; mask/trinitron/gate/bob are plain ints. */
+static void crt_set1(const char *name, float v)
+{
+    rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
+    if (c) rsxSetFragmentProgramParameter(rsx_ctx, fp_crt, c, &v, 0, GCM_LOCATION_RSX);
+}
+static void crt_set2(const char *name, float x, float y)
+{
+    float v[2] = { x, y };
+    rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
+    if (c) rsxSetFragmentProgramParameter(rsx_ctx, fp_crt, c, v, 0, GCM_LOCATION_RSX);
+}
+static void crt_set_constants(unsigned tw, unsigned th)
+{
+    int gate = (cfg.crt_gate == 480) ? 480 : 240;   /* a bad file falls back to 240 */
+    crt_set2("texture_size", (float)tw, (float)th);
+    crt_set2("output_size", (float)scr_w, (float)scr_h);
+    crt_set1("frame_count", (float)vs.frames);
+    crt_set1("gateY", (float)gate);
+    crt_set1("bob", cfg.crt_bob ? 1.0f : 0.0f);
+    crt_set1("CURVATURE", cfg.crt_curvature / 100.0f);
+    crt_set1("TRINITRON_CURVE", cfg.crt_trinitron ? 1.0f : 0.0f);
+    crt_set1("CORNER", cfg.crt_corner / 100.0f);
+    crt_set1("MASK", (float)cfg.crt_mask);
+    crt_set1("MASK_SIZE", cfg.crt_mask_size / 100.0f);
+    crt_set1("MASK_INTENSITY", cfg.crt_mask_int / 100.0f);
+    crt_set1("SCANLINE_THINNESS", cfg.crt_scanline / 100.0f);
+    crt_set1("BEAM_DILATION", cfg.crt_beam / 100.0f);
+    crt_set1("SCAN_BLUR", cfg.crt_scan_blur / 100.0f);
+    crt_set1("COLOR_BLEED", cfg.crt_bleed / 100.0f);
+    crt_set1("DOT_CRAWL", cfg.crt_crawl / 100.0f);
+    crt_set1("CRAWL_SPEED", cfg.crt_crawl_speed / 100.0f);
+    crt_set1("DOT_SIZE", cfg.crt_dot_size / 100.0f);
+    crt_set1("DOT_REACH", cfg.crt_dot_reach / 100.0f);
+    crt_set1("COLOR_TEMP", cfg.crt_temp / 100.0f);
+    crt_set1("VIBRANCY", cfg.crt_vibrancy / 100.0f);
+    crt_set1("BRIGHT_BOOST", cfg.crt_bright / 100.0f);
+    crt_set1("BLOOM_AMOUNT", cfg.crt_bloom / 100.0f);
+    crt_set1("CRT_GAMMA", cfg.crt_gamma / 100.0f);
+    crt_set1("CRT_OUT_GAMMA", cfg.crt_out_gamma / 100.0f);
+}
+
 static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pitch,
                               float u0, float v0, float u1, float v1, int swap_rb, int dither)
 {
     float x0, y0, x1, y1;
-    int fxaa = cfg.filter == FILTER_FXAA && !quick, linear = cfg.filter != FILTER_SHARP, d = dither ? 2 : 0;
+    int fxaa = cfg.filter == FILTER_FXAA && !quick, linear = cfg.filter != FILTER_SHARP, d = dither ? 2 : 0, crt = cfg.crt_enable && !quick;
     {
         float shown, c;
         game_rect(&x0, &y0, &x1, &y1, &shown);
@@ -666,9 +714,15 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
     drew_game = 1;
     if (border_dirty) video_clear(0xff000000);
     else video_reset_state();
-    if (cfg.filter == FILTER_FXAA_SPU && !quick) {
+    if (cfg.filter == FILTER_FXAA_SPU && !quick && !crt) {
         if (draw_spu_aa(loc, off, tw, th, pitch, u0, v0, u1, v1, swap_rb, x0, y0, x1, y1, d)) return;
         fxaa = !spu_aa_available();    /* SPUs unavailable: FXAA on the RSX; busy: plain this frame */
+    }
+    if (crt) {
+        bind_texture(crt_unit, loc, off, tw, th, pitch, 1, swap_rb);
+        crt_set_constants(tw, th);
+        quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, 4);
+        return;
     }
     if (fxaa) {
         /* source pixels covered by the picture */
