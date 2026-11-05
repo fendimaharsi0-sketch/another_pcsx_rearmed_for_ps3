@@ -657,17 +657,17 @@ static float last_rect[4];
 static void crt_set1(const char *name, float v)
 {
     rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
-    /* FIX (diagnostic build): the value lives in main (CELL) memory, not RSX
-       memory — the previous GCM_LOCATION_RSX likely made the RSX read the
-       constant from the wrong address, leaving every uniform at zero
-       (BRIGHT_BOOST 0 = black picture). */
-    if (c) rsxSetFragmentProgramParameter(rsx_ctx, fp_crt, c, &v, 0, GCM_LOCATION_CELL);
+    /* REVERT (hang report 2026-11-05): GCM_LOCATION_CELL hung the console
+       (RSX hang), so back to GCM_LOCATION_RSX — black picture but no hang.
+       Neither location is proven correct yet; the once-log below is kept so
+       the next (non-hanging) run still reports GetConst status. */
+    if (c) rsxSetFragmentProgramParameter(rsx_ctx, fp_crt, c, &v, 0, GCM_LOCATION_RSX);
 }
 static void crt_set2(const char *name, float x, float y)
 {
     float v[2] = { x, y };
     rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
-    if (c) rsxSetFragmentProgramParameter(rsx_ctx, fp_crt, c, v, 0, GCM_LOCATION_CELL);
+    if (c) rsxSetFragmentProgramParameter(rsx_ctx, fp_crt, c, v, 0, GCM_LOCATION_RSX);
 }
 static void crt_set_constants(unsigned tw, unsigned th)
 {
@@ -727,10 +727,11 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
                               float u0, float v0, float u1, float v1, int swap_rb, int dither)
 {
     float x0, y0, x1, y1;
-    /* CRT stays on during quick menu redraws (unlike fxaa, which skips
-       smoothing for speed): the effect being tuned must stay visible in
-       the pause menu, or param changes cannot be judged live. */
-    int fxaa = cfg.filter == FILTER_FXAA && !quick, linear = cfg.filter != FILTER_SHARP, d = dither ? 2 : 0, crt = cfg.crt_enable;
+    /* !quick restored (hang report 2026-11-05): while CRT does not render
+       yet, the pause menu must stay normal/usable (blit) instead of black
+       or hung. Re-apply "CRT stays on in pause" once CRT actually renders,
+       so param changes can be judged live in the menu. */
+    int fxaa = cfg.filter == FILTER_FXAA && !quick, linear = cfg.filter != FILTER_SHARP, d = dither ? 2 : 0, crt = cfg.crt_enable && !quick;
     {
         float shown, c;
         game_rect(&x0, &y0, &x1, &y1, &shown);
