@@ -1108,11 +1108,10 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
         }
         {
             /* Apply section, one 27 px row pitch like the page rows: status
-               (title only), stacked buttons, then the back behaviour. The
-               buttons' explanations are NOT permanent rows here: they show
-               on the help line while the cursor sits on the button (see
-               draw_settings). All lines fit the panel width
-               (OVL_W - 2*MARGIN at FONT_W 16 = 72 chars). */
+               (title only) and stacked buttons. The buttons' explanations
+               are NOT permanent rows here: they show on the help line while
+               the cursor sits on the button (see draw_settings). All lines
+               fit the panel width (OVL_W - 2*MARGIN at FONT_W 16 = 72 chars). */
             int y = 440, k = 0;
             if (has_title) {
                 ovl_text(50, y, has_personal ? "This title has its own settings."
@@ -1124,8 +1123,6 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
             }
             if (apply == k) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
             ovl_text(50, y, "Apply to global setting", apply == k ? C_ACCENT : C_TEXT);
-            y += SET_ROW;
-            ovl_text(50, y, "Back saves to this title if it has its own settings, else global.", C_DIM);
             y += SET_ROW;
             if (panel_msg) ovl_text(50, y, panel_msg, C_ACCENT);
         }
