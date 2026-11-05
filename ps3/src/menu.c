@@ -1804,18 +1804,21 @@ extern void game_settings_changed(void);
  * game's codes (the bundled database file for its serial), paged like the
  * game list, so even a thousand-entry list (FFIX) fits. Checkboxes are
  * ASCII "[X]"/"[ ]": the overlay font has no glyphs.
- * Toggles only change the pending selection. Triangle saves: the state
- * file is written and the engine is fed (manual codes fire once, on this
- * save). Circle discards everything pending: the game was never touched,
- * so there is nothing to undo. Unsupported codes show their reason and
- * cannot be toggled; the state file keeps names, never indices. */
+ * Toggles only change the pending selection. Circle (back) commits, like
+ * the settings panel: anything checked is saved and the engine is fed
+ * (manual codes fire once, on this save); nothing checked removes the
+ * state file, so no empty file is left behind, and the engine is cleared.
+ * There is no discard path: a wrong toggle is undone by toggling it back.
+ * Unsupported codes show their reason and cannot be toggled; the state
+ * file keeps names, never indices. Returns 1 when saved, 2 when the state
+ * file was removed, 0 when nothing changed. */
 #define CHT_ROWS 12
 static int cheat_screen(void)
 {
     char dbpath[1200], stpath[1200], serial[32];
     cht_db db;
     cht_state *st = NULL;
-    int nst = 0, n, i, sel = 0, top = 0, saved = 0;
+    int nst = 0, n, i, sel = 0, top = 0, saved = 0, cleared = 0;
     int *enabled, *opt_idx;
     uint32_t *opt_val;
     const char *msg = NULL;
@@ -1910,16 +1913,32 @@ static int cheat_screen(void)
             if (!db.codes[sel].supported) msg = "This code is not supported by the PS1 cheat engine";
             else { enabled[sel] ^= 1; msg = NULL; }
         }
-        if (p & PAD_CIRCLE) break;
-        if (p & PAD_TRIANGLE) {
-            /* The configs dir exists once any game has its own settings;
-               a cheat-only game may not have it yet. */
-            mkdir(APP_DIR "/configs", 0777);
-            if (cht_state_save(stpath, db.codes, enabled, opt_val, n) != 0) {
-                msg = "Could not write the cheat state file";
+        if (p & PAD_CIRCLE) {
+            /* Back commits, like the settings panel. Anything checked is
+               saved and fed (manual codes fire once, on this save); nothing
+               checked removes the state file, so no empty file is left
+               behind, and the engine is cleared. A failed write stays on
+               screen so the user can retry. */
+            int on = 0;
+            for (i = 0; i < n; i++) if (enabled[i]) on++;
+            if (on > 0) {
+                /* The configs dir exists once any game has its own settings;
+                   a cheat-only game may not have it yet. */
+                mkdir(APP_DIR "/configs", 0777);
+                if (cht_state_save(stpath, db.codes, enabled, opt_val, n) != 0) {
+                    msg = "Could not write the cheat state file";
+                } else {
+                    cheat_apply_saved(1);   /* this save is the manual codes' trigger */
+                    saved = 1;
+                    break;
+                }
+            } else if (remove(stpath) == 0) {
+                /* A state file existed and is now gone: clear the engine too. */
+                cheat_reset_all();
+                cleared = 1;
+                break;
             } else {
-                cheat_apply_saved(1);   /* this save is the manual codes' trigger */
-                saved = 1;
+                /* No state file and nothing checked: nothing changed. */
                 break;
             }
         }
@@ -1951,12 +1970,12 @@ static int cheat_screen(void)
             text_fit_r(MARGIN + 72, y, line, col, OVL_W - MARGIN - optw - (optw ? 24 : 0));
         }
         if (msg) ovl_text(MARGIN, 618, msg, C_ACCENT);
-        footer("X toggle   L1 R1 page   Left/Right option   Triangle save   Circle back");
+        footer("X toggle   L1 R1 page   Left/Right option   Circle back");
         frame_end();
     }
     free(enabled); free(opt_idx); free(opt_val);
     cht_db_free(&db);
-    return saved;
+    return saved ? 1 : cleared ? 2 : 0;
 }
 
 #define DSWAP_ROWS 12
@@ -2183,8 +2202,12 @@ int menu_ingame(void)
             }
             case 7: {
                 static char cm[64];
-                if (cheat_screen()) {
+                int cr = cheat_screen();
+                if (cr == 1) {
                     snprintf(cm, sizeof cm, "Cheats saved (%d on)", cheat_enabled_count());
+                    msg = cm;
+                } else if (cr == 2) {
+                    snprintf(cm, sizeof cm, "Cheats cleared");
                     msg = cm;
                 } else msg = NULL;
                 break;
