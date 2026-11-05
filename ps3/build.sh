@@ -60,8 +60,6 @@ for v in "blit 0 0 blit" "blit 1 0 blitd" "fxaa 0 0 fxaa" "fxaa 1 0 fxaad" "fxaa
   cpp -P -DDITHER=$2 -DFXAA_FLOAT=$3 -Isrc/shaders src/shaders/$1.fcg >"$GEN/$4.fcg"
   fpc "$GEN/$4.fcg" "$GEN/$4.fpo"
 done
-cpp -P -Isrc/shaders src/shaders/crt.fcg >"$GEN/crt.fcg"
-fpc "$GEN/crt.fcg" "$GEN/crt.fpo"
 {
     c_array "$GEN/quad.vpo" quad_vpo
     c_array "$GEN/blit.fpo" blit_fpo
@@ -70,7 +68,6 @@ fpc "$GEN/crt.fcg" "$GEN/crt.fpo"
     c_array "$GEN/fxaad.fpo" fxaad_fpo
     c_array "$GEN/fxaaf.fpo" fxaaf_fpo
     c_array "$GEN/fxaafd.fpo" fxaafd_fpo
-    c_array "$GEN/crt.fpo" crt_fpo
 } >"$GEN/shaders.h"
 # hardware renderer: one fragment program per texture mode (+ texture window)
 # two sets: byte-decoding programs (fallback) and fast ones (FAST=1: the texture unit decodes VRAM)

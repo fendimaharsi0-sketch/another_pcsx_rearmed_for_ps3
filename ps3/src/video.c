@@ -59,21 +59,12 @@ static u8 *frames; static u32 frames_off;
 static u32 *ovl; static u32 ovl_off; static int ovl_full_flush = 1;
 
 static rsxVertexProgram *vp; static void *vp_ucode;
-static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad, *fp_crt;
+static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad;
 static int fxaa_test(void);
 static void bind_texture(u32 unit, u8 location, u32 offset, unsigned w, unsigned h, u32 pitch, int linear, int swap_rb);
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog);
-static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, fp_crt_off, blit_unit, fxaa_unit, crt_unit;
-/* CRT patch-based constants (Salsa64/rsxkit mechanism): the RSX has no
-   fragment-program constant registers — a const's value lives inside the
-   microcode, one copy per instruction that reads it. So crt_set1/2 patch a
-   CELL shadow copy of the ucode (via the const's offset table) and, when
-   anything changed, the shadow is copied into the RSX buffer; the next
-   rsxLoadFragmentProgramLocation re-reads it. rsxSetFragmentProgramParameter
-   is NOT used: it never delivered a value (black picture; CELL hung). */
-static void *crt_buf; static u32 *crt_shadow; static u32 crt_ucode_size;
-static int crt_patch_changed;
+static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, blit_unit, fxaa_unit;
 /* dithering of the RSX renderer's picture (video_set_dither): PS1 pixels per
    texture unit of the game texture; quick: menu redraws skip the smoothing */
 static int dith_on, quick; static float dith_nw, dith_nh;
@@ -93,7 +84,7 @@ void video_flush_cpu_writes(const void *p, size_t n)
     __asm__ volatile("sync" : : : "memory");
 }
 
-static u32 load_fp(rsxFragmentProgram *p, u32 *unit, void **buf)
+static u32 load_fp(rsxFragmentProgram *p, u32 *unit)
 {
     void *uc, *m; u32 sz, off;
     rsxProgramAttrib *a;
@@ -104,7 +95,6 @@ static u32 load_fp(rsxFragmentProgram *p, u32 *unit, void **buf)
     rsxAddressToOffset(m, &off);
     a = rsxFragmentProgramGetAttrib(p, "tex");
     *unit = a ? a->index : 0;
-    if (buf) *buf = m;
     return off;
 }
 
@@ -156,22 +146,13 @@ int video_init(void)
     rsxVertexProgramGetUCode(vp, &vp_ucode, &sz);
     fp_blit = (rsxFragmentProgram *)blit_fpo;
     fp_fxaa = (rsxFragmentProgram *)fxaa_fpo;
-    if (!(fp_blit_off = load_fp(fp_blit, &blit_unit, NULL))) return 0;
-    if (!(fp_fxaa_off = load_fp(fp_fxaa, &fxaa_unit, NULL))) return 0;
-    fp_crt = (rsxFragmentProgram *)crt_fpo;
-    if (!(fp_crt_off = load_fp(fp_crt, &crt_unit, &crt_buf))) return 0;
-    {   /* shadow copy of the CRT ucode in CELL memory, for patching consts */
-        void *uc;
-        rsxFragmentProgramGetUCode(fp_crt, &uc, &sz);
-        crt_ucode_size = sz;
-        crt_shadow = malloc(sz);
-        if (crt_shadow) memcpy(crt_shadow, uc, sz);
-    }
+    if (!(fp_blit_off = load_fp(fp_blit, &blit_unit))) return 0;
+    if (!(fp_fxaa_off = load_fp(fp_fxaa, &fxaa_unit))) return 0;
     {   /* dithering variants: same samplers as the plain ones */
         u32 ub, uf;
         fp_blitd = (rsxFragmentProgram *)blitd_fpo;
         fp_fxaad = (rsxFragmentProgram *)fxaad_fpo;
-        if (!(fp_blitd_off = load_fp(fp_blitd, &ub, NULL)) || !(fp_fxaad_off = load_fp(fp_fxaad, &uf, NULL))) return 0;
+        if (!(fp_blitd_off = load_fp(fp_blitd, &ub)) || !(fp_fxaad_off = load_fp(fp_fxaad, &uf))) return 0;
         if (ub != blit_unit || uf != fxaa_unit) logf_("video: dithering programs use other texture units (%u %u)\n", ub, uf);
     }
 
@@ -179,7 +160,7 @@ int video_init(void)
         /* the half-precision FXAA drew wrong on this console: the float build */
         u32 u1, u2;
         fp_fxaa = (rsxFragmentProgram *)fxaaf_fpo; fp_fxaad = (rsxFragmentProgram *)fxaafd_fpo;
-        if (!(fp_fxaa_off = load_fp(fp_fxaa, &u1, NULL)) || !(fp_fxaad_off = load_fp(fp_fxaad, &u2, NULL))) return 0;
+        if (!(fp_fxaa_off = load_fp(fp_fxaa, &u1)) || !(fp_fxaad_off = load_fp(fp_fxaad, &u2))) return 0;
         fxaa_unit = u1;
         if (!fxaa_test()) logf_("video: the float FXAA program fails its test too: FXAA (RSX) may look wrong\n");
     }
@@ -449,12 +430,11 @@ void video_set_dither(int on, float native_w, float native_h) { dith_on = on; di
 void video_redraw_quick(int on) { quick = on; }
 
 /* clip-space rectangle <- texture rectangle (normalised). prog: bit 0 FXAA, bit 1
-   PS1 dithering (the texture is the game picture: dith_nw/nh give PS1 pixels),
-   bit 2 CRT shader (no dithering variant: the CRT program replaces the blit) */
+   PS1 dithering (the texture is the game picture: dith_nw/nh give PS1 pixels) */
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog)
 {
-    int fxaa = prog & 1, dith = (prog & 2) != 0, crt = (prog & 4) != 0;
+    int fxaa = prog & 1, dith = (prog & 2) != 0;
     float n0 = u0 * dith_nw, n1 = u1 * dith_nw, m0 = v0 * dith_nh, m1 = v1 * dith_nh;
     float *q;
     u32 off;
@@ -477,8 +457,7 @@ static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, off + 24, 32, 2, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
     rsxLoadVertexProgram(rsx_ctx, vp, vp_ucode);
     video_vp_epoch++;          /* the hardware renderer reloads its own program */
-    if (crt) rsxLoadFragmentProgramLocation(rsx_ctx, fp_crt, fp_crt_off, GCM_LOCATION_RSX);
-    else if (fxaa) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_fxaad : fp_fxaa, dith ? fp_fxaad_off : fp_fxaa_off, GCM_LOCATION_RSX);
+    if (fxaa) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_fxaad : fp_fxaa, dith ? fp_fxaad_off : fp_fxaa_off, GCM_LOCATION_RSX);
     else rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_blitd : fp_blit, dith ? fp_blitd_off : fp_blit_off, GCM_LOCATION_RSX);
     rsxDrawVertexArray(rsx_ctx, GCM_TYPE_TRIANGLE_STRIP, 0, 4);
 }
@@ -668,151 +647,11 @@ static void clip_to_screen(float *x0, float *y0, float *x1, float *y1, float *u0
 static int border_dirty = 3, drew_game, drew_other;   /* frames whose borders still need clearing: one per display buffer */
 static float last_rect[4];
 
-/* CRT shader uniforms, from cfg every frame (video.c reads cfg directly,
-   so panel/fullscreen edits apply live, no restart). Effect parameters are
-   stored x100 in cfg; mask/trinitron/gate/bob are plain ints. */
-/* Patch one const's 4 floats into the CRT shadow ucode (rsxkit pattern).
-   c->index is a byte offset into the .fpo pointing at the const's offset
-   table { u32 num; u32 offset[]; } — every microcode offset where the
-   const's value appears. Values are written with 16-bit halves swapped
-   (RSX microcode endianness). Returns 1 if anything changed. */
-static int crt_patch_const(rsxProgramConst *c, const float v[4])
-{
-    const rsxConstOffsetTable *t;
-    u32 w[4]; unsigned i; int changed = 0;
-    if (!c || !crt_shadow) return 0;
-    t = (const rsxConstOffsetTable *)((const u8 *)fp_crt + c->index);
-    /* sanity: a const cannot appear in thousands of instructions; a wild
-       table pointer (bad index) must not loop the whole ucode */
-    if (t->num > 4096) return 0;
-    for (i = 0; i < 4; i++) {
-        u32 x;
-        memcpy(&x, &v[i], 4);
-        w[i] = (x << 16) | (x >> 16);
-    }
-    for (i = 0; i < t->num; i++) {
-        u32 off = t->offset[i];
-        /* off is ucode-relative; never write outside the shadow */
-        if (off + 16 > crt_ucode_size) return 0;
-        if (memcmp((u8 *)crt_shadow + off, w, 16)) {
-            memcpy((u8 *)crt_shadow + off, w, 16);
-            changed = 1;
-        }
-    }
-    return changed;
-}
-static void crt_set1(const char *name, float v)
-{
-    /* Patch-based Set (Salsa64/rsxkit): the value is patched into the
-       shadow here and uploaded at the end of crt_set_constants.
-       rsxSetFragmentProgramParameter is NOT used: it never delivered a
-       value (black picture; CELL location hung the console). */
-    float v4[4] = { v, 0.0f, 0.0f, 0.0f };
-    rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
-    if (crt_patch_const(c, v4)) crt_patch_changed = 1;
-}
-static void crt_set2(const char *name, float x, float y)
-{
-    float v4[4] = { x, y, 0.0f, 0.0f };
-    rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
-    if (crt_patch_const(c, v4)) crt_patch_changed = 1;
-}
-static void crt_set4(const char *name, float x, float y, float z, float w)
-{
-    float v4[4] = { x, y, z, w };
-    rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
-    if (crt_patch_const(c, v4)) crt_patch_changed = 1;
-}
-static void crt_set_constants(unsigned tw, unsigned th, float u0, float v0, float u1, float v1)
-{
-    /* DIAGNOSTIC (temporary, remove once the black-screen cause is proven):
-       log once whether every uniform name resolves in the compiled program.
-       If any line says NULL, GetConst is the failure; if all are found and
-       the picture is still black, the Set call itself is the failure. */
-    static int crt_logged;
-    /* Gate on debug_log: the flag must NOT be consumed while debug is off.
-       logf_ drops lines when debug is off, so an ungated once-flag fires
-       (and is lost) on the first CRT frame of the app session — then no
-       later game in the same launch ever logs, even after debug is on. */
-    if (!crt_logged && cfg.debug_log) {
-        static const char *names[] = {
-            "texture_size", "output_size", "frame_count", "gateY", "bob", "uv_rect",
-            "CURVATURE", "TRINITRON_CURVE", "CORNER", "MASK", "MASK_SIZE",
-            "MASK_INTENSITY", "SCANLINE_THINNESS", "BEAM_DILATION", "SCAN_BLUR",
-            "COLOR_BLEED", "DOT_CRAWL", "CRAWL_SPEED", "DOT_SIZE", "DOT_REACH",
-            "COLOR_TEMP", "VIBRANCY", "BRIGHT_BOOST", "BLOOM_AMOUNT",
-            "CRT_GAMMA", "CRT_OUT_GAMMA",
-        };
-        unsigned i;
-        crt_logged = 1;
-        logf_("video: crt program num_const %u\n", rsxFragmentProgramGetNumConst(fp_crt));
-        for (i = 0; i < sizeof names / sizeof names[0]; i++) {
-            rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, names[i]);
-            logf_("video: crt const %s: %s (index %u, count %u, type %u)\n",
-                  names[i], c ? "found" : "NULL",
-                  c ? c->index : 0, c ? c->count : 0, c ? c->type : 0);
-        }
-        logf_("video: crt patch ucode %u shadow %p buf %p off %u\n",
-              crt_ucode_size, (void *)crt_shadow, crt_buf, fp_crt_off);
-    }
-    int gate = (cfg.crt_gate == 480) ? 480 : 240;   /* a bad file falls back to 240 */
-    {   /* texture_size is the DISPLAY AREA's size (not the VRAM texture's):
-           virtualSize's aspect must be the game's aspect (4:3), not the
-           VRAM's (2:1), or the effect grid is stretched. uv_rect tells the
-           shader where the display area sits inside the VRAM texture. */
-        float du = u1 - u0, dv = v1 - v0;
-        if (du <= 0.0f) { u0 = 0.0f; du = 1.0f; }
-        if (dv <= 0.0f) { v0 = 0.0f; dv = 1.0f; }
-        crt_set2("texture_size", du * (float)tw, dv * (float)th);
-        crt_set4("uv_rect", u0, v0, u0 + du, v0 + dv);
-    }
-    crt_set2("output_size", (float)scr_w, (float)scr_h);
-    crt_set1("frame_count", (float)vs.frames);
-    crt_set1("gateY", (float)gate);
-    crt_set1("bob", cfg.crt_bob ? 1.0f : 0.0f);
-    crt_set1("CURVATURE", cfg.crt_curvature / 100.0f);
-    crt_set1("TRINITRON_CURVE", cfg.crt_trinitron ? 1.0f : 0.0f);
-    crt_set1("CORNER", cfg.crt_corner / 100.0f);
-    crt_set1("MASK", (float)cfg.crt_mask);
-    crt_set1("MASK_SIZE", cfg.crt_mask_size / 100.0f);
-    crt_set1("MASK_INTENSITY", cfg.crt_mask_int / 100.0f);
-    crt_set1("SCANLINE_THINNESS", cfg.crt_scanline / 100.0f);
-    crt_set1("BEAM_DILATION", cfg.crt_beam / 100.0f);
-    crt_set1("SCAN_BLUR", cfg.crt_scan_blur / 100.0f);
-    crt_set1("COLOR_BLEED", cfg.crt_bleed / 100.0f);
-    crt_set1("DOT_CRAWL", cfg.crt_crawl / 100.0f);
-    crt_set1("CRAWL_SPEED", cfg.crt_crawl_speed / 100.0f);
-    crt_set1("DOT_SIZE", cfg.crt_dot_size / 100.0f);
-    crt_set1("DOT_REACH", cfg.crt_dot_reach / 100.0f);
-    crt_set1("COLOR_TEMP", cfg.crt_temp / 100.0f);
-    crt_set1("VIBRANCY", cfg.crt_vibrancy / 100.0f);
-    crt_set1("BRIGHT_BOOST", cfg.crt_bright / 100.0f);
-    crt_set1("BLOOM_AMOUNT", cfg.crt_bloom / 100.0f);
-    crt_set1("CRT_GAMMA", cfg.crt_gamma / 100.0f);
-    crt_set1("CRT_OUT_GAMMA", cfg.crt_out_gamma / 100.0f);
-    if (crt_patch_changed && crt_shadow && crt_buf) {
-        /* The shadow changed: wait until the RSX finished the previous
-           frame (CPU poll on the backend label, same pattern as wait_flip),
-           then copy the patched ucode into the RSX buffer. The next
-           rsxLoadFragmentProgramLocation in quad_clip re-reads it. */
-        if (frame_label) {
-            unsigned k = 0;
-            while ((s32)(*frame_label - frame_seq) < 0 && ++k < 20000) usleep(50);
-        }
-        memcpy(crt_buf, crt_shadow, crt_ucode_size);
-        crt_patch_changed = 0;
-    }
-}
-
 static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pitch,
                               float u0, float v0, float u1, float v1, int swap_rb, int dither)
 {
     float x0, y0, x1, y1;
-    /* !quick restored (hang report 2026-11-05): while CRT does not render
-       yet, the pause menu must stay normal/usable (blit) instead of black
-       or hung. Re-apply "CRT stays on in pause" once CRT actually renders,
-       so param changes can be judged live in the menu. */
-    int fxaa = cfg.filter == FILTER_FXAA && !quick, linear = cfg.filter != FILTER_SHARP, d = dither ? 2 : 0, crt = cfg.crt_enable && !quick;
+    int fxaa = cfg.filter == FILTER_FXAA && !quick, linear = cfg.filter != FILTER_SHARP, d = dither ? 2 : 0;
     {
         float shown, c;
         game_rect(&x0, &y0, &x1, &y1, &shown);
@@ -827,15 +666,9 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
     drew_game = 1;
     if (border_dirty) video_clear(0xff000000);
     else video_reset_state();
-    if (cfg.filter == FILTER_FXAA_SPU && !quick && !crt) {
+    if (cfg.filter == FILTER_FXAA_SPU && !quick) {
         if (draw_spu_aa(loc, off, tw, th, pitch, u0, v0, u1, v1, swap_rb, x0, y0, x1, y1, d)) return;
         fxaa = !spu_aa_available();    /* SPUs unavailable: FXAA on the RSX; busy: plain this frame */
-    }
-    if (crt) {
-        bind_texture(crt_unit, loc, off, tw, th, pitch, 1, swap_rb);
-        crt_set_constants(tw, th, u0, v0, u1, v1);
-        quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, 4);
-        return;
     }
     if (fxaa) {
         /* source pixels covered by the picture */

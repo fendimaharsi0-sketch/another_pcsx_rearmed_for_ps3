@@ -73,30 +73,6 @@ typedef struct {
     char last_dir[512];
     int turbo_cd;       /* upstream TurboCD: instant CD seeks + faster reads; auto-off during XA audio and FMV */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
-    int crt_enable;     /* CRT shader on the final picture (default off) */
-    int crt_gate;       /* virtual resolution gate Y: 240 (Retro) or 480 (VGA) */
-    int crt_bob;        /* bob flicker: half-line raster shift per field (aesthetic) */
-    /* CRT shader parameters, x100 (except mask/trinitron: plain ints) */
-    int crt_curvature;
-    int crt_trinitron;
-    int crt_corner;
-    int crt_mask;
-    int crt_mask_size;
-    int crt_mask_int;
-    int crt_scanline;
-    int crt_beam;
-    int crt_scan_blur;
-    int crt_bleed;
-    int crt_crawl;
-    int crt_crawl_speed;
-    int crt_dot_size;
-    int crt_dot_reach;
-    int crt_temp;
-    int crt_vibrancy;
-    int crt_bright;
-    int crt_bloom;
-    int crt_gamma;
-    int crt_out_gamma;
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
