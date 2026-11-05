@@ -1,0 +1,40 @@
+/* game picture + colour correction: the final pass. cc_params holds the raw
+   slider values (-10..+10, 0 neutral): x brightness, y contrast, z saturation,
+   w temperature. All zero = the sampled colour unchanged (the panel bypasses
+   this program entirely then, so the picture is exactly today's). The scales
+   live here, next to the math, so a wrong scale is one glance away:
+   brightness +0.05/step, contrast x(1+0.05/step) around 0.5, saturation
+   x(1+0.1/step) (-10 is fully grey), temperature +0.03/step red, -0.03/step
+   blue, gamma exponent 1-0.05/step (+10 -> 0.5, brighter midtones;
+   -10 -> 1.5, darker; 0 and 1 never move). Gamma runs LAST, on the
+   clamped colour, so a negative value can never reach pow. DITHER: with the
+   PS1 dither pattern (dither.h), after the correction. */
+#ifndef DITHER
+#define DITHER 0
+#endif
+uniform float4 cc_params;
+uniform float cc_gamma;
+float4 cc_correct(float4 c)
+{
+    float ge;
+    c.rgb += cc_params.x * 0.05f;
+    c.rgb = (c.rgb - 0.5f) * (1.0f + cc_params.y * 0.05f) + 0.5f;
+    float luma = dot(c.rgb, float3(0.299f, 0.587f, 0.114f));
+    c.rgb = lerp(float3(luma, luma, luma), c.rgb, 1.0f + cc_params.z * 0.1f);
+    c.rgb += float3(cc_params.w * 0.03f, 0.0f, -cc_params.w * 0.03f);
+    ge = 1.0f - cc_gamma * 0.05f;
+    c.rgb = pow(saturate(c.rgb), float3(ge, ge, ge));
+    return float4(saturate(c.rgb), c.a);
+}
+#if DITHER
+#include "dither.h"
+half4 main(float2 uv : TEXCOORD0, float2 native : TEXCOORD4, uniform sampler2D tex) : COLOR
+{
+    return dither5((half4)cc_correct((float4)h4tex2D(tex, uv)), native);
+}
+#else
+float4 main(float2 uv : TEXCOORD0, uniform sampler2D tex) : COLOR
+{
+    return cc_correct(tex2D(tex, uv));
+}
+#endif

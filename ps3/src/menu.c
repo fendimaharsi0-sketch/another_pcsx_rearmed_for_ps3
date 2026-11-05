@@ -385,20 +385,25 @@ static const item_t settings_items[] = {
     { "Analog joystick", "DualShock analog sticks on, or a digital pad. When on, Left stick as D-pad and Right stick as buttons are bypassed (the stick and D-pad stay independent)." },
     { "Turbo CD", "Faster CD loads: instant seeks + quicker reads. Auto-off during XA audio and FMV." },
     { "Enable cheats", "Master switch for cheats. The Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off. Cheats write to game memory every frame and can crash games or corrupt saves." },
+    { "Brightness", "-10 darker, +10 brighter. 0 is the picture as it is." },
+    { "Contrast", "-10 flatter, +10 harsher. 0 is the picture as it is." },
+    { "Saturation", "-10 grey, +10 vivid. -10 is fully grey. 0 is the picture as it is." },
+    { "Temperature", "-10 colder (blue), +10 warmer (red). 0 is the picture as it is." },
+    { "Gamma", "-10 darker midtones, +10 brighter midtones. Black stays black, white stays white. 0 is the picture as it is." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 30 settings are grouped into 5 pages, flipped with L1/R1 (top row).
+   The 35 settings are grouped into 6 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
    up to NSET, and the host test checks uniqueness and the grouping itself. */
-#define NPAGES 5
+#define NPAGES 6
 static const char *set_page_titles[NPAGES] = {
-    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves"
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color"
 };
 static const int set_page_items[NPAGES][9] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
@@ -406,9 +411,10 @@ static const int set_page_items[NPAGES][9] = {
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
+    { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5 };
+typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -426,6 +432,21 @@ static int set_row_of(int g)
         for (r = 0; r < set_page_counts[p]; r++)
             if (set_page_items[p][r] == g) return r;
     return 0;
+}
+
+/* Colour slider (-10..+10): a fixed 22-char track, the || knob sliding on
+   it, then the signed number. The panel already draws < at x=520 and > after
+   the value, so those frame the track: < ----------||---------- +5 >.
+   0 shows the bare number ("0", not "+0"). */
+static void color_slider(int v, char *b, size_t n)
+{
+    char t[24];
+    int i, p = 0;
+    for (i = 0; i < 10 + v; i++) t[p++] = '-';
+    t[p++] = '|'; t[p++] = '|';
+    for (i = 0; i < 10 - v; i++) t[p++] = '-';
+    t[p] = 0;
+    snprintf(b, n, "%s %s%d", t, v > 0 ? "+" : "", v);
 }
 
 static void setting_value(int i, char *b, size_t n)
@@ -478,6 +499,11 @@ static void setting_value(int i, char *b, size_t n)
     case 27: snprintf(b, n, "%s", cfg.analog ? "On (DualShock)" : "Off (digital pad)"); break;
     case 28: snprintf(b, n, "%s", cfg.turbo_cd ? "On" : "Off"); break;
     case 29: snprintf(b, n, "%s", cfg.cheat_enable ? "On" : "Off"); break;
+    case 30: color_slider(cfg.color_brightness, b, n); break;
+    case 31: color_slider(cfg.color_contrast, b, n); break;
+    case 32: color_slider(cfg.color_saturation, b, n); break;
+    case 33: color_slider(cfg.color_temperature, b, n); break;
+    case 34: color_slider(cfg.color_gamma, b, n); break;
     }
 }
 
@@ -493,6 +519,14 @@ static void setting_change(int i, int dir, int in_game)
     setting_change_(i, dir, in_game);
     setting_value(i, after, sizeof after);
     logf_("settings: %s: %s -> %s%s\n", settings_items[i].label, before, after, in_game ? " (in game)" : "");
+}
+
+/* Colour slider step: one step per Left/Right press, clamped -10..+10. */
+static void color_step(int *p, int dir)
+{
+    *p += dir > 0 ? 1 : -1;
+    if (*p > 10) *p = 10;
+    if (*p < -10) *p = -10;
 }
 
 static void setting_change_(int i, int dir, int in_game)
@@ -558,6 +592,11 @@ static void setting_change_(int i, int dir, int in_game)
             else cheat_reset_all();
         }
         break;
+    case 30: color_step(&cfg.color_brightness, dir); break;
+    case 31: color_step(&cfg.color_contrast, dir); break;
+    case 32: color_step(&cfg.color_saturation, dir); break;
+    case 33: color_step(&cfg.color_temperature, dir); break;
+    case 34: color_step(&cfg.color_gamma, dir); break;
     }
 }
 

@@ -73,6 +73,14 @@ typedef struct {
     char last_dir[512];
     int turbo_cd;       /* upstream TurboCD: instant CD seeks + faster reads; auto-off during XA audio and FMV */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
+    /* colour correction (Color page, per game): -10..+10, 0 neutral, no enable
+       toggle — all zero is the picture as it is, and the panel bypasses the
+       colour program entirely then */
+    int color_brightness;
+    int color_contrast;
+    int color_saturation;
+    int color_temperature;
+    int color_gamma;        /* gamma curve: + brightens midtones, - darkens them; 0 and 1 never move */
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
