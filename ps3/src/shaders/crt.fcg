@@ -89,11 +89,12 @@ uniform float BRIGHT_BOOST;
 uniform float BLOOM_AMOUNT;
 uniform float CRT_GAMMA;
 uniform float CRT_OUT_GAMMA;
-uniform float2 texture_size;   /* render-target size (tw, th) */
+uniform float2 texture_size;   /* display-area size in texture pixels */
 uniform float2 output_size;    /* screen size (scr_w, scr_h) */
 uniform float frame_count;     /* presented frames (video.c vs.frames) */
 uniform float gateY;           /* virtual resolution Y: 240 or 480 */
 uniform float bob;             /* bob flicker: 0 off, 1 on */
+uniform float4 uv_rect;       /* display area in the VRAM texture (u0, v0, u1, v1) */
 
 half3 CrtsMask(float2 pos, half dark) {
     if (MASK == 0.0) return half3(1.0, 1.0, 1.0);
@@ -140,7 +141,18 @@ float4 main(float2 coords : TEXCOORD0, uniform sampler2D tex) : COLOR
     // =========================================================================
     // 1. CURVATURE & VIGNETTE WARPING
     // =========================================================================
-    float2 uv = coords.xy;
+    /* Fork: coords is the VRAM texture coordinate, but the display area
+       is only the sub-rectangle uv_rect=(u0,v0,u1,v1) of the VRAM texture
+       (e.g. 320/1024 wide, 240/512 tall). The original .cg normalizes
+       coords the same way via uv = coords * (texture_size/video_size);
+       this port dropped that factor, so normalize here instead. Without
+       it the mask/scanlines are computed over a fraction of their range
+       (~3.2x too coarse in X, ~2.1x in Y for a 320x240 game) — the
+       wrong-size green mask. The texture fetch converts its sample
+       positions back to VRAM coords. */
+    float2 uv_span = max(uv_rect.zw - uv_rect.xy, float2(1e-4, 1e-4));
+    float2 uvn = (coords.xy - uv_rect.xy) / uv_span;
+    float2 uv = uvn;
     /* Virtual resolution gate (Magpie v4.13, passive): the effect grid is
        gateY lines (240/480), X auto-aspect from the render target, so the
        effect stays at true CRT lines whatever the RSX scale. */
@@ -188,13 +200,16 @@ float4 main(float2 coords : TEXCOORD0, uniform sampler2D tex) : COLOR
     float blur_off = SCAN_BLUR;
     float2 p_left  = float2(x0 - blur_off, y0) * rcpVirtualSize;
     float2 p_right = float2(x0 + blur_off, y0) * rcpVirtualSize;
+    /* sample positions are in normalized-uv units; back to VRAM coords */
+    p_left  = uv_rect.xy + p_left  * uv_span;
+    p_right = uv_rect.xy + p_right * uv_span;
 
     half3 tA_L = tex2D(tex, p_left).rgb;
     half3 tA_R = tex2D(tex, p_right).rgb;
     half3 colA = (tA_L + tA_R) * 0.5;
     
-    p_left.y  += rcpVirtualSize.y;
-    p_right.y += rcpVirtualSize.y;
+    p_left.y  += rcpVirtualSize.y * uv_span.y;
+    p_right.y += rcpVirtualSize.y * uv_span.y;
     
     half3 tB_L = tex2D(tex, p_left).rgb;
     half3 tB_R = tex2D(tex, p_right).rgb;
@@ -210,8 +225,9 @@ float4 main(float2 coords : TEXCOORD0, uniform sampler2D tex) : COLOR
 
     if (COLOR_BLEED != 0.0 || DOT_CRAWL != 0.0) {
         float2 p_bleed = float2(x0 - COLOR_BLEED, y0) * rcpVirtualSize;
+        p_bleed = uv_rect.xy + p_bleed * uv_span;
         half3 bleedA = tex2D(tex, p_bleed).rgb;
-        p_bleed.y += rcpVirtualSize.y;
+        p_bleed.y += rcpVirtualSize.y * uv_span.y;
         half3 bleedB = tex2D(tex, p_bleed).rgb;
 
         // 1. Beam-Fused Selective Red/Blue Bleed
@@ -295,7 +311,7 @@ float4 main(float2 coords : TEXCOORD0, uniform sampler2D tex) : COLOR
     half3 color = game_color * (scan.x + scan.y);
     color *= vin * bounds;
 
-    float2 ipos = coords.xy * output_size.xy;
+    float2 ipos = uvn * output_size.xy;
     color *= CrtsMask(ipos * rcp_mask_scale, input_mask);
 
     // =========================================================================

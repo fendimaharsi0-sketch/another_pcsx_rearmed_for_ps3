@@ -717,7 +717,13 @@ static void crt_set2(const char *name, float x, float y)
     rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
     if (crt_patch_const(c, v4)) crt_patch_changed = 1;
 }
-static void crt_set_constants(unsigned tw, unsigned th)
+static void crt_set4(const char *name, float x, float y, float z, float w)
+{
+    float v4[4] = { x, y, z, w };
+    rsxProgramConst *c = rsxFragmentProgramGetConst(fp_crt, name);
+    if (crt_patch_const(c, v4)) crt_patch_changed = 1;
+}
+static void crt_set_constants(unsigned tw, unsigned th, float u0, float v0, float u1, float v1)
 {
     /* DIAGNOSTIC (temporary, remove once the black-screen cause is proven):
        log once whether every uniform name resolves in the compiled program.
@@ -730,7 +736,7 @@ static void crt_set_constants(unsigned tw, unsigned th)
        later game in the same launch ever logs, even after debug is on. */
     if (!crt_logged && cfg.debug_log) {
         static const char *names[] = {
-            "texture_size", "output_size", "frame_count", "gateY", "bob",
+            "texture_size", "output_size", "frame_count", "gateY", "bob", "uv_rect",
             "CURVATURE", "TRINITRON_CURVE", "CORNER", "MASK", "MASK_SIZE",
             "MASK_INTENSITY", "SCANLINE_THINNESS", "BEAM_DILATION", "SCAN_BLUR",
             "COLOR_BLEED", "DOT_CRAWL", "CRAWL_SPEED", "DOT_SIZE", "DOT_REACH",
@@ -750,7 +756,16 @@ static void crt_set_constants(unsigned tw, unsigned th)
               crt_ucode_size, (void *)crt_shadow, crt_buf, fp_crt_off);
     }
     int gate = (cfg.crt_gate == 480) ? 480 : 240;   /* a bad file falls back to 240 */
-    crt_set2("texture_size", (float)tw, (float)th);
+    {   /* texture_size is the DISPLAY AREA's size (not the VRAM texture's):
+           virtualSize's aspect must be the game's aspect (4:3), not the
+           VRAM's (2:1), or the effect grid is stretched. uv_rect tells the
+           shader where the display area sits inside the VRAM texture. */
+        float du = u1 - u0, dv = v1 - v0;
+        if (du <= 0.0f) { u0 = 0.0f; du = 1.0f; }
+        if (dv <= 0.0f) { v0 = 0.0f; dv = 1.0f; }
+        crt_set2("texture_size", du * (float)tw, dv * (float)th);
+        crt_set4("uv_rect", u0, v0, u0 + du, v0 + dv);
+    }
     crt_set2("output_size", (float)scr_w, (float)scr_h);
     crt_set1("frame_count", (float)vs.frames);
     crt_set1("gateY", (float)gate);
@@ -818,7 +833,7 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
     }
     if (crt) {
         bind_texture(crt_unit, loc, off, tw, th, pitch, 1, swap_rb);
-        crt_set_constants(tw, th);
+        crt_set_constants(tw, th, u0, v0, u1, v1);
         quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, 4);
         return;
     }
