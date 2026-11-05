@@ -566,8 +566,10 @@ static void setting_change_(int i, int dir, int in_game)
         }
         break;
     case 30: cfg.pgxp_enable ^= 1; config_mirror_gte_pgxp();
-        /* cached vertices from PGXP-off play must not survive the switch on */
-        if (in_game) pgxp_next_frame();
+        /* cached vertices from PGXP-off play must not survive the switch on:
+           drop every shadow now (a toggle is not a presented frame, so
+           pgxp_next_frame must not be called here) */
+        if (in_game) pgxp_invalidate_all();
         break;
     case 31: cfg.pgxp_texture ^= 1; config_mirror_gte_pgxp(); break;
     case 32: cfg.pgxp_culling ^= 1; config_mirror_gte_pgxp(); break;

@@ -165,6 +165,10 @@ void config_game_begin(const char *key)
     if (game_on) logf_("settings: this game's own settings from %s\n", game_path);
     gte_widescreen = cfg.widescreen;   /* the game's own widescreen, or the global one */
     config_mirror_gte_pgxp();
+    /* A new title starts with no shadows from the previous title (the
+       per-frame wipes are gone; aging alone would let the old title's
+       last-3-frames entries be borrowed in the new title's first frames). */
+    pgxp_invalidate_all();
 }
 
 void config_game_end(void)

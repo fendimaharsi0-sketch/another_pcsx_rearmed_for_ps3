@@ -409,6 +409,10 @@ void GPUwriteStatus(uint32_t data)
       fb_dirty = 0;
       break;
     case 0x05:
+      /* PGXP-lite hybrid: the display address is the game's buffer, so a
+       * change means the game finished a frame — advance the game-frame
+       * clock (pgxp_frame) that shadows age against. */
+      pgxp_on_flip(data & 0x7ffff);
       src_x = data & 0x3ff; src_y = (data >> 10) & 0x1ff;
       changed = src_x != gpu.screen.src_x || src_y != gpu.screen.src_y;
       frame = *gpu.state.frame_count;

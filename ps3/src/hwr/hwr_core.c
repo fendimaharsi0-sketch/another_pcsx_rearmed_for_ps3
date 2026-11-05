@@ -645,25 +645,26 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
        provenance-validated shadows. Direct-write words carry T2 register
        shadows; DMA words carry T3 RAM shadows (pgxp_cmd_shadow_at resolves
        both). The shift is sub-pixel (the GTE fraction). Edge consistency
-       comes from the per-frame position map (see below): every vertex at
+       comes from the position map (see below): every vertex at
        a given integer position in a batch gets the same treatment.
        Gated on the master switch only (no new setting). In VRAM-check mode
        this diverges from the software reference exactly like texture
        correction already does. */
     if (sh && pgxp_track) {
-        /* Edge-consistent per-vertex substitution (option A): each drawn
-           vertex is decided independently — no triangle veto. A vertex
-           with a validated own shadow (sv->i == word) substitutes from it.
-           A vertex without one borrows the precise float recorded in the
-           per-frame position map for its integer position (rsx, rsy),
-           if any — so every vertex at a given integer position in this
-           batch gets the SAME treatment (same float, or all integer),
-           regardless of draw order. A vertex with neither stays integer
-           with exactly what pgxp_resolve gave it. The pre-pass records
-           every validated own shadow before any draw, so a no-shadow
-           vertex drawn BEFORE its shadowed neighbour still borrows.
-           Substituted positions always pair with shadow/borrowed invw,
-           never with affine or cache texture, so tex_mixed stays a
+        /* Edge-consistent per-vertex substitution (option A), with the
+           PGXP-lite hybrid on top: each drawn vertex is decided
+           independently — no triangle veto. A vertex with a validated, live
+           own shadow (sv->i == word, within PGXP_AGE game frames)
+           substitutes from it. A vertex without one borrows the precise
+           float recorded in the position map for its integer position
+           (rsx, rsy), if any — so every vertex at a given integer position
+           in this batch gets the SAME treatment (same float, or all
+           integer), regardless of draw order. A vertex with neither stays
+           integer with exactly what pgxp_resolve gave it. The pre-pass
+           records every validated own shadow before any draw, so a
+           no-shadow vertex drawn BEFORE its shadowed neighbour still
+           borrows. Substituted positions always pair with shadow/borrowed
+           invw, never with affine or cache texture, so tex_mixed stays a
            violation detector (always 0). Use-time validation (sv->i ==
            word) is what makes RAM lists safe: a word rewritten after its
            shadow was recorded fails here and falls back. Known limitation:
@@ -671,36 +672,86 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
            in batch 1 and substituted in batch 2 of the same frame still
            disagrees) — a frame-wide pre-pass is impossible in a streaming
            renderer; this is rare and far fewer cracks than per-triangle
-           veto. ox cancels in the delta. */
+           veto. ox cancels in the delta.
+           Hybrid additions (on top of the above, in order per triangle):
+           (1) ambiguity: when a position has TWO map candidates (two
+           depths at one pixel), pgxp_pick_candidates chooses per triangle
+           by projection-seq proximity, then depth-fit scoring — the first
+           writer is kept for unambiguous cases. (2) weld: after the
+           choice, a vertex within 0.25px of a pixel edge and 3% depth of a
+           neighbour snaps to the neighbour's exact place (same-pixel snap
+           for own shadows, neighbour snap for own and borrowed), so a
+           joint shared by two body parts lands on one place. (3) the
+           use-time guard (> 1.5px) still runs last, on the final resolved
+           position, as the failure detector. */
         int tri_sub[2] = { 0, 0 }, tri_shtex[2] = { 0, 0 };
         int k, j;
-        /* Pre-pass: record every validated own shadow into the position
-           map (first-writer wins), before any substitution. */
+        /* Pre-pass: record every validated, live own shadow into the
+           position map (first-writer wins), before any substitution. A
+           stale shadow is skipped silently here (its age is counted once,
+           in the draw pass below, when the vertex is actually used). */
         for (k = 0; k + 2 < nt; k += 3) {
             for (j = 0; j < 3; j++) {
                 int s = tsrc[k + j];
                 const pgxp_shadow_t *sv = &sh[xy_idx[s]];
-                if (sv->valid && sv->i == le32(l + xy_idx[s]))
-                    pgxp_edge_record(rsx[s], rsy[s], sv->x, sv->y, sv->invw);
+                if (pgxp_shadow_live(sv) && sv->i == le32(l + xy_idx[s]))
+                    pgxp_edge_record(rsx[s], rsy[s], sv);
             }
         }
-        /* Draw pass: own shadow first, else map borrow, else integer. */
+        /* Draw pass, per triangle: gather candidates (one own shadow, or up
+           to two map candidates), resolve ambiguity per triangle, then
+           weld + guard + apply per vertex. */
         for (k = 0; k + 2 < nt; k += 3) {
             int tri = k / 3;
+            pgxp_edge_cand_t cand[3][2];
+            int nc[3], ownf[3], pick[3], csx[3], csy[3];
             pgxp_stats.sub_verts += 3;
             for (j = 0; j < 3; j++) {
                 int s = tsrc[k + j];
                 const pgxp_shadow_t *sv = &sh[xy_idx[s]];
+                csx[j] = rsx[s]; csy[j] = rsy[s];
+                nc[j] = 0; ownf[j] = 0; pick[j] = 0;
+                if (sv->valid && sv->i == le32(l + xy_idx[s])) {
+                    if (pgxp_shadow_live(sv)) {
+                        nc[j] = 1; ownf[j] = 1;
+                        cand[j][0].x = sv->x; cand[j][0].y = sv->y;
+                        cand[j][0].invw = sv->invw;
+                        cand[j][0].seq = sv->seq; cand[j][0].frame = sv->frame;
+                        pgxp_edge_record(rsx[s], rsy[s], sv); /* belt and braces: the pre-pass already covered this vertex */
+                    } else {
+                        /* Valid shadow, exact word, but older than PGXP_AGE
+                           game frames: expired before use. Count it once
+                           here (the pre-pass skipped it silently) and fall
+                           through to the map borrow below. */
+                        pgxp_stats.aged_out++;
+                    }
+                }
+                if (nc[j] == 0)
+                    nc[j] = pgxp_edge_lookup_n(rsx[s], rsy[s], cand[j]);
+            }
+            pgxp_pick_candidates(3, csx, csy, nc, cand, pick);
+            for (j = 0; j < 3; j++) {
+                int s = tsrc[k + j];
                 pv *v = &t[k + j];
                 float fx, fy, fi, dx, dy;
-                int borrowed = 0;
-                if (sv->valid && sv->i == le32(l + xy_idx[s])) {
-                    fx = sv->x; fy = sv->y; fi = sv->invw;
-                    pgxp_edge_record(rsx[s], rsy[s], fx, fy, fi); /* belt and braces: the pre-pass already covered this vertex */
-                } else if (pgxp_edge_lookup(rsx[s], rsy[s], &fx, &fy, &fi)) {
-                    borrowed = 1;
-                } else {
+                int borrowed;
+                unsigned src_frame;
+                if (nc[j] == 0)
                     continue; /* stays integer + pgxp_resolve texture */
+                borrowed = !ownf[j];
+                fx = cand[j][pick[j]].x; fy = cand[j][pick[j]].y; fi = cand[j][pick[j]].invw;
+                src_frame = cand[j][pick[j]].frame;
+                /* Weld: snap to a neighbour's exact place (same-pixel for
+                   own shadows, neighbour-pixel for own and borrowed). Runs
+                   after the ambiguity choice and before the guard, so the
+                   guard still sees the final position. */
+                {
+                    float wx, wy, wi;
+                    unsigned wseq;
+                    if (pgxp_weld_try(rsx[s], rsy[s], ownf[j], fx, fy, fi, src_frame, &wx, &wy, &wi, &wseq)) {
+                        fx = wx; fy = wy; fi = wi;
+                        pgxp_stats.welds++;
+                    }
                 }
                 /* Use-time guard (option 1): block teleported vertices.
                    A legit shadow differs from its integer by < 1px (same
@@ -714,14 +765,14 @@ static void do_poly(const uint32_t *l, const uint32_t *end, const pgxp_shadow_t 
                    the triangle is NOT dropped, and too_big already ran on
                    integers before substitution. The check is on the final
                    resolved (fx,fy), so it covers own and borrowed alike.
-                   One guard per vertex (the own/borrow branches above are
-                   mutually exclusive, and the integer branch continues
-                   before reaching here), so guard_skip cannot double-count.
-                   A skipped vertex counts ONLY as guard_skip — not applied,
-                   borrowed, noted, or big — so big=0 + guard_skip>0 means
-                   the guard worked, and a nonzero big means an unguarded
-                   substitution path. ox cancels in the delta (both sides
-                   are pre-draw-offset, like sub_big). */
+                   One guard per vertex (the gather above yields exactly one
+                   resolved position per vertex, and the integer branch
+                   continues before reaching here), so guard_skip cannot
+                   double-count. A skipped vertex counts ONLY as guard_skip
+                   — not applied, borrowed, noted, or big — so big=0 +
+                   guard_skip>0 means the guard worked, and a nonzero big
+                   means an unguarded substitution path. ox cancels in the
+                   delta (both sides are pre-draw-offset, like sub_big). */
                 dx = fx - (float)rsx[s]; if (dx < 0) dx = -dx;
                 dy = fy - (float)rsy[s]; if (dy < 0) dy = -dy;
                 if (dx > 1.5f || dy > 1.5f) { pgxp_stats.guard_skip++; continue; }

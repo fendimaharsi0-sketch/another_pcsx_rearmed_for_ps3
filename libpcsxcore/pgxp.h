@@ -10,10 +10,11 @@
  * the projected depth for each projected vertex, keyed by the integer screen
  * position the game actually got. The RSX layer looks a vertex up by that
  * integer position and uses the float depth only when the entry validates:
- * same frame, exact integer match, float within ~1px of the integer.
- * Anything else falls back to the integer vertex unchanged, so a cache miss
- * can never corrupt geometry. Vertices the CPU transforms itself never hit
- * the cache (same documented limitation as the pre-removal design).
+ * recorded within PGXP_AGE game frames, exact integer match, float within
+ * ~1px of the integer. Anything else falls back to the integer vertex
+ * unchanged, so a cache miss can never corrupt geometry. Vertices the CPU
+ * transforms itself never hit the cache (same documented limitation as the
+ * pre-removal design).
  *
  * Scope of slice 1: texture correction (perspective-correct UV interpolation
  * from the validated depth) and culling correction (NCLIP recomputed from the
@@ -36,9 +37,10 @@ extern "C" {
  * shadows GTE<->CPU registers, validating at every step against the exact
  * integer the game produced (a stale shadow fails validation and falls back
  * to invalid, never to a wrong value). r0 never carries a shadow. Shadows
- * are wiped every frame by pgxp_next_frame, like the cache. RAM values
- * (LWC2/SWC2) carry no shadow until T3: the destination is always unproven.
- * Registering cop2_notify makes the Lightrec emitter fall back to C calls
+ * live at most PGXP_AGE game frames (see above), stamped at projection time
+ * and carried along with every copy, so a shadow recorded before the master
+ * was switched off (or before a title change) can never be used again once
+ * it is older than the window. Registering cop2_notify makes the Lightrec emitter fall back to C calls
  * for MFC2/MTC2 even when tracking is off (block-compile-time choice):
  * unmeasured performance cost, revisit if FPS drops. */
 
@@ -50,6 +52,24 @@ extern "C" {
 #define PGXP_CULL 2
 extern int gte_pgxp;
 
+/* Game-frame aging (PGXP-lite hybrid): a shadow lives at most PGXP_AGE game
+ * frames. The game-frame clock (pgxp_frame) advances on GP1(05h) display-area
+ * flips (pgxp_on_flip, from the GPU) and, for games that never flip, on every
+ * 8 frontend vsyncs (counted in pgxp_next_frame, one presented frame = one
+ * vsync). Shadows carry the frame they were projected in plus a projection
+ * sequence number (pgxp_seq, one per GTE projection, in projection order);
+ * the sequence travels with the shadow through registers and RAM, so the
+ * renderer can tell which of two candidates for one pixel is newer. Age is
+ * enforced at use time (pgxp_shadow_live, edge/cache lookups); the per-frame
+ * wipes are gone, so a static display list keeps its shadows for up to 3
+ * game frames instead of dying at the next present. */
+#define PGXP_AGE 3
+extern unsigned pgxp_frame;
+/* GP1(05h) display-area flip: advance the game-frame clock when the display
+ * address changed (a game that always sets the same address does not advance
+ * here; the vsync fallback in pgxp_next_frame covers it). */
+void pgxp_on_flip(unsigned disp);
+
 /* Record a GTE-projected vertex: (sx, sy) is the integer screen position the
  * game got, (x, y) the pre-truncation float position, z the projected depth
  * (GTE SZ, > 0). Vertices at/behind the camera (z <= 0) are not recorded. */
@@ -60,9 +80,18 @@ void pgxp_push(int sx, int sy, float x, float y, int z);
  * the caller must then use the integer vertex unchanged. */
 int pgxp_lookup(int sx, int sy, float *x, float *y, float *invw);
 
-/* Start a new frame: entries from older frames stop matching. Called once per
- * presented frame from the frontend (hwr_present). */
+/* Advance one presented frame (one frontend vsync): the game-frame clock
+ * ages (8 vsyncs without a GP1(05h) flip = one game frame), and the
+ * substitution-state flip counters are updated. Shadows are NOT wiped here
+ * any more (they age out at use time, see PGXP_AGE above). Called once per
+ * presented frame from the frontend (hwr_present) — never from non-present
+ * paths; a master toggle calls pgxp_invalidate_all instead. */
 void pgxp_next_frame(void);
+/* Drop every shadow, cache entry, edge-map entry and flip-table entry at
+ * once (master toggle, or a new title starting in config_game_begin, so no
+ * shadow from the previous title can be borrowed). The game-frame clock is
+ * NOT reset: it is a clock, and old stamps age out by the arithmetic. */
+void pgxp_invalidate_all(void);
 
 /* T1: 1 when the PGXP master switch is on (mirrored from cfg by
  * config_mirror_gte_pgxp). Shadows are maintained only while this is set. */
@@ -85,7 +114,16 @@ void pgxp_on_notify(unsigned opcode, unsigned data);
  * array: the CPU-write buffer maps to pgxp_cmd_shadow[], a RAM list maps
  * into the RAM shadow array (T3, when the RAM base is known), anything else
  * maps to NULL (safe fallback to the integer vertex). */
-typedef struct { int valid; unsigned i; float x, y, invw; } pgxp_shadow_t;
+/* A shadow: the precise float position (x, y) + depth (invw = 1/z) for the
+ * integer word i. seq = projection sequence number (one per GTE projection,
+ * in projection order; assigned in pgxp_on_rtps/pgxp_on_rtpt, carried along
+ * with every copy). frame = the game frame (pgxp_frame) the vertex was
+ * projected in; a shadow older than PGXP_AGE game frames is dead. */
+typedef struct { int valid; unsigned i; float x, y, invw; unsigned seq; unsigned frame; } pgxp_shadow_t;
+/* 1 when a shadow is live: valid and projected within PGXP_AGE game frames.
+ * Pure predicate (no counting); the caller counts a valid-but-stale
+ * rejection as aged_out where it matters (do_poly draw pass, edge lookup). */
+int pgxp_shadow_live(const pgxp_shadow_t *sh);
 void pgxp_cmd_write(int idx, unsigned word);
 void pgxp_cmd_shift(int left, int total);
 void pgxp_cmd_fill_none(int start, int count);
@@ -95,8 +133,8 @@ const pgxp_shadow_t *pgxp_cmd_shadow_at(const uint32_t *list, const uint32_t *ba
  * mode: no ALU tracking, no depth buffer). One shadow per RAM word (2MB =
  * 512K words, ~10MB BSS) plus one per scratchpad word (1KB = 256 words).
  * The host RAM base is set once by the core at memory init (psxMemInitMap);
- * until then RAM lists resolve to NULL (safe fallback). Shadows are wiped
- * every frame by pgxp_next_frame, like the register shadows. */
+ * until then RAM lists resolve to NULL (safe fallback). Shadows live at
+ * most PGXP_AGE game frames (see above), like the register shadows. */
 void pgxp_set_ram_base(const uint32_t *base);
 /* Map a PS1 address to its RAM/scratchpad shadow slot, or NULL when the
  * address is not RAM or scratchpad. Segments are stripped like lightrec's
@@ -147,14 +185,51 @@ void pgxp_on_lwr_ram(unsigned addr, unsigned word, int rt);
 void pgxp_cmd_dma_word(int idx, unsigned word, unsigned psx_addr);
 
 /* Edge-consistent substitution map (option A). Keyed by integer screen
- * position (pre-draw-offset, same keys as pgxp_resolve), value = precise
- * float position + invw from a validated shadow. First-writer wins per
- * frame; a hash collision with a different position is NOT recorded (the
- * later position simply gets no borrow — safe fallback, never a wrong
- * float). Wiped every frame by pgxp_next_frame. Record/lookup return
+ * position (pre-draw-offset, same keys as pgxp_resolve), value = up to TWO
+ * precise candidates (float position + invw + projection seq + frame) from
+ * validated shadows. One candidate is the first-writer rule: a re-record of
+ * the same point (depth within 3% of an existing candidate) keeps the first
+ * writer, so shared edges resolve to one value and do not flicker. A second
+ * candidate (a different depth at the same pixel — e.g. a fighter's hand in
+ * front of a wall) is stored alongside, and the per-triangle choice between
+ * them is made by pgxp_pick_candidates (projection-seq proximity, then
+ * depth-fit scoring over the still-ambiguous corners). A third distinct
+ * candidate replaces the older-seq one (PGXP-lite's rule). A hash collision
+ * with a different position is NOT recorded (the later position simply gets
+ * no borrow — safe fallback, never a wrong float). Candidates age out after
+ * PGXP_AGE game frames (pruned lazily at lookup/record); a lookup that
+ * prunes a stale candidate counts it as aged_out. Record/lookup return
  * immediately (miss) when pgxp_track is off. */
-void pgxp_edge_record(int sx, int sy, float x, float y, float invw);
-int pgxp_edge_lookup(int sx, int sy, float *x, float *y, float *invw);
+typedef struct { float x, y, invw; unsigned seq; unsigned frame; } pgxp_edge_cand_t;
+void pgxp_edge_record(int sx, int sy, const pgxp_shadow_t *sh);
+/* Return the live candidates (0-2) for one integer position, in stored
+ * order; stale candidates are pruned (and counted as aged_out) first. */
+int pgxp_edge_lookup_n(int sx, int sy, pgxp_edge_cand_t *out);
+/* Weld (PGXP-lite idea, adapted to the fork's draw-time resolver): snap the
+ * resolved position (fx, fy, fi) at integer (sx, sy) to a neighbour's exact
+ * place when the two are the same joint. own = 1 when the position came
+ * from an own shadow (the same-pixel snap applies: the map entry for this
+ * pixel holds the first copy's place); own = 0 for a borrowed position
+ * (neighbour snap only, so an ambiguity choice is never overridden).
+ * frame = the source shadow's projection frame; only same-frame candidates
+ * weld. A neighbour snap also writes the welded place back into this
+ * vertex's own map entry (when the entry still holds the pre-weld values),
+ * so the joint's other copy — drawn later in the batch — welds to the same
+ * place instead of the two copies swapping places. Returns 1 and fills
+ * (ox, oy, oinvw, oseq) when welded, else 0. */
+int pgxp_weld_try(int sx, int sy, int own, float fx, float fy, float fi, unsigned frame, float *ox, float *oy, float *oinvw, unsigned *oseq);
+/* Per-triangle ambiguity resolution (PGXP-lite stage A + B, implemented
+ * live): corners i = 0..n-1 (n = 3, one triangle) with nc[i] candidates
+ * (0-2) in cand[i][2]; pick[i] = the chosen candidate index (0 when nc <= 1).
+ * Stage A (seq proximity): corners with two candidates pick the one whose
+ * projection seq is clearly closer to the single-candidate corners' seqs
+ * (his rule: hi/4 > lo + spread + 16, where hi/lo are the seq distances).
+ * Stage B (depth-fit scoring): the still-ambiguous corners are tried in
+ * every combination (at most 8 for a triangle); a combination whose depths
+ * fail pgxp_depths_fit scores +1e7, plus the projection-seq spread (capped
+ * at 1e6), plus (hi/lo - 1) * 0.5 for the depth ratio; the best combination
+ * wins, ties keep the first. A corner with no candidate stays integer. */
+void pgxp_pick_candidates(int n, const int *sx, const int *sy, const int *nc, const pgxp_edge_cand_t cand[][2], int *pick);
 /* Texture-precision logging: record one substituted vertex's integer
  * screen position into this frame's substituted-position set (for the
  * flip_new/flip_lost counters). Called from do_poly for every substituted
@@ -223,7 +298,17 @@ void pgxp_note_substituted(int sx, int sy);
  *    count as applied, borrowed, noted, or big. Log reading: big=0 +
  *    guard_skip>0 = the guard worked (blocked big vertices); big=0 +
  *    guard_skip=0 = no big vertices occurred in the scene; big>0 = the
- *    guard missed some (bug or an unguarded substitution site). */
+ *    guard missed some (bug or an unguarded substitution site).
+ *  welds: vertices snapped to a neighbour's exact place by pgxp_weld_try
+ *    (same-pixel snap for own shadows, neighbour-pixel snap for own and
+ *    borrowed). A weld moves a vertex at most 0.25px toward a same-depth
+ *    neighbour, so a high count with no visual change is still fine.
+ *  amb_resolved: ambiguous corners (two candidates at one integer position)
+ *    that pgxp_pick_candidates decided by seq proximity / depth-fit scoring.
+ *  aged_out: live-looking shadows/entries rejected for age at a use site
+ *    (a stale own shadow in do_poly, a stale edge-map candidate pruned by a
+ *    lookup). How often the 3-game-frame window expires data before it is
+ *    used; a high count means the window is too short for that scene. */
 typedef struct {
     unsigned long cmd_unique, cmd_ambig, cmd_none;
     unsigned long sub_verts, sub_applied, sub_borrowed;
@@ -240,6 +325,7 @@ typedef struct {
     float invw_conflict_max;
     unsigned long set_repl;
     unsigned long guard_skip;
+    unsigned long welds, amb_resolved, aged_out;
 } pgxp_stats_t;
 extern pgxp_stats_t pgxp_stats;
 void pgxp_stats_reset(void);

@@ -9,10 +9,26 @@
 #define PGXP_CACHE_SIZE (1 << PGXP_CACHE_BITS)
 #define PGXP_CACHE_MASK (PGXP_CACHE_SIZE - 1)
 
-typedef struct { short sx, sy; unsigned gen; float x, y, invw; } pgxp_entry_t;
+typedef struct { short sx, sy; int valid; unsigned frame; float x, y, invw; } pgxp_entry_t;
 
 static pgxp_entry_t pgxp_cache[PGXP_CACHE_SIZE];
-static unsigned pgxp_gen = 1;
+
+/* Game-frame clock (PGXP-lite hybrid aging): pgxp_frame advances on GP1(05h)
+ * display-area flips (pgxp_on_flip) and, for games that never flip, on every
+ * 8 frontend vsyncs (pgxp_next_frame). pgxp_disp is the last display address
+ * seen; pgxp_vsyncs counts presents since the last flip. The clock is never
+ * reset (not by a toggle, not by a title change): age is pgxp_frame minus
+ * the stamp, in unsigned arithmetic, so it stays correct across the 2^32
+ * wrap. */
+unsigned pgxp_frame = 0;
+static unsigned pgxp_disp = ~0u;
+static unsigned pgxp_vsyncs = 0;
+/* Projection sequence number: one per GTE projection (RTPS/RTPT), in
+ * projection order, assigned in pgxp_on_rtps/pgxp_on_rtpt. It only orders
+ * projections within a few frames (stage-A proximity, second-candidate
+ * replacement), so the 2^32 wrap is harmless — all comparisons use
+ * distances, never absolute order. */
+static unsigned pgxp_seq = 0;
 
 int gte_pgxp = 0;
 int pgxp_track = 0;
@@ -31,7 +47,7 @@ static pgxp_shadow_t pgxp_gte[32]; /* data regs; only 12/13/14 (SXY) are used */
  * memory init; pgxp_cmd_shadow_at uses it to resolve RAM command lists.
  * PGXP_RAM_GUARD: polygon tails (a command is at most ~13 words) may read
  * a few words past a RAM list that starts at the very end of RAM; the
- * guard words stay zero (never written, wiped with the array), so such
+ * guard words stay zero (never written), so such
  * reads fall back safely instead of reading past the array. */
 #define PGXP_RAM_WORDS (0x200000 / 4)
 #define PGXP_SCRATCH_WORDS (0x400 / 4)
@@ -70,19 +86,17 @@ static inline unsigned pgxp_hash(int sx, int sy)
 }
 
 /* Edge-consistent substitution map (option A). Keyed by integer screen
- * position (pre-draw-offset, same keys as pgxp_resolve), value = precise
- * float position + invw from a validated shadow. First-writer wins per
- * frame; a hash collision with a different position is NOT recorded (the
- * later position simply gets no borrow — safe fallback, never a wrong
- * float). Single-slot hash like the slice-1 cache, but a much bigger table
- * (64K slots) so collisions are rare; a 1024x512 direct array would be
- * 10MB and is deliberately NOT used. Wiped every frame by pgxp_next_frame
- * (memset, valid = 0). Storage is declared here (before pgxp_next_frame);
- * the record/lookup functions are defined below, after pgxp_lookup. */
+ * position (pre-draw-offset, same keys as pgxp_resolve), value = up to two
+ * precise candidates (see pgxp_edge_cand_t). Single-slot hash like the
+ * slice-1 cache, but a much bigger table (64K slots) so collisions are
+ * rare; a 1024x512 direct array would be 10MB and is deliberately NOT used.
+ * Candidates age out after PGXP_AGE game frames (pruned lazily at
+ * lookup/record). Storage is declared here (before pgxp_next_frame); the
+ * record/lookup functions are defined below, after pgxp_lookup. */
 #define PGXP_EDGE_BITS 16
 #define PGXP_EDGE_SIZE (1 << PGXP_EDGE_BITS)
 #define PGXP_EDGE_MASK (PGXP_EDGE_SIZE - 1)
-typedef struct { int valid; int sx, sy; float x, y, invw; int conflict_counted; } pgxp_edge_t;
+typedef struct { int valid; int sx, sy; int n; pgxp_edge_cand_t c[2]; int conflict_counted; } pgxp_edge_t;
 static pgxp_edge_t pgxp_edge_map[PGXP_EDGE_SIZE];
 
 /* Texture-precision logging: per-frame substituted-position sets (flip
@@ -94,8 +108,8 @@ static pgxp_edge_t pgxp_edge_map[PGXP_EDGE_SIZE];
  * Single-slot hash like the edge map (64K slots); a collision between two
  * different positions in adjacent frames counts as one false new + one
  * false lost (rare at 64K slots). Separate arrays with their own lifecycle:
- * NOT wiped by the edge-map memset in pgxp_next_frame (that memset only
- * covers pgxp_edge_map); cur/prev are managed by the flip code itself. */
+ * NOT touched by pgxp_next_frame's shadow handling (there is no wipe any
+ * more); cur/prev are managed by the flip code itself. */
 #define PGXP_FLIP_BITS 16
 #define PGXP_FLIP_SIZE (1 << PGXP_FLIP_BITS)
 #define PGXP_FLIP_MASK (PGXP_FLIP_SIZE - 1)
@@ -152,13 +166,23 @@ void pgxp_note_substituted(int sx, int sy)
 
 void pgxp_next_frame(void)
 {
+	/* Vsync fallback for the game-frame clock (lite's pgxp_lite_vsync): one
+	 * presented frame is one refresh; 8 refreshes without a display flip
+	 * count as one game frame. Runs BEFORE the track gate, so the clock
+	 * advances (and stale shadows age out) while the master is off too.
+	 * This function is one presented frame: it must only be called from the
+	 * present path (hwr_present), never from a toggle or menu path. */
+	if (++pgxp_vsyncs >= 8) {
+		pgxp_vsyncs = 0;
+		pgxp_frame++;
+	}
 	/* Gate: when the master is off, nothing reads any PGXP array (every hook
 	 * is gated on pgxp_track, and hwr_pgxp_tex is 0 so do_poly skips the
-	 * cache lookup), so skip the gen bump and all wipes below. The first
-	 * next_frame after re-enabling runs the normal path, so no transition
-	 * wipe beyond it is needed. Flip tables have their own lifecycle (see
-	 * below): OFF frames clear them and reset the transition flag, so the
-	 * first ON frame after OFF has no stale baseline to compare against. */
+	 * cache lookup), so there is nothing to do here. Shadows are NOT wiped
+	 * (they age out at use time, see PGXP_AGE). Flip tables have their own
+	 * lifecycle (see below): OFF frames clear them and reset the transition
+	 * flag, so the first ON frame after OFF has no stale baseline to compare
+	 * against. */
 	if (!pgxp_track) {
 		memset(pgxp_flip_cur, 0, sizeof pgxp_flip_buf[0]);
 		memset(pgxp_flip_prev, 0, sizeof pgxp_flip_buf[0]);
@@ -173,8 +197,8 @@ void pgxp_next_frame(void)
 	 * (prev_track == 0) there is no baseline: skip counting this frame
 	 * (a toggle must not pollute the flicker count with a one-frame blip
 	 * of "new" substitutions), but still swap so the second ON frame
-	 * compares against the first. Computed BEFORE the wipes below (the
-	 * flip tables are separate arrays, not covered by those memsets, but
+	 * compares against the first. Computed BEFORE the table swap below (the
+	 * flip tables are separate arrays, managed only by this flip code, but
 	 * the order keeps the frame-boundary logic in one place). */
 	if (!pgxp_prev_track) {
 		memset(pgxp_flip_prev, 0, sizeof pgxp_flip_buf[0]);
@@ -211,19 +235,28 @@ void pgxp_next_frame(void)
 	memset(pgxp_flip_cur, 0, sizeof pgxp_flip_buf[0]);
 	pgxp_flip_used_cur_n = 0;
 	pgxp_prev_track = 1;
-	if (++pgxp_gen == 0) {
-		memset(pgxp_cache, 0, sizeof pgxp_cache);
-		pgxp_gen = 1;
+	/* No wipes any more: the register/RAM shadows, the slice-1 cache and
+	 * the edge map age out at use time (PGXP_AGE game frames). The 10MB
+	 * RAM-shadow memset per presented frame is gone with them. */
+}
+
+/* Game-frame clock, flip half (lite's pgxp_lite_flip): the display address
+ * is the game's buffer; a change means the game finished a frame. A game
+ * that always sets the same address does not advance here (the vsync
+ * fallback in pgxp_next_frame covers it). */
+void pgxp_on_flip(unsigned disp)
+{
+	if (disp != pgxp_disp) {
+		pgxp_disp = disp;
+		pgxp_frame++;
+		pgxp_vsyncs = 0;
 	}
-	/* T1: shadows are per-frame, like the cache (see header). */
-	memset(pgxp_gpr, 0, sizeof pgxp_gpr);
-	memset(pgxp_gte, 0, sizeof pgxp_gte);
-	/* T3: RAM + scratchpad shadows are per-frame, like the registers
-	 * (sizeof covers the guard words too, so they stay zero). */
-	memset(pgxp_ram_shadow, 0, sizeof pgxp_ram_shadow);
-	memset(pgxp_scratch_shadow, 0, sizeof pgxp_scratch_shadow);
-	/* Edge map: per-frame, like everything above. */
-	memset(pgxp_edge_map, 0, sizeof pgxp_edge_map);
+}
+
+int pgxp_shadow_live(const pgxp_shadow_t *sh)
+{
+	if (!sh || !sh->valid) return 0;
+	return (pgxp_frame - sh->frame) <= PGXP_AGE;
 }
 
 void pgxp_push(int sx, int sy, float x, float y, int z)
@@ -232,12 +265,15 @@ void pgxp_push(int sx, int sy, float x, float y, int z)
 
 	if (z <= 0) return;
 	e = &pgxp_cache[pgxp_hash(sx, sy)];
-	if (e->gen != pgxp_gen) {
+	/* First writer wins while the entry is live (same as before, but the
+	 * window is PGXP_AGE game frames instead of one presented frame); a
+	 * stale or never-written slot takes the new value. */
+	if (!e->valid || (pgxp_frame - e->frame) > PGXP_AGE) {
 		e->sx = (short)sx; e->sy = (short)sy;
 		e->x = x; e->y = y; e->invw = 1.0f / (float)z;
-		e->gen = pgxp_gen;
+		e->valid = 1; e->frame = pgxp_frame;
 	}
-	/* else: first writer in this frame wins. A later push for the same pixel
+	/* else: first writer in this window wins. A later push for the same pixel
 	 * (or a hash collision with another pixel) is ignored, so shared edges
 	 * resolve to one value and do not flicker frame to frame. */
 }
@@ -246,11 +282,16 @@ int pgxp_lookup(int sx, int sy, float *x, float *y, float *invw)
 {
 	pgxp_entry_t *e = &pgxp_cache[pgxp_hash(sx, sy)];
 
-	if (e->gen != pgxp_gen) { pgxp_stats.lk_miss++; return 0; }
+	if (!e->valid) { pgxp_stats.lk_miss++; return 0; }
+	/* Stale entries fail here (and are cleared, so the slot is reusable);
+	 * the miss is counted as an ordinary cache miss, not aged_out — the
+	 * cache is re-pushed every frame by the game, so a stale entry just
+	 * means the vertex is gone, not that the window is too short. */
+	if ((pgxp_frame - e->frame) > PGXP_AGE) { e->valid = 0; pgxp_stats.lk_miss++; return 0; }
 	if (e->sx != sx || e->sy != sy) { pgxp_stats.lk_miss++; return 0; }
 	/* Validation (DuckStation's Validate() rule, in this architecture's terms):
 	 * the float must claim to describe exactly this integer vertex, in this
-	 * frame, and lie within ~1px of it. A saturated or stale entry fails here
+	 * window, and lie within ~1px of it. A saturated or stale entry fails here
 	 * and the caller falls back to the integer vertex. */
 	if (e->x < (float)sx - 0.02f || e->x > (float)sx + 1.02f) { pgxp_stats.lk_miss++; return 0; }
 	if (e->y < (float)sy - 0.02f || e->y > (float)sy + 1.02f) { pgxp_stats.lk_miss++; return 0; }
@@ -267,45 +308,332 @@ static inline unsigned pgxp_edge_hash(int sx, int sy)
 	return ((unsigned)sx * 73856093u ^ (unsigned)sy * 19349663u) & PGXP_EDGE_MASK;
 }
 
-void pgxp_edge_record(int sx, int sy, float x, float y, float invw)
+/* Depth closeness for the "same point" test (lite's weld/dedup rule): two
+ * depths are the same point when they are within 3% of each other. invw <= 0
+ * means unknown depth (never the same point). */
+static int pgxp_same_depth(float invw_a, float invw_b)
+{
+	float za, zb, d;
+	if (invw_a <= 0.f || invw_b <= 0.f) return 0;
+	za = 1.f / invw_a; zb = 1.f / invw_b;
+	d = za - zb; if (d < 0.f) d = -d;
+	return d < 0.03f * zb;
+}
+
+/* Drop the entry's stale candidates (older than PGXP_AGE game frames),
+ * compacting the live ones to the front; each pruned candidate counts as
+ * aged_out. Returns the live count (and clears valid when none are left). */
+static int pgxp_edge_prune(pgxp_edge_t *e)
+{
+	int i, n = 0;
+	for (i = 0; i < e->n; i++) {
+		if ((pgxp_frame - e->c[i].frame) <= PGXP_AGE) {
+			if (n != i) e->c[n] = e->c[i];
+			n++;
+		} else {
+			pgxp_stats.aged_out++;
+		}
+	}
+	e->n = n;
+	if (n == 0) e->valid = 0;
+	return n;
+}
+
+void pgxp_edge_record(int sx, int sy, const pgxp_shadow_t *sh)
 {
 	pgxp_edge_t *e;
-	if (!pgxp_track) return;
+	int i;
+	if (!pgxp_track || !sh || !sh->valid) return;
 	e = &pgxp_edge_map[pgxp_edge_hash(sx, sy)];
-	if (e->valid) {
-		/* First-writer wins: an occupied slot is left alone (never
-		 * overwrite, never borrow a wrong float). But a SAME-position
-		 * re-record with a DIFFERENT invw is the edge-warp signal: two
-		 * own shadows claiming one screen position with different w
-		 * (each triangle uses its OWN invw at draw, bypassing the map,
-		 * so the shared edge gets two different w and warps). Count it
-		 * once per position per frame (flag resets with the per-frame
-		 * map wipe); a hash collision (different position) is not a
-		 * conflict and is ignored. */
-		if (e->sx == sx && e->sy == sy && !e->conflict_counted) {
-			float d = invw - e->invw;
-			if (d < 0) d = -d;
-			if (d > 0.05f) {
-				pgxp_stats.invw_conflict++;
-				if (d > pgxp_stats.invw_conflict_max)
-					pgxp_stats.invw_conflict_max = d;
-				e->conflict_counted = 1;
-			}
-		}
-		return;
+	if (e->valid && (e->sx != sx || e->sy != sy)) {
+		/* Hash collision with a different position: not recorded (the later
+		 * position simply gets no borrow), UNLESS the occupying entry is
+		 * entirely stale — then the slot is dead and reusable. */
+		if (pgxp_edge_prune(e) > 0) return;
+		/* pruned to empty: store fresh below. */
 	}
-	e->valid = 1; e->sx = sx; e->sy = sy; e->x = x; e->y = y; e->invw = invw;
+	if (e->valid) {
+		/* Same position: prune first, then decide. */
+		if (pgxp_edge_prune(e) > 0) {
+			/* Same point (depth within 3% of an existing candidate) keeps
+			 * the first writer: the joint's second copy keeps the first
+			 * copy's place (lite's store-time dedup). */
+			for (i = 0; i < e->n; i++) {
+				if (pgxp_same_depth(sh->invw, e->c[i].invw)) return;
+			}
+			/* Different depth: the edge-warp signal, counted once per
+			 * position per frame (threshold |invw diff| > 0.05, as before,
+			 * against the first writer). */
+			if (!e->conflict_counted) {
+				float d = sh->invw - e->c[0].invw;
+				if (d < 0) d = -d;
+				if (d > 0.05f) {
+					pgxp_stats.invw_conflict++;
+					if (d > pgxp_stats.invw_conflict_max)
+						pgxp_stats.invw_conflict_max = d;
+					e->conflict_counted = 1;
+				}
+			}
+			if (e->n < 2) {
+				e->c[e->n].x = sh->x; e->c[e->n].y = sh->y; e->c[e->n].invw = sh->invw;
+				e->c[e->n].seq = sh->seq; e->c[e->n].frame = sh->frame;
+				e->n++;
+			} else {
+				/* Both slots full: replace the older-seq candidate (lite's
+				 * rule). "Older" is the larger distance from the incoming
+				 * seq, so the comparison survives the 2^32 seq wrap. */
+				unsigned d0 = sh->seq - e->c[0].seq, d1 = sh->seq - e->c[1].seq;
+				int old = (d0 >= d1) ? 0 : 1;
+				e->c[old].x = sh->x; e->c[old].y = sh->y; e->c[old].invw = sh->invw;
+				e->c[old].seq = sh->seq; e->c[old].frame = sh->frame;
+			}
+			return;
+		}
+		/* pruned to empty: store fresh below. */
+	}
+	e->valid = 1; e->sx = sx; e->sy = sy; e->n = 1;
+	e->c[0].x = sh->x; e->c[0].y = sh->y; e->c[0].invw = sh->invw;
+	e->c[0].seq = sh->seq; e->c[0].frame = sh->frame;
 	e->conflict_counted = 0;
 }
 
-int pgxp_edge_lookup(int sx, int sy, float *x, float *y, float *invw)
+int pgxp_edge_lookup_n(int sx, int sy, pgxp_edge_cand_t *out)
 {
 	pgxp_edge_t *e;
+	int i;
 	if (!pgxp_track) return 0;
 	e = &pgxp_edge_map[pgxp_edge_hash(sx, sy)];
 	if (!e->valid || e->sx != sx || e->sy != sy) return 0;
-	*x = e->x; *y = e->y; *invw = e->invw;
-	return 1;
+	if (pgxp_edge_prune(e) == 0) return 0;
+	for (i = 0; i < e->n; i++) out[i] = e->c[i];
+	return e->n;
+}
+
+/* Weld closeness (lite's rule): the neighbour's exact place is within 0.25px
+ * on both axes and its depth within 3% of this vertex's depth. */
+static int pgxp_weld_close(float nx, float ny, float ninvw, float fx, float fy, float fi)
+{
+	float dx, dy;
+	if (ninvw <= 0.f || fi <= 0.f) return 0;
+	dx = nx - fx; if (dx < 0.f) dx = -dx;
+	dy = ny - fy; if (dy < 0.f) dy = -dy;
+	if (dx >= 0.25f || dy >= 0.25f) return 0;
+	return pgxp_same_depth(ninvw, fi);
+}
+
+/* After a neighbour snap, write the welded place back into this vertex's own
+ * map entry — but only when the entry still holds the pre-weld values
+ * (identity check): the entry may belong to another vertex (first-writer)
+ * or a hash collision, and those must never be rewritten. The frame stays:
+ * the welded place was projected in the same game frame as the source (the
+ * weld only considers same-frame candidates), so the stamp is unchanged. */
+static void pgxp_edge_weld_back(int sx, int sy, float ox, float oy, float oinvw, float nx, float ny, float ninvw, unsigned nseq)
+{
+	pgxp_edge_t *e = &pgxp_edge_map[pgxp_edge_hash(sx, sy)];
+	int i;
+	if (!e->valid || e->sx != sx || e->sy != sy) return;
+	for (i = 0; i < e->n; i++) {
+		if (e->c[i].x == ox && e->c[i].y == oy && e->c[i].invw == oinvw) {
+			e->c[i].x = nx; e->c[i].y = ny; e->c[i].invw = ninvw;
+			e->c[i].seq = nseq;
+			return;
+		}
+	}
+}
+
+int pgxp_weld_try(int sx, int sy, int own, float fx, float fy, float fi, unsigned frame, float *ox, float *oy, float *oinvw, unsigned *oseq)
+{
+	pgxp_edge_cand_t nb[2];
+	int i, n;
+	if (!pgxp_track || fi <= 0.f) return 0;
+	/* (a) Same-pixel snap, own shadows only: the map entry for this pixel
+	 * holds the first copy's place (recorded in the pre-pass). Snap to it
+	 * when it is a different, near-coincident, same-depth candidate — the
+	 * joint's second copy takes the first copy's place (lite's store-time
+	 * dedup, applied here at draw time because own shadows bypass the map).
+	 * No write-back: the entry already holds the target. */
+	if (own) {
+		n = pgxp_edge_lookup_n(sx, sy, nb);
+		for (i = 0; i < n; i++) {
+			if (nb[i].frame != frame) continue;
+			if (nb[i].x == fx && nb[i].y == fy && nb[i].invw == fi) continue;
+			if (pgxp_weld_close(nb[i].x, nb[i].y, nb[i].invw, fx, fy, fi)) {
+				*ox = nb[i].x; *oy = nb[i].y; *oinvw = nb[i].invw; *oseq = nb[i].seq;
+				return 1;
+			}
+		}
+	}
+	/* (b) Neighbour-pixel snap, own and borrowed: only when the vertex sits
+	 * within 0.25px of a pixel edge on some axis (else no neighbour can be
+	 * within 0.25px of it). Neighbours are checked in lite's order — +x, +y,
+	 * diagonal — and the first qualifying candidate wins. */
+	{
+		float dx = fx - (float)sx, dy = fy - (float)sy;
+		int xs = dx > 0.25f ? 1 : dx < -0.25f ? -1 : 0;
+		int ys = dy > 0.25f ? 1 : dy < -0.25f ? -1 : 0;
+		static const int off[3][2] = { { 1, 0 }, { 0, 1 }, { 1, 1 } };
+		int o;
+		if (xs || ys) {
+			for (o = 0; o < 3; o++) {
+				int nx, ny;
+				if (off[o][0] && !xs) continue;
+				if (off[o][1] && !ys) continue;
+				nx = sx + off[o][0] * xs; ny = sy + off[o][1] * ys;
+				n = pgxp_edge_lookup_n(nx, ny, nb);
+				for (i = 0; i < n; i++) {
+					if (nb[i].frame != frame) continue;
+					if (pgxp_weld_close(nb[i].x, nb[i].y, nb[i].invw, fx, fy, fi)) {
+						*ox = nb[i].x; *oy = nb[i].y; *oinvw = nb[i].invw; *oseq = nb[i].seq;
+						/* Write-back: the joint's other copy reads this
+						 * vertex's entry as its neighbour, so it welds to
+						 * the same place instead of the two copies swapping
+						 * places. Identity-guarded (see above). */
+						pgxp_edge_weld_back(sx, sy, fx, fy, fi, *ox, *oy, *oinvw, *oseq);
+						return 1;
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+/* PGXP-lite's depth-fit test (pgxp_depth.h, ported verbatim): do the corners'
+ * depths fit one surface? zmin > 0, zmax <= 64*zmin; for a quad the fourth
+ * corner must lie on the plane through the other three (ratio 0.85-1.15);
+ * otherwise (triangle, or a quad with three corners in a line) zmax <= 2*zmin.
+ * x, y are the corners' precise screen positions, z their depths (0 = none).
+ * Only the fit test is ported — the odd-corner repair (pgxp_depths) belongs
+ * to lite's mode-2 texture path, which the fork does not have. */
+static int pgxp_depths_fit(const float *x, const float *y, const float *z, int n)
+{
+	float zmin = z[0], zmax = z[0];
+	int i;
+	for (i = 1; i < n; i++) { if (z[i] < zmin) zmin = z[i]; if (z[i] > zmax) zmax = z[i]; }
+	if (zmin <= 0.f || zmax > 64.f * zmin) return 0;
+	if (n == 4) {   /* the fourth corner against the plane through the other three */
+		float x1 = x[1] - x[0], y1 = y[1] - y[0], x2 = x[2] - x[0], y2 = y[2] - y[0];
+		float det = x1 * y2 - x2 * y1;
+		if (det >= 4.f || det <= -4.f) {
+			float ia = 1.f / z[0], q1 = 1.f / z[1] - ia, q2 = 1.f / z[2] - ia, id = 1.f / det;
+			float qa = (q1 * y2 - q2 * y1) * id, qb = (x1 * q2 - x2 * q1) * id;
+			float q = ia + qa * (x[3] - x[0]) + qb * (y[3] - y[0]);
+			if (q != 0.f) { float r = q * z[3]; return r > 0.85f && r < 1.15f; }
+		}
+	}
+	return zmax <= 2.f * zmin;   /* a triangle (or a quad with three corners in a line) */
+}
+
+/* Projection-seq distance, wrap-safe: seqs compared are always from the same
+ * few frames, so their true distance is far below 2^31, and the unsigned
+ * difference taken the short way round is that distance. */
+static unsigned pgxp_seq_dist(unsigned a, unsigned b)
+{
+	unsigned d = a - b;
+	unsigned r = b - a;
+	return d < r ? d : r;
+}
+
+void pgxp_pick_candidates(int n, const int *sx, const int *sy, const int *nc, const pgxp_edge_cand_t cand[][2], int *pick)
+{
+	int i, amb = 0, k = 0;
+	unsigned ref = 0, spread = 0;
+	int decided[4];
+	if (n <= 0 || n > 4) return;
+	for (i = 0; i < n; i++) {
+		pick[i] = 0;
+		decided[i] = 1;
+		if (nc[i] > 1) { decided[i] = 0; amb |= 1 << i; }
+		else if (nc[i] == 1) k++;
+	}
+	if (!amb) return;
+	/* Stage A: seq proximity against the single-candidate corners (his
+	 * rule). ref = the last single-candidate corner's seq; spread = the
+	 * largest seq distance among the single-candidate corners. A corner
+	 * decides when one candidate is clearly closer: hi/4 > lo + spread + 16. */
+	if (k > 0) {
+		for (i = n - 1; i >= 0; i--) {
+			if (nc[i] == 1) { ref = cand[i][0].seq; break; }
+		}
+		for (i = 0; i < n; i++) {
+			int j;
+			if (nc[i] != 1) continue;
+			for (j = i + 1; j < n; j++) {
+				unsigned d;
+				if (nc[j] != 1) continue;
+				d = pgxp_seq_dist(cand[i][0].seq, cand[j][0].seq);
+				if (d > spread) spread = d;
+			}
+		}
+		for (i = 0; i < n; i++) {
+			unsigned d0, d1, lo, hi;
+			if (decided[i]) continue;
+			d0 = pgxp_seq_dist(cand[i][0].seq, ref);
+			d1 = pgxp_seq_dist(cand[i][1].seq, ref);
+			lo = d0 < d1 ? d0 : d1; hi = d0 < d1 ? d1 : d0;
+			if (hi / 4 > lo + spread + 16) {
+				pick[i] = (d0 <= d1) ? 0 : 1;
+				decided[i] = 1;
+				amb &= ~(1 << i);
+			}
+		}
+	}
+	/* Stage B: depth-fit scoring over the still-ambiguous corners. NOTE: in
+	 * his v0.2 this block is DEAD CODE — the stage-A block clears amb
+	 * unconditionally, so the combination search never runs. Here stage A
+	 * leaves undecided corners ambiguous, so stage B runs live, as designed.
+	 * The seq spread is computed over corners that have candidates only (a
+	 * corner with no candidate has no seq to spread); the depth ratio uses
+	 * the corners that have a depth. */
+	if (amb) {
+		int u[4], m = 0, combo, best = -1;
+		float best_sc = 0.f;
+		for (i = 0; i < n; i++) if (!decided[i]) u[m++] = i;
+		/* At most 2^m combinations (m <= 3 for a triangle: <= 8, within his
+		 * <= 16 bound). Decided corners keep their stage-A pick. */
+		for (combo = 0; combo < (1 << m); combo++) {
+			int cp[4];
+			float px[4] = { 0.f }, py[4] = { 0.f }, zz[4] = { 0.f }, sc = 0.f;
+			int allz = 1, nz = 0, a, b;
+			float hi = 0.f, lo = 0.f;
+			unsigned mx = 0;
+			for (i = 0; i < n; i++) cp[i] = pick[i];
+			for (i = 0; i < m; i++) cp[u[i]] = (combo >> i) & 1;
+			for (i = 0; i < n; i++) {
+				if (nc[i] > 0) {
+					px[i] = cand[i][cp[i]].x; py[i] = cand[i][cp[i]].y;
+					zz[i] = cand[i][cp[i]].invw > 0.f ? 1.f / cand[i][cp[i]].invw : 0.f;
+				} else {
+					px[i] = (float)sx[i]; py[i] = (float)sy[i]; zz[i] = 0.f;
+				}
+				if (zz[i] <= 0.f) allz = 0;
+				else {
+					if (nz == 0) lo = hi = zz[i];
+					else { if (zz[i] < lo) lo = zz[i]; if (zz[i] > hi) hi = zz[i]; }
+					nz++;
+				}
+			}
+			if (allz && !pgxp_depths_fit(px, py, zz, n)) sc += 1e7f;
+			for (a = 0; a < n; a++) {
+				if (nc[a] == 0) continue;
+				for (b = a + 1; b < n; b++) {
+					unsigned d;
+					if (nc[b] == 0) continue;
+					d = pgxp_seq_dist(cand[a][cp[a]].seq, cand[b][cp[b]].seq);
+					if (d > mx) mx = d;
+				}
+			}
+			sc += (mx > 1000000u) ? 1000000.f : (float)mx;
+			if (nz > 0 && lo > 0.f) sc += (hi / lo - 1.f) * 0.5f;
+			if (best < 0 || sc < best_sc) { best = combo; best_sc = sc; }
+		}
+		for (i = 0; i < m; i++) { pick[u[i]] = (best >> i) & 1; decided[u[i]] = 1; }
+	}
+	/* Every ambiguous corner got a choice (stage A, stage B, or the best
+	 * combination above); count them as resolved. */
+	for (i = 0; i < n; i++) {
+		if (nc[i] > 1) pgxp_stats.amb_resolved++;
+	}
 }
 
 /* T1: base-tracking shadows. */
@@ -322,6 +650,7 @@ void pgxp_on_rtps(unsigned packed, float x, float y, float invw, int valid)
 	if (valid) {
 		pgxp_gte[14].valid = 1; pgxp_gte[14].i = packed;
 		pgxp_gte[14].x = x; pgxp_gte[14].y = y; pgxp_gte[14].invw = invw;
+		pgxp_gte[14].seq = ++pgxp_seq; pgxp_gte[14].frame = pgxp_frame;
 	} else {
 		pgxp_gte[14].valid = 0;
 	}
@@ -336,6 +665,7 @@ void pgxp_on_rtpt(int v, unsigned packed, float x, float y, float invw, int vali
 	if (valid) {
 		pgxp_gte[reg].valid = 1; pgxp_gte[reg].i = packed;
 		pgxp_gte[reg].x = x; pgxp_gte[reg].y = y; pgxp_gte[reg].invw = invw;
+		pgxp_gte[reg].seq = ++pgxp_seq; pgxp_gte[reg].frame = pgxp_frame;
 	} else {
 		pgxp_gte[reg].valid = 0;
 	}
@@ -604,4 +934,25 @@ const pgxp_shadow_t *pgxp_cmd_shadow_at(const uint32_t *list, const uint32_t *ba
 	    list < pgxp_ram_base + PGXP_RAM_WORDS)
 		return &pgxp_ram_shadow[list - pgxp_ram_base];
 	return NULL;
+}
+
+/* Drop every PGXP shadow/cache/map entry at once (master toggle in menu.c,
+ * or a new title starting in config_game_begin, so no shadow from the
+ * previous title can be borrowed). The game-frame clock is NOT reset: it is
+ * a clock, and old stamps age out by the arithmetic. Defined last because
+ * pgxp_cmd_shadow (T2 section) is only declared above. */
+void pgxp_invalidate_all(void)
+{
+	memset(pgxp_gpr, 0, sizeof pgxp_gpr);
+	memset(pgxp_gte, 0, sizeof pgxp_gte);
+	memset(pgxp_ram_shadow, 0, sizeof pgxp_ram_shadow);
+	memset(pgxp_scratch_shadow, 0, sizeof pgxp_scratch_shadow);
+	memset(pgxp_cmd_shadow, 0, sizeof pgxp_cmd_shadow);
+	memset(pgxp_edge_map, 0, sizeof pgxp_edge_map);
+	memset(pgxp_cache, 0, sizeof pgxp_cache);
+	memset(pgxp_flip_cur, 0, sizeof pgxp_flip_buf[0]);
+	memset(pgxp_flip_prev, 0, sizeof pgxp_flip_buf[0]);
+	pgxp_flip_used_cur_n = 0;
+	pgxp_flip_used_prev_n = 0;
+	pgxp_prev_track = 0;
 }

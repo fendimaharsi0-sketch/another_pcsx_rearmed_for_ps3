@@ -84,6 +84,7 @@ extern int pgxp_track;   /* T1: 1 when the PGXP master switch is on, mirrored fr
 void config_mirror_gte_pgxp(void);   /* recompute gte_pgxp from cfg.pgxp_enable/texture/culling */
 void lightrec_pgxp_gate(int on);   /* JIT gate, libpcsxcore/lightrec/plugin.c: on a master change, re-point cop2_notify in the state's copied ops + flush all blocks (skipped when Lightrec is not running) */
 void pgxp_next_frame(void);   /* core, libpcsxcore/pgxp.c: invalidate the GTE vertex cache (new frame) */
+void pgxp_invalidate_all(void);   /* core, libpcsxcore/pgxp.c: drop every PGXP shadow/cache/map entry (master toggle, new title) */
 void config_load(void);
 void config_save(void);
 /* per-game settings: configs/<game>.ini (game = ROM file name without extension) */
