@@ -4,8 +4,11 @@
    this program entirely then, so the picture is exactly today's). The scales
    live here, next to the math, so a wrong scale is one glance away:
    brightness +0.05/step, contrast x(1+0.05/step) around 0.5, saturation
-   x(1+0.1/step) (-10 is fully grey), temperature +0.03/step red, -0.03/step
-   blue, gamma exponent 1-0.05/step (+10 -> 0.5, brighter midtones;
+   x(1+0.1/step) (-10 is fully grey), temperature = TV white-point gains
+   (CRT-Hybrid formula, D65 neutral -> D93 cool / warm arcade, rescaled
+   from -1..+1 to our -10..+10 slider: R x(1-0.01/step), G x(1-0.002/step),
+   B x(1+0.014/step); + is cooler, - is warmer; multiplicative, so black
+   stays black), gamma exponent 1-0.05/step (+10 -> 0.5, brighter midtones;
    -10 -> 1.5, darker; 0 and 1 never move). Gamma runs LAST, on the
    clamped colour, so a negative value can never reach pow. DITHER: with the
    PS1 dither pattern (dither.h), after the correction. */
@@ -16,12 +19,16 @@ uniform float4 cc_params;
 uniform float cc_gamma;
 float4 cc_correct(float4 c)
 {
-    float ge;
+    float ge, tw;
     c.rgb += cc_params.x * 0.05f;
     c.rgb = (c.rgb - 0.5f) * (1.0f + cc_params.y * 0.05f) + 0.5f;
     float luma = dot(c.rgb, float3(0.299f, 0.587f, 0.114f));
     c.rgb = lerp(float3(luma, luma, luma), c.rgb, 1.0f + cc_params.z * 0.1f);
-    c.rgb += float3(cc_params.w * 0.03f, 0.0f, -cc_params.w * 0.03f);
+    /* TV colour temperature is a white-point gain, not a tint: D65 neutral
+       -> D93 cool Trinitron / warm arcade (CRT-Hybrid COLOR_TEMP, rescaled
+       -1..+1 to -10..+10). Multiplicative, so black stays black. */
+    tw = cc_params.w * 0.1f;
+    c.rgb *= float3(1.0f - 0.10f * tw, 1.0f - 0.02f * abs(tw), 1.0f + 0.14f * tw);
     ge = 1.0f - cc_gamma * 0.05f;
     c.rgb = pow(saturate(c.rgb), float3(ge, ge, ge));
     return float4(saturate(c.rgb), c.a);

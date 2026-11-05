@@ -388,7 +388,7 @@ static const item_t settings_items[] = {
     { "Brightness", "-10 darker, +10 brighter. 0 is the picture as it is." },
     { "Contrast", "-10 flatter, +10 harsher. 0 is the picture as it is." },
     { "Saturation", "-10 grey, +10 vivid. -10 is fully grey. 0 is the picture as it is." },
-    { "Temperature", "-10 colder (blue), +10 warmer (red). 0 is the picture as it is." },
+    { "Temperature", "-10 warmer (red), +10 cooler (blue). 0 is the picture as it is." },
     { "Gamma", "-10 darker midtones, +10 brighter midtones. Black stays black, white stays white. 0 is the picture as it is." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
