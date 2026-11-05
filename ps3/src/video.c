@@ -676,7 +676,11 @@ static void crt_set_constants(unsigned tw, unsigned th)
        If any line says NULL, GetConst is the failure; if all are found and
        the picture is still black, the Set call itself is the failure. */
     static int crt_logged;
-    if (!crt_logged) {
+    /* Gate on debug_log: the flag must NOT be consumed while debug is off.
+       logf_ drops lines when debug is off, so an ungated once-flag fires
+       (and is lost) on the first CRT frame of the app session — then no
+       later game in the same launch ever logs, even after debug is on. */
+    if (!crt_logged && cfg.debug_log) {
         static const char *names[] = {
             "texture_size", "output_size", "frame_count", "gateY", "bob",
             "CURVATURE", "TRINITRON_CURVE", "CORNER", "MASK", "MASK_SIZE",
