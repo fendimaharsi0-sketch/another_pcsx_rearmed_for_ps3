@@ -6,8 +6,8 @@
 #include <stddef.h>
 #include <ppu-types.h>
 
-#define APP_ID    "PCSR00001"
-#define APP_TITLE "PCSX-ReARMed for PS3"
+#define APP_ID    "PCSR00003"
+#define APP_TITLE "Another PCSX-ReARMed for PS3 (PGXP)"
 #define APP_VERSION "0.1 (build 72)"   /* logs only; not shown in the game list (version lives on the release page) */
 #ifndef APP_DIR   /* overridable for the host UI tests */
 #define APP_DIR   "/dev_hdd0/game/" APP_ID "/USRDIR"

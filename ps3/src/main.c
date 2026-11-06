@@ -14,6 +14,7 @@
 #include <ppu-lv2.h>
 #include "libretro.h"
 #include "common.h"
+#include "build_info.h"
 #include "core_hooks.h"
 #include "cheatdb.h"
 #include "gpu_hooks.h"
@@ -793,7 +794,7 @@ static void run_game(const char *path)
         extern int psx_debug_trace;
         psx_debug_trace = cfg.debug_log;
     }
-    logf_("%s " APP_VERSION ", built " __DATE__ " " __TIME__ "\n", APP_TITLE);
+    logf_("%s " APP_VERSION " (" BUILD_BRANCH "@" BUILD_COMMIT "), built " __DATE__ " " __TIME__ "\n", APP_TITLE);
     logf_("settings: cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
           cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
           cfg.show_fps, cfg.gpu_thread);
@@ -1012,7 +1013,7 @@ static int app_main(void)
     mkdir(APP_DIR "/states", 0777); mkdir(APP_DIR "/roms", 0777); mkdir(APP_DIR "/logs", 0777);
     mkdir(APP_DIR "/dumps", 0777);   /* made here, long before a hang report may need it */
     log_open();
-    logf_("%s " APP_VERSION ", built " __DATE__ " " __TIME__ "\n", APP_TITLE);
+    logf_("%s " APP_VERSION " (" BUILD_BRANCH "@" BUILD_COMMIT "), built " __DATE__ " " __TIME__ "\n", APP_TITLE);
     watchdog_start();
     config_load();
     log_ready();                        /* log files only with Debug log on */

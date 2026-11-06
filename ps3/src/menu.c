@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/systime.h>
 #include "common.h"
+#include "build_info.h"
 #include "core_hooks.h"
 #include "cover.h"
 #include "cheatdb.h"
@@ -1420,7 +1421,7 @@ const char *menu_run(void)
         if (sel < top) top = sel;
         if (sel >= top + rows) top = sel - rows + 1;
 
-        snprintf(sub, sizeof sub, "%d game%s", ngames, ngames == 1 ? "" : "s");
+        snprintf(sub, sizeof sub, "%d game%s | %s@%s", ngames, ngames == 1 ? "" : "s", BUILD_BRANCH, BUILD_COMMIT);
         header_app(sub);
         for (i = top; i < n && i < top + rows; i++) {
             int y = y0 + (i - top) * 44;
