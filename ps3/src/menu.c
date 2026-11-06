@@ -1191,6 +1191,9 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
 /* ---------------- game list ---------------- */
 int disc_probe(char *label, size_t n);     /* disc.c */
 void disc_identify_start(void);
+int disc_tray_eject(void);    /* disc.c: START STOP UNIT, open the tray */
+int disc_tray_wait_ready(int ms);  /* disc.c: TEST UNIT READY poll */
+void disc_tray_close(void);   /* disc.c: load the tray (if open) + close the handle */
 int  disc_identify_result(char *title, size_t n);
 const char *disc_identify_serial(void);   /* disc.c: serial from SYSTEM.CNF */
 void disc_identify_wait(void);
@@ -1583,24 +1586,35 @@ static int confirm_delete_personal(const char *title)
    1: start, 0: back */
 extern void game_bios_cards(const char *c1, const char *c2);
 #define MAX_CARDS 200
+/* One directory's *.mcd files, appended to cards[]. The imported library
+   (saves/imported/) is scanned second; a name already listed from saves/
+   is skipped, so the top-level file always wins and the core's fallback
+   order (saves/ first, imported/ second) matches what the picker shows. */
+static void bios_scan_dir(char **cards, int *ncards, const char *dir)
+{
+    DIR *d;
+    struct dirent *de;
+    int i;
+    if (!(d = opendir(dir))) return;
+    while ((de = readdir(d)) && *ncards < MAX_CARDS) {
+        size_t l = strlen(de->d_name);
+        if (de->d_name[0] == '.' || l < 5 || l >= 120 || strcasecmp(de->d_name + l - 4, ".mcd")) continue;
+        for (i = 0; i < *ncards; i++) if (!strcasecmp(cards[i], de->d_name)) break;
+        if (i < *ncards) continue;   /* same name already listed: top-level wins */
+        if (!(cards[*ncards] = strdup(de->d_name))) break;
+        (*ncards)++;
+    }
+    closedir(d);
+}
 static int bios_cards_page(void)
 {
     static char *cards[MAX_CARDS];
     static int ncards, pick[2] = { 1, 0 };   /* index + 1 into cards, 0 none */
     int i, row = 0, ret = 0;
-    DIR *d;
-    struct dirent *de;
     for (i = 0; i < ncards; i++) free(cards[i]);
     ncards = 0;
-    if ((d = opendir(APP_DIR "/saves"))) {
-        while ((de = readdir(d)) && ncards < MAX_CARDS) {
-            size_t l = strlen(de->d_name);
-            if (de->d_name[0] == '.' || l < 5 || l >= 120 || strcasecmp(de->d_name + l - 4, ".mcd")) continue;
-            if (!(cards[ncards] = strdup(de->d_name))) break;
-            ncards++;
-        }
-        closedir(d);
-    }
+    bios_scan_dir(cards, &ncards, APP_DIR "/saves");
+    bios_scan_dir(cards, &ncards, APP_DIR "/saves/imported");
     qsort(cards, ncards, sizeof *cards, cmp_games);
     for (i = 0; i < 2; i++) if (pick[i] > ncards) pick[i] = 0;
     if (ncards && !pick[0] && !pick[1]) pick[0] = 1;
@@ -1629,7 +1643,7 @@ static int bios_cards_page(void)
             snprintf(line, sizeof line, "Memory card %d   < %s >", i + 1, pick[i] ? cards[pick[i] - 1] : "none");
             text_fit(MARGIN, y, line, i == row ? C_ACCENT : C_TEXT);
         }
-        if (!ncards) ovl_text(MARGIN, 340, "No memory card files in " APP_DIR "/saves yet.", C_DIM);
+        if (!ncards) ovl_text(MARGIN, 340, "No memory card files in saves/ or saves/imported yet.", C_DIM);
         else if (pick[0] && pick[0] == pick[1]) ovl_text(MARGIN, 340, "The same file in both slots: choose another for one.", C_DIM);
         footer("Up/Down slot    Left/Right card    X start    Circle back");
         frame_end();
@@ -2060,13 +2074,64 @@ static int cheat_screen(void)
 #define DSWAP_ROWS 12
 
 /* One picker row: either a disc of the loaded playlist (index into the
-   core's image list) or a disc image file from the scanned game list. */
+   core's image list), a disc image file from the scanned game list, or the
+   disc in the console's drive (is_physical: swap to the "cdrom:" path). */
 typedef struct {
     int is_playlist;
+    int is_physical;
     unsigned index;      /* playlist rows only */
     const char *path;    /* file rows only: pointer into games[] (untouched while in-game) */
     char label[256];
 } dswap_entry;
+
+/* The physical entry's fallback, after the direct swap to "cdrom:" failed
+   (drive empty or disc unreadable): open the tray, let the user put a disc
+   in, wait for the drive, then report ready. Returns 1 when a disc is
+   ready (the caller then swaps to it), 0 when the user cancels. Upstream's
+   version of this screen has no cancel; this one does — Circle closes the
+   tray again (disc_tray_close loads it) and returns to the picker with no
+   swap, so the game never resumes with the lid open. The eject itself is
+   best-effort: if the drive refuses the command the user can still open
+   the tray with the console's eject button, as the prompt says. */
+static int disc_physical_insert_screen(void)
+{
+    const char *msg = NULL;
+
+    disc_tray_eject();   /* best effort; the console button also opens it */
+    while (!app_exit_requested) {
+        uint32_t p;
+        frame_begin(0);
+        p = input_pressed();
+        if (p & PAD_CIRCLE) {
+            disc_tray_close();
+            logf_("menu: physical insert cancelled\n");
+            return 0;
+        }
+        if (p & PAD_CROSS) {
+            ovl_fill(290, 110, 700, 160, C_PANEL);
+            ovl_text(320, 140, "Reading the disc...", C_ACCENT);
+            frame_end();   /* show it before the blocking wait */
+            if (disc_tray_wait_ready(20000)) {
+                disc_tray_close();
+                logf_("menu: physical insert: disc ready\n");
+                return 1;
+            }
+            msg = "No disc could be read: try again";
+            frame_begin(0);   /* reopen a frame for the panel below */
+        }
+        ovl_fill(290, 110, 700, 290, C_PANEL);
+        ovl_text(320, 132, "Change disc", C_ACCENT);
+        ovl_text(320, 190, "Put the next disc in the drive,", C_TEXT);
+        ovl_text(320, 226, "then press X.", C_TEXT);
+        ovl_text(320, 280, "If the disc did not come out,", C_DIM);
+        ovl_text(320, 312, "press the PS3's eject button.", C_DIM);
+        if (msg) ovl_text(320, 360, msg, C_ACCENT);
+        footer("X insert   Circle cancel");
+        frame_end();
+    }
+    disc_tray_close();
+    return 0;
+}
 
 /* Full-screen disc picker, opened from the pause menu. Returns 1 when a
    swap ran, with the swapped disc's label in out_label; 0 on back or
@@ -2075,7 +2140,7 @@ typedef struct {
 static int disc_swap_screen(char *out_label, size_t out_len)
 {
     dswap_entry *list;
-    int n = 0, sel = 0, top = 0, swapped = 0, i;
+    int n = 0, sel = 0, top = 0, swapped = 0, i, cur_physical;
     unsigned num = 0, cur = 0;
     char curpath[1200], curlabel[256];
     const char *msg = NULL;
@@ -2092,8 +2157,17 @@ static int disc_swap_screen(char *out_label, size_t out_len)
     if (disk_iface_label(cur, curlabel, sizeof curlabel) != 0)
         snprintf(curlabel, sizeof curlabel, "%s", app_game_name());
 
+    /* The physical entry: the disc in the drive, listed first like the
+       game list's row 0. Shown only while the running disc is an image:
+       the current disc never appears in its own swap list, and the drive
+       entry is the current disc when the game runs from the drive.
+       disk_iface_path returns the core's stored path for the current
+       index; a physical game boots with the path "cdrom:". */
+    cur_physical = curpath[0] && !strncmp(curpath, "cdrom:", 6);
+
     /* Count first, then fill: one malloc, no realloc failure paths. */
-    if (num > 1) n = (int)num;
+    if (!cur_physical) n++;
+    if (num > 1) n += (int)num;
     for (i = 0; i < ngames; i++) {
         const char *p = games[i];
         if (!is_ext(p, "cue") && !is_ext(p, "chd") && !is_ext(p, "pbp") &&
@@ -2110,11 +2184,24 @@ static int disc_swap_screen(char *out_label, size_t out_len)
     list = (dswap_entry *)malloc(sizeof *list * (size_t)n);
     if (!list) return 0;
     n = 0;
+    /* Section 0: the disc in the drive, first like the game list's row 0.
+       The label is plain: the game list's title comes from a background
+       identify thread that opens the drive with patch attempts, too heavy
+       to run from the picker mid-game. */
+    if (!cur_physical) {
+        dswap_entry *e = &list[n++];
+        e->is_physical = 1;
+        e->is_playlist = 0;
+        e->index = 0;
+        e->path = NULL;
+        snprintf(e->label, sizeof e->label, "Disc in drive");
+    }
     /* Section 1: the loaded playlist's discs, only when there is more
        than one (a single image has nothing to swap to within itself). */
     if (num > 1) {
         for (i = 0; (unsigned)i < num; i++) {
             dswap_entry *e = &list[n++];
+            e->is_physical = 0;
             e->is_playlist = 1;
             e->index = (unsigned)i;
             e->path = NULL;
@@ -2137,6 +2224,7 @@ static int disc_swap_screen(char *out_label, size_t out_len)
             continue;
         if (curpath[0] && !strcmp(p, curpath)) continue;
         e = &list[n++];
+        e->is_physical = 0;
         e->is_playlist = 0;
         e->index = 0;
         e->path = p;
@@ -2165,6 +2253,38 @@ static int disc_swap_screen(char *out_label, size_t out_len)
             int ok;
             if (e->is_playlist && e->index == cur) {
                 msg = "That disc is already in the drive";
+            } else if (e->is_physical) {
+                /* Swap to the disc in the drive. First try it directly:
+                   the drive may already hold the disc (swap_to_file
+                   replaces the current index with the "cdrom:" path and
+                   the core re-scans the drive when the tray closes).
+                   There is no cheap way to check what is in the drive
+                   from here: cdra_is_physical() only says whether the
+                   core currently holds a physical handle (it does not
+                   while an image plays), and probing the drive mid-game
+                   (disc_probe) opens it with patch attempts. So a failed
+                   direct swap falls through to the prompt flow, which
+                   opens the tray and waits for a disc; swap_to_file
+                   closes the tray even when it fails, so the fallback is
+                   safe. A failed direct swap leaves the core pointing at
+                   the "cdrom:" entry until a later successful swap — the
+                   same as a failed image swap today. */
+                ok = disk_iface_swap_to_file("cdrom:");
+                if (ok == 0) {
+                    if (out_label && out_len) snprintf(out_label, out_len, "%s", e->label);
+                    swapped = 1;
+                    break;
+                }
+                if (disc_physical_insert_screen()) {
+                    ok = disk_iface_swap_to_file("cdrom:");
+                    if (ok == 0) {
+                        if (out_label && out_len) snprintf(out_label, out_len, "%s", e->label);
+                        swapped = 1;
+                        break;
+                    }
+                    msg = "Swap failed";
+                }
+                /* Cancelled from the prompt: back to the picker, no swap. */
             } else {
                 /* The drive now holds the new disc; the picker closes
                    and the game resumes from the pause menu. */
