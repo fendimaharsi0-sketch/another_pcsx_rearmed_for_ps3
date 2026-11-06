@@ -781,3 +781,102 @@ int rcdrom_isMediaInserted(void *stream)
     (void)stream;
     return 1;
 }
+
+/* ---- the swap picker's physical entry: tray commands ----
+   Upstream v0.2's disc_eject/disc_wait_ready (its disc.c), ported. Upstream
+   sends these on the core's open disc stream (its cur_disc), so they only
+   work while the core holds a physical disc. The picker needs them while an
+   IMAGE is playing — the drive holds whatever disc the user wants to swap
+   to, and the core has no stream open on it — so the tray functions open
+   their own minimal handle: st_open only, no TOC read, no sector reads, no
+   storage-access patches. The drive is only asked TEST UNIT READY /
+   START STOP UNIT. The handle is shared by the three calls and closed by
+   disc_tray_close(); every path out of the prompt screen closes it, so no
+   fd is held after the swap screen returns. */
+static disc_t *tray_disc;   /* the prompt flow's drive handle, NULL when closed */
+
+static int tray_open(void)
+{
+    disc_t *d;
+    s32 r;
+    if (tray_disc) return 1;
+    d = (disc_t *)calloc(1, sizeof *d);
+    if (!d) return 0;
+    d->buf = (uint8_t *)memalign(128, 4096);
+    if (!d->buf) { free(d); return 0; }
+    if ((r = st_open(BDVD_DEVICE, &d->fd)) != 0) {
+        logf_("disc: cannot open the drive for tray commands (%#x)\n", (unsigned)r);
+        free(d->buf); free(d); return 0;
+    }
+    d->opened = 1;
+    /* The lv2 execute-command path (status-returning), the one the header
+       comment describes for ATAPI packets; the 604 path would deliver the
+       packet too, but only 616 reports the drive's status. */
+    d->big = READ_616_RAW;
+    tray_disc = d;
+    return 1;
+}
+
+static void tray_close_raw(void)
+{
+    disc_t *d = tray_disc;
+    if (!d) return;
+    tray_disc = NULL;
+    /* Minimal close: this handle never read a TOC, never changed the drive
+       mode and never installed storage patches, so disc_free's restore
+       steps do not apply; just close the fd and free it. */
+    if (d->opened) st_close(d->fd);
+    free(d->buf);
+    free(d);
+}
+
+/* START STOP UNIT: byte 4 is LoEj (bit 1) + Start (bit 0). Eject = LoEj,
+   load (close the tray) = LoEj + Start. 1 when the drive took the command. */
+int disc_tray_eject(void)
+{
+    static const uint8_t pkt[12] = { 0x1b, 0, 0, 0, 0x02, 0 };
+    int r;
+    if (!tray_open()) return 0;
+    r = cmd_in(tray_disc, pkt, 6, NULL, 0);
+    logf_("disc: tray eject: %s (%#x, drive status %#x)\n", r ? "refused" : "done",
+          (unsigned)r, (unsigned)tray_disc->last_status);
+    return r == 0;
+}
+
+static int disc_tray_load(void)
+{
+    static const uint8_t pkt[12] = { 0x1b, 0, 0, 0, 0x03, 0 };
+    int r;
+    if (!tray_disc) return 1;   /* nothing open: the tray is not ours to close */
+    r = cmd_in(tray_disc, pkt, 6, NULL, 0);
+    logf_("disc: tray load: %s (%#x, drive status %#x)\n", r ? "refused" : "done",
+          (unsigned)r, (unsigned)tray_disc->last_status);
+    return r == 0;
+}
+
+/* 1 once the drive has a disc ready to read (TEST UNIT READY), 0 after ms
+   milliseconds without one. */
+int disc_tray_wait_ready(int ms)
+{
+    static const uint8_t pkt[12] = { 0, 0, 0, 0, 0, 0 };
+    u64 t0 = sysGetSystemTime();
+    if (!tray_open()) return 0;
+    for (;;) {
+        if (cmd_in(tray_disc, pkt, 6, NULL, 0) == 0) { logf_("disc: a disc is ready\n"); return 1; }
+        if (sysGetSystemTime() - t0 > (u64)ms * 1000) {
+            logf_("disc: no disc ready (drive status %#x)\n", (unsigned)tray_disc->last_status);
+            return 0;
+        }
+        sysUsleep(250000);
+    }
+}
+
+/* Close the prompt flow's drive handle. Loads the tray first when one is
+   open, so the drive is never left open by a cancelled or failed swap;
+   loading an already-closed tray is a no-op for the drive. Safe to call
+   when nothing is open. */
+void disc_tray_close(void)
+{
+    if (tray_disc) disc_tray_load();
+    tray_close_raw();
+}
