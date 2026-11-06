@@ -1580,24 +1580,35 @@ static int confirm_delete_personal(const char *title)
    1: start, 0: back */
 extern void game_bios_cards(const char *c1, const char *c2);
 #define MAX_CARDS 200
+/* One directory's *.mcd files, appended to cards[]. The imported library
+   (saves/imported/) is scanned second; a name already listed from saves/
+   is skipped, so the top-level file always wins and the core's fallback
+   order (saves/ first, imported/ second) matches what the picker shows. */
+static void bios_scan_dir(char **cards, int *ncards, const char *dir)
+{
+    DIR *d;
+    struct dirent *de;
+    int i;
+    if (!(d = opendir(dir))) return;
+    while ((de = readdir(d)) && *ncards < MAX_CARDS) {
+        size_t l = strlen(de->d_name);
+        if (de->d_name[0] == '.' || l < 5 || l >= 120 || strcasecmp(de->d_name + l - 4, ".mcd")) continue;
+        for (i = 0; i < *ncards; i++) if (!strcasecmp(cards[i], de->d_name)) break;
+        if (i < *ncards) continue;   /* same name already listed: top-level wins */
+        if (!(cards[*ncards] = strdup(de->d_name))) break;
+        (*ncards)++;
+    }
+    closedir(d);
+}
 static int bios_cards_page(void)
 {
     static char *cards[MAX_CARDS];
     static int ncards, pick[2] = { 1, 0 };   /* index + 1 into cards, 0 none */
     int i, row = 0, ret = 0;
-    DIR *d;
-    struct dirent *de;
     for (i = 0; i < ncards; i++) free(cards[i]);
     ncards = 0;
-    if ((d = opendir(APP_DIR "/saves"))) {
-        while ((de = readdir(d)) && ncards < MAX_CARDS) {
-            size_t l = strlen(de->d_name);
-            if (de->d_name[0] == '.' || l < 5 || l >= 120 || strcasecmp(de->d_name + l - 4, ".mcd")) continue;
-            if (!(cards[ncards] = strdup(de->d_name))) break;
-            ncards++;
-        }
-        closedir(d);
-    }
+    bios_scan_dir(cards, &ncards, APP_DIR "/saves");
+    bios_scan_dir(cards, &ncards, APP_DIR "/saves/imported");
     qsort(cards, ncards, sizeof *cards, cmp_games);
     for (i = 0; i < 2; i++) if (pick[i] > ncards) pick[i] = 0;
     if (ncards && !pick[0] && !pick[1]) pick[0] = 1;
@@ -1626,7 +1637,7 @@ static int bios_cards_page(void)
             snprintf(line, sizeof line, "Memory card %d   < %s >", i + 1, pick[i] ? cards[pick[i] - 1] : "none");
             text_fit(MARGIN, y, line, i == row ? C_ACCENT : C_TEXT);
         }
-        if (!ncards) ovl_text(MARGIN, 340, "No memory card files in " APP_DIR "/saves yet.", C_DIM);
+        if (!ncards) ovl_text(MARGIN, 340, "No memory card files in saves/ or saves/imported yet.", C_DIM);
         else if (pick[0] && pick[0] == pick[1]) ovl_text(MARGIN, 340, "The same file in both slots: choose another for one.", C_DIM);
         footer("Up/Down slot    Left/Right card    X start    Circle back");
         frame_end();

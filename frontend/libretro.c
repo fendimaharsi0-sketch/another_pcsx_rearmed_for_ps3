@@ -3880,12 +3880,27 @@ static void load_memcards(void)
          }
       }
       /* "file:<name>": that card file in the save directory (the PS3 front
-         end, for the BIOS's own menu); only a plain file name is taken */
+         end, for the BIOS's own menu); only a plain file name is taken.
+         The file is looked up in saves/ first, then in the imported
+         library (saves/imported/) — the BIOS picker lists both, and a
+         name in both places resolves to the top-level file, exactly as
+         the picker dedupes. A name in neither place keeps the top-level
+         path, so a fresh card is created there, as before. */
       else if (!strncmp(var.value, "file:", 5) && dir && var.value[5] && var.value[5] != '.'
                && !strchr(var.value + 5, '/') && !strchr(var.value + 5, '\\')
                && strlen(dir) + 1 + strlen(var.value + 5) < sizeof(Config.Mcd1)) {
          memcard_type[c - 1] = MEMCARDTYPE_SHARED;
          snprintf(mcdpath, sizeof(Config.Mcd1), "%s/%s", dir, var.value + 5);
+         {
+            char impath[sizeof(Config.Mcd1)];
+            FILE *t = fopen(mcdpath, "rb");
+            if (t) fclose(t);
+            else if (strlen(dir) + strlen("/imported/") + strlen(var.value + 5) + 1 <= sizeof(Config.Mcd1)) {
+               snprintf(impath, sizeof(impath), "%s/imported/%s", dir, var.value + 5);
+               t = fopen(impath, "rb");
+               if (t) { fclose(t); snprintf(mcdpath, sizeof(Config.Mcd1), "%s", impath); }
+            }
+         }
       }
       else {
          memcard_type[c - 1] = MEMCARDTYPE_NONE;

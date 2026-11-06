@@ -116,7 +116,7 @@ static const char *option_value(const char *key)
         static char mc[2][140];
         int k = key[20] == '2';
         if (!bios_card[k][0]) return "none";
-        snprintf(mc[k], sizeof mc[k], "file:%s", bios_card[k]);   /* a card file in saves/ (the core checks the name) */
+        snprintf(mc[k], sizeof mc[k], "file:%s", bios_card[k]);   /* a card file in saves/ (or saves/imported/ as a fallback; the core checks the name) */
         return mc[k];
     }
     if (!strcmp(key, "pcsx_rearmed_memcard1")) return cfg.mc1_mode == 1 ? "shared" : cfg.mc1_mode == 2 ? "none" : "serial";   /* serial: SCUS-12345_1.mcd in saves/; shared: the chosen library card (saves/imported/), or pcsx-card1.mcd when none is chosen */
