@@ -2357,15 +2357,15 @@ int menu_ingame(void)
             game_state_info(slot, info, sizeof info);
             msg = NULL;
         }
-        if (p & PAD_CIRCLE) { menu_name = "game list"; logf_("menu: resume\n"); return 0; }
+        if (p & PAD_CIRCLE) { disk_iface_close_lid(); menu_name = "game list"; logf_("menu: resume\n"); return 0; }
         if (p & PAD_CROSS) {
             switch (qitems[sel]) {
-            case 0: menu_name = "game list"; logf_("menu: resume\n"); return 0;
+            case 0: disk_iface_close_lid(); menu_name = "game list"; logf_("menu: resume\n"); return 0;
             case 1:
                 msg = game_save_state(slot) ? "State saved" : "Saving failed";
                 game_state_info(slot, info, sizeof info);
                 break;
-            case 2: if (game_load_state(slot)) return 0; msg = "This slot is empty"; break;
+            case 2: if (game_load_state(slot)) { disk_iface_close_lid(); return 0; } msg = "This slot is empty"; break;
             case 3: {
                 static char sm[280];
                 char lbl[256];
@@ -2375,7 +2375,7 @@ int menu_ingame(void)
                 } else msg = NULL;
                 break;
             }
-            case 4: game_reset(); return 0;
+            case 4: game_reset(); disk_iface_close_lid(); return 0;
             case 5:
                 cfg.analog ^= 1;
                 game_settings_changed();   /* applies the port type immediately */
@@ -2405,7 +2405,7 @@ int menu_ingame(void)
                 } else msg = NULL;
                 break;
             }
-            case 8: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
+            case 8: disk_iface_drop_lid(); menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
             case 9: {
                 static char dm[64];
                 int n = game_dump_vram();
@@ -2440,5 +2440,6 @@ int menu_ingame(void)
         if (msg) ovl_text(330, 180 + N * 46 + 56, msg, C_ACCENT);
         frame_end();
     }
+    disk_iface_drop_lid();
     return 1;
 }

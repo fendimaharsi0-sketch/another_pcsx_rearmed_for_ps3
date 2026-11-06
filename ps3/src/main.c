@@ -264,11 +264,37 @@ int disk_iface_path(unsigned i, char *buf, size_t len)
     return -1;
 }
 
-/* One full swap cycle: open the tray, change the disc, close it. The
-   core signals the change with a lid interrupt + a wall-clock case-open
-   timer, so the game detects the new disc on resume even though no
-   emulated frame ran between the three calls. The tray is closed again
-   even when the change itself fails, so the drive never stays open. */
+/* A swap opens the lid and changes the disc, but the lid is NOT closed
+   here. The core's case-open timer is wall-clock (2 s from the close),
+   and the game is paused in the menu while the user picks the disc, so
+   the timer used to expire before the game ever ran again: the drive
+   closed before the first poll and the game never saw the lid open
+   (GameShark kept asking for the lid to be opened; log: close at
+   3768.76, resume only at 3772.00). The lid closes on resume instead
+   (disk_iface_close_lid, from the pause menu's exits), so the 2 s run
+   while the game runs. A failed change still closes the lid at once,
+   so a bad swap never leaves the drive open. */
+static int swap_lid_open;   /* a swap left the lid open; close it on resume */
+
+/* Close the lid a swap left open. No-op when no swap is pending, so the
+   pause menu's exits can all call it unconditionally. */
+void disk_iface_close_lid(void)
+{
+    bool (*eject)(bool) = NULL;
+    if (!swap_lid_open) return;
+    swap_lid_open = 0;
+    if (disk_ext_cb) eject = disk_ext_cb->set_eject_state;
+    if (!eject && disk_cb) eject = disk_cb->set_eject_state;
+    if (eject) eject(false);
+}
+
+/* Quitting instead of resuming just drops the pending close: the game is
+   gone, nothing observes the lid, and the next game must not inherit it. */
+void disk_iface_drop_lid(void)
+{
+    swap_lid_open = 0;
+}
+
 int disk_iface_swap_to_index(unsigned i)
 {
     bool (*eject)(bool) = NULL;
@@ -279,8 +305,9 @@ int disk_iface_swap_to_index(unsigned i)
     if (!eject || !setidx) return -1;
     eject(true);
     ok = setidx(i);
+    if (ok) { swap_lid_open = 1; return 0; }
     eject(false);
-    return ok ? 0 : -1;
+    return -1;
 }
 
 int disk_iface_swap_to_file(const char *path)
@@ -296,14 +323,17 @@ int disk_iface_swap_to_file(const char *path)
     if (!eject || !replace) return -1;
     /* Replace the disc currently in the drive, like a physical swap:
        the running program (a GameShark boot disc, a game waiting for
-       the next disc) keeps running, no reset anywhere in the sequence. */
+       the next disc) keeps running, no reset anywhere in the sequence.
+       The lid stays open until resume (see disk_iface_swap_to_index);
+       a failed replace closes it at once. */
     cur = disk_iface_current_index();
     memset(&info, 0, sizeof info);
     info.path = path;
     eject(true);
     ok = replace(cur, &info);
+    if (ok) { swap_lid_open = 1; return 0; }
     eject(false);
-    return ok ? 0 : -1;
+    return -1;
 }
 
 static void video_cb(const void *data, unsigned w, unsigned h, size_t pitch)

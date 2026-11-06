@@ -218,6 +218,8 @@ int disk_iface_label(unsigned i, char *buf, size_t len);  /* 0 ok, -1 unavailabl
 int disk_iface_path(unsigned i, char *buf, size_t len);   /* 0 ok, -1 unavailable */
 int disk_iface_swap_to_index(unsigned i);    /* swap to a playlist disc; 0 ok */
 int disk_iface_swap_to_file(const char *path);  /* replace the drive's disc with an image file; 0 ok */
+void disk_iface_close_lid(void);               /* close a lid a swap left open (on resume); no-op otherwise */
+void disk_iface_drop_lid(void);                /* drop a pending lid close (on quit); no eject call */
 
 /* spu_mdec.c: FMV decoding on the SPUs */
 int  spu_mdec_init(int nspu);              /* starts the SPU threads + self-test; 1 = usable */
