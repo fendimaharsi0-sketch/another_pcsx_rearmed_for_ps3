@@ -24,9 +24,9 @@
 */
 
 #include "gte.h"
-#include "pgxp.h"
 #include "gte_arm.h"
 #include "psxmem.h"
+#include "pgxp_lite.h"
 #include "../include/compiler_features.h"
 #include "../include/arm_features.h"
 
@@ -600,6 +600,26 @@ static inline s64 gte_wide_x(s64 proj)
     return gte_widescreen ? proj * 3 / 4 : proj;
 }
 
+/* PGXP-lite (pgxp_lite.h): the vertex just projected, in floating point, kept
+   with its sub-pixel offset from the whole-pixel result and its depth. Every
+   projected vertex is stored, so that an older entry under the same word is
+   never used for it:
+   - the usual case: the precise offset and the depth;
+   - the divider saturated or the result was clamped (a vertex very close to the
+     camera, or off screen): the PS1's own position (offset 0), but the depth, so
+     a textured polygon reaching to it still gets perspective (its texture used
+     to switch between straight and warped as the vertex came and went);
+   - behind the camera: no depth either. Only the usual sf=1 form. */
+static noinline void pgxp_lite_rtp(psxCP2Regs *regs, s32 vx, s32 vy, s32 vz, u32 h,
+	s32 sz3, s16 sx, s16 sy)
+{
+	/* only the GTE's integers: worked out later, many together (pgxp_lite.c) */
+	pgxp_lite_project((s64)gteTRX * 4096 + gteR11 * vx + gteR12 * vy + gteR13 * vz,
+	                  (s64)gteTRY * 4096 + gteR21 * vx + gteR22 * vy + gteR23 * vz,
+	                  (s64)gteTRZ * 4096 + gteR31 * vx + gteR32 * vy + gteR33 * vz,
+	                  h, gteOFX, gteOFY, sx, sy, ((u32)sz3 * 2 > h) | (gte_widescreen ? 2 : 0));
+}
+
 static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 {
 	s32 vx = gteVX0, vy = gteVY0, vz = gteVZ0;
@@ -629,15 +649,22 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 
 	gteSX2 = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)gteIR1 * quotient)) >> 16);
 	gteSY2 = limG2(&flags, mac0flags(&flags, gteOFY + (s64)gteIR2 * quotient) >> 16);
-	/* PGXP slice 1: record the pre-truncation float position and depth before
-	   the >>16 truncation above discards the fraction. The expression mirrors
-	   the integer one exactly (same widescreen scaling), so the float claims
-	   to describe precisely the integer vertex the game got. */
-	if (gte_pgxp && sz3 > 0)
-		pgxp_push(gteSX2, gteSY2,
+	if (unlikely(pgxp_lite_on) && shift)
+		pgxp_lite_rtp(regs, vx, vy, vz, gteH, sz3, gteSX2, gteSY2);
+	/* PGXP correctors (pgxp_lite.h): the culling cache and the RAM-shadow
+	   register shadow, each gated by its own corrector's flag (see the
+	   shared gate there). The float expressions mirror the integer ones
+	   exactly (same widescreen scaling), so each float claims to describe
+	   precisely the integer vertex the game got. */
+	if (unlikely(pgxp_cull_track) && sz3 > 0)
+		pgxp_corr_push(gteSX2, gteSY2,
 			(float)((gteOFX + gte_wide_x((s64)gteIR1 * quotient)) / 65536.0),
 			(float)((gteOFY + (s64)gteIR2 * quotient) / 65536.0), sz3);
-	if (pgxp_track) pgxp_on_rtps(gteSXY2, (float)((gteOFX + gte_wide_x((s64)gteIR1 * quotient)) / 65536.0), (float)((gteOFY + (s64)gteIR2 * quotient) / 65536.0), sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
+	if (unlikely(pgxp_corr_track))
+		pgxp_corr_on_rtps(gteSXY2,
+			(float)((gteOFX + gte_wide_x((s64)gteIR1 * quotient)) / 65536.0),
+			(float)((gteOFY + (s64)gteIR2 * quotient) / 65536.0),
+			sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
 	gteIR0 = limH(&flags, mac0 >> 12);
@@ -674,11 +701,18 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 		fSZ(v) = sz3;
 		fSX(v) = limG1(&flags, mac0flags(&flags, gteOFX + gte_wide_x((s64)ir1 * quotient)) >> 16);
 		fSY(v) = limG2(&flags, mac0flags(&flags, gteOFY + (s64)ir2 * quotient) >> 16);
-		if (gte_pgxp && sz3 > 0)
-			pgxp_push(fSX(v), fSY(v),
+		if (unlikely(pgxp_lite_on) && shift)
+			pgxp_lite_rtp(regs, vx, vy, vz, h, sz3, fSX(v), fSY(v));
+		/* PGXP correctors (pgxp_lite.h): same pair as in gteRTPS above. */
+		if (unlikely(pgxp_cull_track) && sz3 > 0)
+			pgxp_corr_push(fSX(v), fSY(v),
 				(float)((gteOFX + gte_wide_x((s64)ir1 * quotient)) / 65536.0),
 				(float)((gteOFY + (s64)ir2 * quotient) / 65536.0), sz3);
-		if (pgxp_track) pgxp_on_rtpt(v, regs->CP2D.r[12 + v], (float)((gteOFX + gte_wide_x((s64)ir1 * quotient)) / 65536.0), (float)((gteOFY + (s64)ir2 * quotient) / 65536.0), sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
+		if (unlikely(pgxp_corr_track))
+			pgxp_corr_on_rtpt(v, regs->CP2D.r[12 + v],
+				(float)((gteOFX + gte_wide_x((s64)ir1 * quotient)) / 65536.0),
+				(float)((gteOFY + (s64)ir2 * quotient) / 65536.0),
+				sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
 	}
 
 	gteMAC1 = mac1;
@@ -802,34 +836,15 @@ static inline void gteNCLIP_(psxCP2Regs *regs)
 	gteMAC0 = mac0flags(&flags, (s64)(gteSX0 * (gteSY1 - gteSY2)) +
 				gteSX1 * (gteSY2 - gteSY0) +
 				gteSX2 * (gteSY0 - gteSY1));
-	if (gte_pgxp & PGXP_CULL) {
-		/* Culling correction: recompute the winding from the precise GTE
-		   positions when all three FIFO vertices validate. A near-edge-on
-		   polygon whose integer winding rounds to zero (or the wrong sign)
-		   is what flickers out as a hole; the precise winding restores it.
-		   Any miss keeps the integer result above. A sliver with a nonzero
-		   precise winding is bumped to +/-1 so the game's sign test sees it
-		   unambiguously (DuckStation's sliver rule). */
-		float x0, y0, x1, y1, x2, y2, iw;
-		if (pgxp_lookup(gteSX0, gteSY0, &x0, &y0, &iw) &&
-		    pgxp_lookup(gteSX1, gteSY1, &x1, &y1, &iw) &&
-		    pgxp_lookup(gteSX2, gteSY2, &x2, &y2, &iw)) {
-			float det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
-			if (det != 0.0f) {
-				/* PGXP log: compare against the integer winding above. */
-				s64 idet = (s64)gteSX0 * (gteSY1 - gteSY2) +
-				           (s64)gteSX1 * (gteSY2 - gteSY0) +
-				           (s64)gteSX2 * (gteSY0 - gteSY1);
-				pgxp_stats.nclip_total++;
-				if ((idet > 0 && det < 0.0f) || (idet < 0 && det > 0.0f))
-					pgxp_stats.nclip_flip++;
-				else if (idet == 0)
-					pgxp_stats.nclip_restore++;
-				if (det > 0.0f && det < 1.0f) det = 1.0f;
-				else if (det < 0.0f && det > -1.0f) det = -1.0f;
-				flags = 0;   /* mac0flags only sets bits: drop the integer result's flags */
-				gteMAC0 = mac0flags(&flags, (s64)det);
-			}
+	/* PGXP culling corrector (pgxp_lite.h): recompute the winding from the
+	   precise GTE positions when all three FIFO vertices validate in the
+	   cache. Any miss, or a precise winding of zero, keeps the integer
+	   result above. */
+	if (pgxp_cull_track) {
+		int64_t det;
+		if (pgxp_corr_nclip(gteSX0, gteSY0, gteSX1, gteSY1, gteSX2, gteSY2, &det)) {
+			flags = 0;   /* mac0flags only sets bits: drop the integer result's flags */
+			gteMAC0 = mac0flags(&flags, det);
 		}
 	}
 	gteFLAG = getFinalFlag(flags);

@@ -25,9 +25,9 @@
 #include "psxcommon.h"
 #include "r3000a.h"
 #include "gte.h"
-#include "pgxp.h"
 #include "psxhle.h"
 #include "psxinterpreter.h"
+#include "pgxp_lite.h"
 #include <stddef.h>
 #include <assert.h>
 #include "../include/compiler_features.h"
@@ -801,17 +801,17 @@ static inline int checkST(psxRegisters *regs, u32 addr, u32 m) {
 
 #define _oB_ (regs_->GPR.r[_Rs_] + _Imm_)
 
-OP(psxLB)  { doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); }
-OP(psxLBU) { doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); }
-OP(psxLH)  { doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_ & ~1)); pgxp_on_lh_ram(_Rt_); }
-OP(psxLHU) { doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_ & ~1)); pgxp_on_lh_ram(_Rt_); }
-OP(psxLW)  { u32 v = psxMemRead32(regs_, _oB_ & ~3); doLoad(regs_, _Rt_, v); pgxp_on_lw_ram(_oB_ & ~3, v, _Rt_, 0); }
+OP(psxLB)  { doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); pgxp_corr_on_lb_ram(_Rt_); }
+OP(psxLBU) { doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); pgxp_corr_on_lb_ram(_Rt_); }
+OP(psxLH)  { doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_ & ~1)); pgxp_corr_on_lh_ram(_Rt_); }
+OP(psxLHU) { doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_ & ~1)); pgxp_corr_on_lh_ram(_Rt_); }
+OP(psxLW)  { u32 v = psxMemRead32(regs_, _oB_ & ~3); doLoad(regs_, _Rt_, v); pgxp_corr_on_lw_ram(_oB_ & ~3, v, _Rt_, 0); }
 
-OP(psxLBe)  { if (checkLD(regs_, _oB_, 0)) { doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); } }
-OP(psxLBUe) { if (checkLD(regs_, _oB_, 0)) { doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); pgxp_on_lb_ram(_Rt_); } }
-OP(psxLHe)  { if (checkLD(regs_, _oB_, 1)) { doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_)); pgxp_on_lh_ram(_Rt_); } }
-OP(psxLHUe) { if (checkLD(regs_, _oB_, 1)) { doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_)); pgxp_on_lh_ram(_Rt_); } }
-OP(psxLWe)  { if (checkLD(regs_, _oB_, 3)) { u32 v = psxMemRead32(regs_, _oB_); doLoad(regs_, _Rt_, v); pgxp_on_lw_ram(_oB_, v, _Rt_, 0); } }
+OP(psxLBe)  { if (checkLD(regs_, _oB_, 0)) { doLoad(regs_, _Rt_,  (s8)psxMemRead8(regs_, _oB_)); pgxp_corr_on_lb_ram(_Rt_); } }
+OP(psxLBUe) { if (checkLD(regs_, _oB_, 0)) { doLoad(regs_, _Rt_,      psxMemRead8(regs_, _oB_)); pgxp_corr_on_lb_ram(_Rt_); } }
+OP(psxLHe)  { if (checkLD(regs_, _oB_, 1)) { doLoad(regs_, _Rt_, (s16)psxMemRead16(regs_, _oB_)); pgxp_corr_on_lh_ram(_Rt_); } }
+OP(psxLHUe) { if (checkLD(regs_, _oB_, 1)) { doLoad(regs_, _Rt_,      psxMemRead16(regs_, _oB_)); pgxp_corr_on_lh_ram(_Rt_); } }
+OP(psxLWe)  { if (checkLD(regs_, _oB_, 3)) { u32 v = psxMemRead32(regs_, _oB_); doLoad(regs_, _Rt_, v); pgxp_corr_on_lw_ram(_oB_, v, _Rt_, 0); } }
 
 static void doLWL(psxRegisters *regs, u32 rt, u32 addr) {
 	static const u32 LWL_MASK[4] = { 0xffffff, 0xffff, 0xff, 0 };
@@ -865,26 +865,26 @@ static void doLWR(psxRegisters *regs, u32 rt, u32 addr) {
 	*/
 }
 
-/* Sub-word PGXP readback: the merged post-write word is read back only
- * when the containing word is RAM/scratchpad (pgxp_ram_shadow_at range
- * check first), so an I/O address is never read for PGXP (reads can have
- * side effects there); for any other address the hook gets 0 and no-ops
- * on its own NULL slot lookup. The hooks themselves gate on pgxp_track. */
-#define PGXP_MERGED_(a) (pgxp_ram_shadow_at((a) & ~3) ? psxMemRead32(regs_, (a) & ~3) : 0)
+/* PGXP RAM-shadow corrector (pgxp_lite.h): the merged post-write word for
+ * sub-word/unaligned ops — read back only when the containing word is
+ * RAM/scratchpad (pgxp_corr_ram_shadow_at range check first), 0 otherwise
+ * (the hooks then only no-op on a NULL slot lookup). The hooks themselves
+ * gate on pgxp_corr_track. */
+#define PGXP_CORR_MERGED_(a) (pgxp_corr_ram_shadow_at((a) & ~3) ? psxMemRead32(regs_, (a) & ~3) : 0)
 
-OP(psxLWL) { doLWL(regs_, _Rt_, _oB_); pgxp_on_lwl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
-OP(psxLWR) { doLWR(regs_, _Rt_, _oB_); pgxp_on_lwr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
+OP(psxLWL) { doLWL(regs_, _Rt_, _oB_); pgxp_corr_on_lwl_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); }
+OP(psxLWR) { doLWR(regs_, _Rt_, _oB_); pgxp_corr_on_lwr_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); }
 
-OP(psxLWLe) { if (checkLD(regs_, _oB_ & ~3, 0)) { doLWL(regs_, _Rt_, _oB_); pgxp_on_lwl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
-OP(psxLWRe) { if (checkLD(regs_, _oB_     , 0)) { doLWR(regs_, _Rt_, _oB_); pgxp_on_lwr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
+OP(psxLWLe) { if (checkLD(regs_, _oB_ & ~3, 0)) { doLWL(regs_, _Rt_, _oB_); pgxp_corr_on_lwl_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); } }
+OP(psxLWRe) { if (checkLD(regs_, _oB_     , 0)) { doLWR(regs_, _Rt_, _oB_); pgxp_corr_on_lwr_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); } }
 
-OP(psxSB) { psxMemWrite8 (regs_, _oB_, _rRt_); pgxp_on_sb_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
-OP(psxSH) { psxMemWrite16(regs_, _oB_, _rRt_); pgxp_on_sh_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
-OP(psxSW) { psxMemWrite32(regs_, _oB_, _rRt_); pgxp_on_sw_ram(_oB_, _rRt_, _Rt_, 0); }
+OP(psxSB) { psxMemWrite8 (regs_, _oB_, _rRt_); pgxp_corr_on_sb_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); }
+OP(psxSH) { psxMemWrite16(regs_, _oB_, _rRt_); pgxp_corr_on_sh_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); }
+OP(psxSW) { psxMemWrite32(regs_, _oB_, _rRt_); pgxp_corr_on_sw_ram(_oB_, _rRt_, _Rt_, 0); }
 
-OP(psxSBe) { if (checkST(regs_, _oB_, 0)) { psxMemWrite8 (regs_, _oB_, _rRt_); pgxp_on_sb_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
-OP(psxSHe) { if (checkST(regs_, _oB_, 1)) { psxMemWrite16(regs_, _oB_, _rRt_); pgxp_on_sh_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
-OP(psxSWe) { if (checkST(regs_, _oB_, 3)) { psxMemWrite32(regs_, _oB_, _rRt_); pgxp_on_sw_ram(_oB_, _rRt_, _Rt_, 0); } }
+OP(psxSBe) { if (checkST(regs_, _oB_, 0)) { psxMemWrite8 (regs_, _oB_, _rRt_); pgxp_corr_on_sb_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); } }
+OP(psxSHe) { if (checkST(regs_, _oB_, 1)) { psxMemWrite16(regs_, _oB_, _rRt_); pgxp_corr_on_sh_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); } }
+OP(psxSWe) { if (checkST(regs_, _oB_, 3)) { psxMemWrite32(regs_, _oB_, _rRt_); pgxp_corr_on_sw_ram(_oB_, _rRt_, _Rt_, 0); } }
 
 static void doSWL(psxRegisters *regs, u32 rt, u32 addr) {
 	u32 val = regs->GPR.r[rt];
@@ -927,11 +927,11 @@ static void doSWR(psxRegisters *regs, u32 rt, u32 addr) {
 	*/
 }
 
-OP(psxSWL) { doSWL(regs_, _Rt_, _oB_); pgxp_on_swl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
-OP(psxSWR) { doSWR(regs_, _Rt_, _oB_); pgxp_on_swr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); }
+OP(psxSWL) { doSWL(regs_, _Rt_, _oB_); pgxp_corr_on_swl_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); }
+OP(psxSWR) { doSWR(regs_, _Rt_, _oB_); pgxp_corr_on_swr_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); }
 
-OP(psxSWLe) { if (checkST(regs_, _oB_ & ~3, 0)) { doSWL(regs_, _Rt_, _oB_); pgxp_on_swl_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
-OP(psxSWRe) { if (checkST(regs_, _oB_     , 0)) { doSWR(regs_, _Rt_, _oB_); pgxp_on_swr_ram(_oB_, PGXP_MERGED_(_oB_), _Rt_); } }
+OP(psxSWLe) { if (checkST(regs_, _oB_ & ~3, 0)) { doSWL(regs_, _Rt_, _oB_); pgxp_corr_on_swl_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); } }
+OP(psxSWRe) { if (checkST(regs_, _oB_     , 0)) { doSWR(regs_, _Rt_, _oB_); pgxp_corr_on_swr_ram(_oB_, PGXP_CORR_MERGED_(_oB_), _Rt_); } }
 
 /*********************************************************
 * Moves between GPR and COPx                             *
@@ -1038,9 +1038,9 @@ OP(psxCOP2) {
 		return;
 	}
 	switch (rs) {
-		case 0x00: { u32 v = MFC2(&regs_->CP2, rd); doLoad(regs_, rt, v); pgxp_on_mfc2(rd, rt, v); } break; // MFC2
+		case 0x00: { u32 v = MFC2(&regs_->CP2, rd); doLoad(regs_, rt, v); pgxp_corr_on_mfc2(rd, rt, v); } break; // MFC2
 		case 0x02: doLoad(regs_, rt, regs_->CP2C.r[rd]);     break; // CFC2
-		case 0x04: pgxp_on_mtc2(rt, rd, regs_->GPR.r[rt], 0); MTC2(&regs_->CP2, regs_->GPR.r[rt], rd);  break; // MTC2
+		case 0x04: pgxp_corr_on_mtc2(rt, rd, regs_->GPR.r[rt], 0); MTC2(&regs_->CP2, regs_->GPR.r[rt], rd);  break; // MTC2
 		case 0x06: CTC2(&regs_->CP2, regs_->GPR.r[rt], rd);  break; // CTC2
 		case 0x08:
 		case 0x0c: log_unhandled("BC2 %08x @%08x\n", code, regs_->pc - 4);
@@ -1055,7 +1055,9 @@ OP(psxCOP2_stall) {
 }
 
 OP(gteLWC2) {
-	u32 v = psxMemRead32(regs_, _oB_); MTC2(&regs_->CP2, v, _Rt_); pgxp_on_lw_ram(_oB_, v, _Rt_, 1);
+	u32 v = psxMemRead32(regs_, _oB_);
+	MTC2(&regs_->CP2, v, _Rt_);
+	pgxp_corr_on_lw_ram(_oB_, v, _Rt_, 1);
 }
 
 OP(gteLWC2_stall) {
@@ -1068,13 +1070,16 @@ OP(gteLWC2e_stall) {
 	if (checkLD(regs_, _oB_, 3)) {
 		u32 v = psxMemRead32(regs_, _oB_);
 		MTC2(&regs_->CP2, v, _Rt_);
-		pgxp_on_lw_ram(_oB_, v, _Rt_, 1);
+		pgxp_corr_on_lw_ram(_oB_, v, _Rt_, 1);
 	}
 }
 
 OP(gteSWC2) {
 	u32 v = MFC2(&regs_->CP2, _Rt_);
-	psxMemWrite32(regs_, _oB_, v); pgxp_on_sw_ram(_oB_, v, _Rt_, 1);
+	psxMemWrite32(regs_, _oB_, v);
+	if (unlikely(pgxp_lite_on) && _Rt_ >= 12 && _Rt_ <= 15)
+		pgxp_lite_swc2(_oB_, v);
+	pgxp_corr_on_sw_ram(_oB_, v, _Rt_, 1);
 }
 
 OP(gteSWC2_stall) {

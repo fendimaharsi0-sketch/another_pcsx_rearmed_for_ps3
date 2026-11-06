@@ -18,6 +18,10 @@ struct gpu_frontend_hooks {
 	/* VRAM area about to be read from the core's VRAM (GPU->CPU transfer, copy
 	 * source, savestate): a front-end that draws itself must bring it up to date */
 	void (*vram_read)(int x, int y, int w, int h);
+	/* VRAM-to-VRAM copy (GP0 80h; msb: set bit 15); nonzero: the front-end
+	 * did it in its own VRAM and the core's copy is skipped (the front-end
+	 * then owns the destination, see vram_read) */
+	int (*vram_copy)(int sx, int sy, int dx, int dy, int w, int h, int msb);
 	/* drawing state registers E1..E6 reloaded (host-endian) */
 	void (*sync_ecmds)(const uint32_t *ex_regs);
 	/* show the display area; return nonzero if the front-end presented it,

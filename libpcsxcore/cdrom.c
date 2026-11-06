@@ -517,6 +517,19 @@ static void cdrPlayInterrupt_Autopause()
 		cdr.ReportDelay--;
 }
 
+/* Front end: data reads and seeks this many times faster (1 normal, 2 the
+   "Turbo" CD-ROM speed). Audio (CD-DA, XA streams) keeps its speed. Config.TurboCD
+   ("Max") is the old, far faster mode. */
+int cdr_speed_up = 1;
+
+static u32 cdrDataReadTime(void)
+{
+	u32 t = (cdr.Mode & MODE_SPEED) ? (cdReadTime / 2) : cdReadTime;
+	if (cdr_speed_up > 1 && !(cdr.Mode & MODE_STRSND) && !cdr.AdpcmActive)
+		t /= cdr_speed_up;
+	return t;
+}
+
 static boolean canDoTurbo(void)
 {
 	u32 c = psxRegs.cycle;
@@ -545,6 +558,8 @@ static int cdrSeekTime(unsigned char *target)
 		seekTime += cdReadTime;
 
 	//seekTime = MIN_VALUE(seekTime, PSXCLK * 2 / 3);
+	if (cdr_speed_up > 1)
+		seekTime /= cdr_speed_up;
 	CDR_LOG("seek: %02d:%02d:%02d %.2f %.2f (%.2f) st %d di %d\n",
 		target[0], target[1], target[2], (float)seekTime / PSXCLK,
 		(float)seekTime / cdReadTime, (float)cyclesSinceRS / cdReadTime,
@@ -1349,7 +1364,7 @@ static void cdrReadInterrupt(void)
 	UpdateSubq(subqPos);
 	if (cdr.SubqForwardSectors < SUBQ_FORWARD_SECTORS) {
 		cdr.SubqForwardSectors++;
-		CDRPLAYREAD_INT((cdr.Mode & MODE_SPEED) ? (cdReadTime / 2) : cdReadTime, 0);
+		CDRPLAYREAD_INT(cdrDataReadTime(), 0);
 		return;
 	}
 
@@ -1431,7 +1446,7 @@ static void cdrReadInterrupt(void)
 	msfiAdd(cdr.SetSectorPlay, 1);
 	cdra_prefetch(cdr.SetSectorPlay[0], cdr.SetSectorPlay[1], cdr.SetSectorPlay[2], 0);
 
-	CDRPLAYREAD_INT((cdr.Mode & MODE_SPEED) ? (cdReadTime / 2) : cdReadTime, 0);
+	CDRPLAYREAD_INT(cdrDataReadTime(), 0);
 }
 
 /*

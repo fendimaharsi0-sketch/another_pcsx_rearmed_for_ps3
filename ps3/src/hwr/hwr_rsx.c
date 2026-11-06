@@ -50,7 +50,6 @@
 #include "core_hooks.h"
 #include "shaders.h"
 #include "hwr.h"
-#include "../../../libpcsxcore/pgxp.h"
 #include "gpu_hooks.h"           /* from the core: plugins/gpulib */
 
 #define HWR_MAXS     4      /* widest scale: 1024 * 4 = 4096, the RSX's surface and texture limit */
@@ -58,6 +57,10 @@
 #define HWR_NSNAP    16
 #define HWR_SNAPSZ   (1024 * 1024)
 #define HWR_VRING    (8 * 1024 * 1024)
+#define HWR_VMISC    (256 * 1024)    /* the ring's last part: copy quads (rsx_copy2), so they never
+                                        land in a batch the core is still writing (vtx_area) */
+#define HWR_VMAIN    (HWR_VRING - HWR_VMISC)
+#define HWR_VAREA_MIN (1024 * 1024)  /* a batch area smaller than this: start the ring again */
 #define HWR_VTX_S32K 5           /* RSX vertex format: signed 16-bit, not normalized (missing from PSL1GHT) */
 #define HWR_LABEL    200          /* CPU-visible sequence; libgcm reserves 0..63 */
 #define HWR_BLABEL   201          /* RSX-side barrier */
@@ -76,7 +79,7 @@ static struct {
     u8 *rb, *rbdep; u32 rb_off, rbdep_off;   /* readback buffer (main memory, VRAM layout) */
     rsxVertexProgram *qvp; void *qvpu;      /* plain textured quad (for upload copies) */
     rsxFragmentProgram *fblit; u32 fblit_off, fblit_unit;
-    u8 *vring; u32 vring_off; u32 vpos;
+    u8 *vring; u32 vring_off; u32 vpos, mpos;   /* mpos: in the copy-quad part */
     volatile u32 *label, *blabel; u32 seq, bseq;
     rsxVertexProgram *vp; void *vpu;
     /* program sets: [0] byte-decoding programs, [1] fast programs (texture unit decodes) */
@@ -738,23 +741,68 @@ static void rsxr_submit(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx *
     R.t_submit += gpulib_prof_now() - t0;
 }
 
+/* PGXP-lite kill gate: while the setting is off the whole lite path is dead.
+ * pgxp_lite_on lives in the core (libpcsxcore/pgxp_lite.c); this file already
+ * takes it in log_stats, so the plain extern here adds no new link requirement.
+ * The ring layout follows the switch: the lite path splits the ring (batches in
+ * the main part, copy quads in the last 256 KiB), the pre-lite path uses the
+ * whole ring for both. On a switch, drain everything queued and restart both
+ * positions, so a batch never overwrites a copy quad the RSX is still reading
+ * (or the other way round). */
+extern int pgxp_lite_on;
+extern int pgxp_corr_track;   /* core, libpcsxcore/pgxp_lite.c: the RAM-shadow corrector's effective track */
+extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling corrector's effective track */
+static int pgxp_on(void) { return pgxp_lite_on; }
+static int ring_lite = -1;   /* the layout the ring is in now; -1: not started */
+static int ring_sync(int lite)   /* 1: the ring is in this layout (drained first if it changed) */
+{
+    if (lite != ring_lite) {
+        if (!wait_seq(R.seq)) return 0;
+        R.vpos = 0; R.mpos = 0;
+        ring_lite = lite;
+    }
+    return 1;
+}
+
+/* the core writes a batch's vertices straight into the ring (see hwr_dev.vtx_area):
+   from R.vpos to the end of the main part, at most VCAP (hwr_core.c) */
+static hwr_vtx *rsxr_vtx_area(hwr_dev *d, int *cap)
+{
+    u32 n;
+    (void)d;
+    if (R.dead) return NULL;
+    if (!pgxp_on()) return NULL;   /* kill gate: OFF = the core's own buffer, exactly like pre-lite */
+    if (!ring_sync(1)) return NULL;   /* the ring layout follows the switch (see above) */
+    if (R.vpos + HWR_VAREA_MIN > HWR_VMAIN) {     /* wrap: everything already queued must finish first */
+        if (!wait_seq(R.seq)) return NULL;
+        R.vpos = 0;
+    }
+    n = (HWR_VMAIN - R.vpos) / sizeof(hwr_vtx);
+    *cap = n > 65536 ? 65536 : (int)n;
+    return (hwr_vtx *)(R.vring + R.vpos);
+}
+
 static void rsxr_submit_(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx *v, int nv)
 {
+    hwr_sprites_apart = cfg.sprite_texfilter != cfg.texfilter;   /* (for the next batches) */
     u32 bytes = (u32)nv * sizeof *v, base, st = sizeof *v;
+    int lite = pgxp_on();
+    int inplace = lite && (const u8 *)v == R.vring + R.vpos;   /* written there by the core */
     (void)d;
     if (!nops || !nv || R.dead) return;
-    if (R.vpos + bytes > HWR_VRING) {             /* wrap: everything already queued must finish first */
+    if (!ring_sync(lite)) return;   /* the ring layout follows the switch (see above) */
+    if (!inplace && R.vpos + bytes > (lite ? HWR_VMAIN : HWR_VRING)) {  /* wrap: everything already queued must finish first */
         if (!wait_seq(R.seq)) return;
         R.vpos = 0;
     }
     {
     u64 t0 = gpulib_prof_now();
-    {   /* the ring lines are claimed with dcbz first: a plain store would make the PPU
-           read each 128-byte line from memory before overwriting it */
+    if (!inplace) {   /* the ring lines are claimed with dcbz first: a plain store would make the PPU
+                         read each 128-byte line from memory before overwriting it */
         u8 *d = R.vring + R.vpos, *e = d + ((bytes + 127) & ~127u);
         for (; d < e; d += 128) __asm__ volatile("dcbz 0,%0" : : "r"(d) : "memory");
+        memcpy(R.vring + R.vpos, v, bytes);
     }
-    memcpy(R.vring + R.vpos, v, bytes);
     if (R.base.full) {      /* native-pass depth: one value per triangle, increasing */
         hwr_vtx *q = (hwr_vtx *)(R.vring + R.vpos);
         int k;
@@ -779,8 +827,7 @@ static void rsxr_submit_(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx 
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, base + 40, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX3, 0, base + 48, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX4, 0, base + 56, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
-    /* PGXP slice 1: pre-divided texcoords (uw, vw, invw, pad) at offset 64 */
-    rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX5, 0, base + 64, st, 4, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_CELL);
+    rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX5, 0, base + 64, st, 4, HWR_VTX_S32K, GCM_LOCATION_CELL);
     if (!R.mask_used) {
         int i;
         for (i = 0; i < nops; i++)
@@ -944,11 +991,11 @@ static void read_collect(int x, int y, int w, int h)
 
 /* one quad of a copy between two 512x512 A8R8G8B8 views of VRAM (one pixel = two
    halfwords); colour mask selects the halfwords of edge pixels */
-static void copy_quad(u32 vbase, int k, int px0, int px1, int y0, int y1, float v0, float v1, u32 mask)
+static void copy_quad(u32 vbase, int k, int px0, int px1, int y0, int y1, float v0, float v1, u32 mask, int du)
 {
     float *q = (float *)(R.vring + vbase - R.vring_off) + k * 24;
     float X0 = px0 / 256.f - 1.f, X1 = px1 / 256.f - 1.f, Y0 = 1.f - y0 / 256.f, Y1 = 1.f - y1 / 256.f;
-    float u0 = px0 / 512.f, u1 = px1 / 512.f;
+    float u0 = (px0 + du) / 512.f, u1 = (px1 + du) / 512.f;   /* du: source pixels to the right */
     float v[24] = { X0, Y0, u0, v0, 0.f, 0.f,   X1, Y0, u1, v0, 0.f, 0.f,
                     X0, Y1, u0, v1, 0.f, 0.f,   X1, Y1, u1, v1, 0.f, 0.f };
     memcpy(q, v, sizeof v);
@@ -963,17 +1010,31 @@ static void copy_quad(u32 vbase, int k, int px0, int px1, int y0, int y1, float 
 /* Copies VRAM rect (x, y, w, h) (not wrapping) between two buffers laid out like
    VRAM (2048-byte rows, big-endian halfwords), as a byte-exact A8R8G8B8 draw.
    The source texture is src_h rows tall starting at VRAM row src_row0. exact:
-   only the halfwords of the rect are written (else whole pixel pairs). */
-static void rsx_copy(u8 dst_loc, u32 dst_off, u32 ddep_off, u8 src_loc, u32 src_off, int src_h, int src_row0,
-                     int x, int y, int w, int h, int exact)
+   only the halfwords of the rect are written (else whole pixel pairs). The source
+   rect is (sx, sy): x and sx must be both even or both odd (whole pixel pairs). */
+static void rsx_copy2(u8 dst_loc, u32 dst_off, u32 ddep_off, u8 src_loc, u32 src_off, int src_h, int src_row0,
+                      int sx, int sy, int x, int y, int w, int h, int exact)
 {
-    int px0 = x >> 1, px1 = (x + w + 1) >> 1, i;
-    float v0 = (float)(y - src_row0) / src_h, v1 = (float)(y + h - src_row0) / src_h;
+    int px0 = x >> 1, px1 = (x + w + 1) >> 1, i, du = (sx >> 1) - (x >> 1);
+    float v0 = (float)(sy - src_row0) / src_h, v1 = (float)(sy + h - src_row0) / src_h;
     u32 vbase;
     gcmSurface sf; gcmTexture t;
-    if (R.vpos + 3 * 96 > HWR_VRING) { if (!wait_seq(R.seq)) return; R.vpos = 0; }
-    vbase = R.vring_off + R.vpos;
-    R.vpos = (R.vpos + 3 * 96 + 127) & ~127u;
+    int lite = pgxp_on();
+    if (!ring_sync(lite)) return;   /* the ring layout follows the switch (see above) */
+    if (lite) {
+        if (R.mpos + 3 * 96 > HWR_VMISC) {   /* wrap: the copies queued so far must be done */
+            R.seq++;
+            rsxSetWriteBackendLabel(rsx_ctx, HWR_LABEL, R.seq);
+            if (!wait_seq(R.seq)) return;
+            R.mpos = 0;
+        }
+        vbase = R.vring_off + HWR_VMAIN + R.mpos;
+        R.mpos = (R.mpos + 3 * 96 + 127) & ~127u;
+    } else {   /* kill gate: pre-lite, the copy quads share the ring with the batches */
+        if (R.vpos + 3 * 96 > HWR_VRING) { if (!wait_seq(R.seq)) return; R.vpos = 0; }
+        vbase = R.vring_off + R.vpos;
+        R.vpos = (R.vpos + 3 * 96 + 127) & ~127u;
+    }
     memset(&sf, 0, sizeof sf);
     sf.colorFormat = GCM_SURFACE_A8R8G8B8; sf.colorTarget = GCM_SURFACE_TARGET_0;
     sf.colorLocation[0] = dst_loc; sf.colorOffset[0] = dst_off; sf.colorPitch[0] = 2048;
@@ -1018,11 +1079,17 @@ static void rsx_copy(u8 dst_loc, u32 dst_off, u32 ddep_off, u8 src_loc, u32 src_
         /* a pixel holds halfwords 2n (bytes A,R) and 2n+1 (bytes G,B) */
         const u32 FIRST = GCM_COLOR_MASK_A | GCM_COLOR_MASK_R, SECOND = GCM_COLOR_MASK_G | GCM_COLOR_MASK_B;
         int a = px0, b = px1, k = 0;
-        if (exact && (x & 1)) { copy_quad(vbase, k++, a, a + 1, y, y + h, v0, v1, SECOND); a++; }
-        if (exact && ((x + w) & 1) && b > a) { copy_quad(vbase, k++, b - 1, b, y, y + h, v0, v1, FIRST); b--; }
-        if (b > a) copy_quad(vbase, k++, a, b, y, y + h, v0, v1, FIRST | SECOND);
+        if (exact && (x & 1)) { copy_quad(vbase, k++, a, a + 1, y, y + h, v0, v1, SECOND, du); a++; }
+        if (exact && ((x + w) & 1) && b > a) { copy_quad(vbase, k++, b - 1, b, y, y + h, v0, v1, FIRST, du); b--; }
+        if (b > a) copy_quad(vbase, k++, a, b, y, y + h, v0, v1, FIRST | SECOND, du);
     }
     rsxSetColorMask(rsx_ctx, GCM_COLOR_MASK_B | GCM_COLOR_MASK_G | GCM_COLOR_MASK_R | GCM_COLOR_MASK_A);
+}
+
+static void rsx_copy(u8 dst_loc, u32 dst_off, u32 ddep_off, u8 src_loc, u32 src_off, int src_h, int src_row0,
+                     int x, int y, int w, int h, int exact)
+{
+    rsx_copy2(dst_loc, dst_off, ddep_off, src_loc, src_off, src_h, src_row0, x, y, x, y, w, h, exact);
 }
 
 /* VRAM rect (not wrapping) from the core's VRAM into the native VRAM, by the RSX */
@@ -1176,6 +1243,39 @@ static void full_vram_read(int x, int y, int w, int h)
     R.sync_ticks += gpulib_prof_now() - t0;
 }
 
+/* A VRAM-to-VRAM copy (GP0 80h) done by the RSX in the native VRAM: through the
+   CPU it cost a readback of the source when the RSX had drawn there (a wait for
+   the RSX each time) and an upload of the destination. RE3 makes hundreds per
+   frame in some scenes (nearly frozen), Rayman many. The source goes to the
+   readback buffer first (it may overlap the destination), then to its place; the
+   destination is then newer in the native VRAM than in the core's copy. 0: the
+   core copies it itself (wrapping rects, the mask bit set, odd/even mismatch,
+   a source the core's VRAM already has, the VRAM check) */
+static unsigned gpu_copies;
+static int full_vram_copy(int sx, int sy, int dx, int dy, int w, int h, int msb)
+{
+    u64 t0;
+    int bx = sx, by = sy, bw = w, bh = h;
+    if (R.dead || R.check || msb || w <= 0 || h <= 0) return 0;
+    if (sx + w > 1024 || dx + w > 1024 || sy + h > 512 || dy + h > 512 || ((sx ^ dx) & 1)) return 0;
+    if (!drawn_bbox(&bx, &by, &bw, &bh)) return 0;   /* the core's copy of the source is current */
+    t0 = gpulib_prof_now();
+    hwr_flush();                                   /* draws queued before the copy come first */
+    rsxr_snapshot(&R.base, NULL);                  /* ... and are done */
+    rsx_copy(GCM_LOCATION_CELL, R.rb_off, R.rbdep_off, GCM_LOCATION_RSX, R.nat_off, 512, 0, sx, sy, w, h, 0);
+    rsxr_snapshot(&R.base, NULL);                  /* the buffer written before it is read */
+    rsx_copy2(GCM_LOCATION_RSX, R.nat_off, R.ndep_off, GCM_LOCATION_CELL, R.rb_off, 512, 0, sx, sy, dx, dy, w, h, 1);
+    rsxr_snapshot(&R.base, NULL);                  /* later readbacks reuse the buffer */
+    R.seq++;
+    rsxSetWriteBackendLabel(rsx_ctx, HWR_LABEL, R.seq);
+    rsxFlushBuffer(rsx_ctx);
+    mark_drawn(dx, dy, dx + w, dy + h, 1);         /* newer in the native VRAM now */
+    hwr_vram_written(dx, dy, w, h);                /* redrawn into the upscaled target */
+    gpu_copies++;
+    R.sync_ticks += gpulib_prof_now() - t0;
+    return 1;
+}
+
 /* the core's VRAM complete (before a savestate, so the core's own hook call finds
    nothing left to read back) */
 void hooks_sync_vram_for_state(void)
@@ -1212,7 +1312,6 @@ static int self_test(int full)
             hwr_vtx *o = &vt[k * 6 + i];
             o->x = q[i][0] ? (k == 4 ? 8 : 16) : 0; o->y = q[i][1] ? y1 : y0;
             o->u = q[i][0]; o->v = q[i][1] * 0.999f;   /* stays in texel row 0 */
-            o->uw = o->u; o->vw = o->v; o->invw = 1.0f;   /* PGXP slice 1: identity texcoords (self-test vertices are not GTE-projected; invw must not stay 0 or the fragment program divides by zero) */
             o->r = o->g = o->b = 128;
             o->tpx = 0; o->tpy = tv; o->cx = 0; o->cy = 0;
             o->mode = (float)progs[k]; o->raw = 1;
@@ -1361,7 +1460,6 @@ static int self_test(int full)
 /* the software renderer keeps drawing into the core's VRAM as a reference */
 static int cmd_check(const uint32_t *list, const uint32_t *end)
 {
-    hwr_pgxp_tex = cfg.pgxp_enable && cfg.pgxp_texture;   /* PGXP slice 1: fresh per batch */
     if (T.on) {                       /* raw words as in PS1 memory (little-endian) */
         const uint32_t *p;
         tr_put(1); tr_put((u32)(end - list));
@@ -1460,69 +1558,12 @@ int hooks_dump_vram(const char *name)
 }
 
 /* ---- gpu_frontend_hooks ---- */
-
-/* PGXP log: one summary line for the current counter window, tagged with
-   the master state the window was collected under and its frame count
-   (partial windows flushed on toggle have frames < 60). */
-static void pgxp_log_line(int on, int frames)
-{
-    logf_("pgxp [%s] frames %d: T2 sub %lu/%lu cmd u %lu a %lu n %lu | dmax %.2f,%.2f big %lu | tex persp %lu affine %lu mixed %lu | lk hit %lu miss %lu | nclip tot %lu flip %lu restore %lu | degen %lu toobig %lu borrow %lu | subw st sb %lu sh %lu swl %lu swr %lu ld lb %lu lh %lu lwl %lu lwr %lu | texprec flip new %lu lost %lu invconf %lu invconfmax %.2f setrepl %lu | guard skip %lu | weld %lu amb %lu aged %lu\n",
-        on ? "ON" : "OFF", frames,
-        pgxp_stats.sub_applied, pgxp_stats.sub_verts,
-        pgxp_stats.cmd_unique, pgxp_stats.cmd_ambig, pgxp_stats.cmd_none,
-        pgxp_stats.sub_max_dx, pgxp_stats.sub_max_dy, pgxp_stats.sub_big,
-        pgxp_stats.tex_persp, pgxp_stats.tex_affine, pgxp_stats.tex_mixed,
-        pgxp_stats.lk_hit, pgxp_stats.lk_miss,
-        pgxp_stats.nclip_total, pgxp_stats.nclip_flip, pgxp_stats.nclip_restore,
-        pgxp_stats.degen_skip, pgxp_stats.toobig_drop,
-        pgxp_stats.sub_borrowed,
-        pgxp_stats.st_sb, pgxp_stats.st_sh, pgxp_stats.st_swl, pgxp_stats.st_swr,
-        pgxp_stats.ld_lb, pgxp_stats.ld_lh, pgxp_stats.ld_lwl, pgxp_stats.ld_lwr,
-        pgxp_stats.flip_new, pgxp_stats.flip_lost,
-        pgxp_stats.invw_conflict, pgxp_stats.invw_conflict_max, pgxp_stats.set_repl,
-        pgxp_stats.guard_skip,
-        pgxp_stats.welds, pgxp_stats.amb_resolved, pgxp_stats.aged_out);
-}
-
 static int present_hook(int x, int y, int w, int h, int bgr24)
 {
     int r;
     u64 t0 = gpulib_prof_now();
     tr_frame(x, y, w, h);
     r = hwr_present(x, y, w, h, bgr24);
-    /* PGXP log: state-tagged windows + toggle markers, so master ON/OFF can
-       be compared inside one run -- the same scene never recurs across
-       sessions, so cross-session ON-vs-OFF windows are not comparable.
-       Counters flush (printed) on toggle, so no window straddles a toggle;
-       each window line carries its master state and frame count. While the
-       debug log is off, the log state resets, so re-enabling starts clean. */
-    {
-        static int pgxp_log_frames = 0;
-        static int pgxp_log_last = -1;   /* -1 = not logging, else master */
-        if (cfg.debug_log) {
-            int cur = pgxp_track ? 1 : 0;
-            if (pgxp_log_last < 0) {
-                pgxp_log_last = cur;
-                logf_("pgxp: marker master %s (initial)\n", cur ? "ON" : "OFF");
-            } else if (cur != pgxp_log_last) {
-                if (pgxp_log_frames > 0)
-                    pgxp_log_line(pgxp_log_last, pgxp_log_frames);
-                pgxp_stats_reset();
-                pgxp_log_frames = 0;
-                logf_("pgxp: marker master %s -> %s\n", pgxp_log_last ? "ON" : "OFF", cur ? "ON" : "OFF");
-                pgxp_log_last = cur;
-            }
-            if (++pgxp_log_frames >= 60) {
-                pgxp_log_line(pgxp_log_last, pgxp_log_frames);
-                pgxp_stats_reset();
-                pgxp_log_frames = 0;
-            }
-        } else if (pgxp_log_last >= 0) {
-            pgxp_stats_reset();
-            pgxp_log_frames = 0;
-            pgxp_log_last = -1;
-        }
-    }
     /* the core shows this frame from its own VRAM: bring the area up to date */
     if (!r && R.base.full && !R.dead && !R.check) full_vram_read(x, y, bgr24 ? (w * 3 + 1) / 2 : w, h);
     R.t_present += gpulib_prof_now() - t0;
@@ -1534,7 +1575,6 @@ static int cmd_timed(const uint32_t *list, const uint32_t *end)
 {
     u64 t0;
     int r;
-    hwr_pgxp_tex = cfg.pgxp_enable && cfg.pgxp_texture;   /* PGXP slice 1: first, before the early return below */
     if (!cfg.debug_log) return hwr_cmd(list, end);   /* timed only for the debug log */
     t0 = gpulib_prof_now();
     r = hwr_cmd(list, end);
@@ -1557,7 +1597,8 @@ static void start(void)
     R.SY = R.S > HWR_MAXS ? 4.5f : (float)R.S;
     want.sx = R.SX; want.sy = R.SY; want.frames = 0;
     R.base.snapshot = rsxr_snapshot; R.base.submit = rsxr_submit; R.base.present = rsxr_present;
-    R.cpu_waits = R.syncs_in = R.syncs_out = 0; R.sync_ticks = 0;
+    R.base.vtx_area = rsxr_vtx_area;
+    R.cpu_waits = R.syncs_in = R.syncs_out = 0; R.sync_ticks = 0; gpu_copies = 0;
     R.mask_used = R.mask_resync = R.base.mask_stencil = 0;
     if (!tested) {
         tested = 1;
@@ -1595,6 +1636,7 @@ static void start(void)
     gpu_frontend_hooks.cmd = R.check ? cmd_check : cmd_timed;
     gpu_frontend_hooks.vram_written = R.base.full ? full_vram_written : hwr_vram_written;
     gpu_frontend_hooks.vram_read = R.base.full && !R.check ? full_vram_read : NULL;
+    gpu_frontend_hooks.vram_copy = R.base.full && !R.check ? full_vram_copy : NULL;
     gpu_frontend_hooks.sync_ecmds = hwr_sync_ecmds;
     gpu_frontend_hooks.present = present_hook;
     R.on = 1;
@@ -1610,15 +1652,55 @@ static void start(void)
 
 static void log_stats(void)
 {
+    /* polygon timing (hwr_core.c): one in 8 timed, the log multiplies by 8 */
+    extern unsigned long long hwr_poly_t_all, hwr_poly_t_parse, hwr_poly_t_shift, hwr_poly_t_setup, hwr_poly_t_emit;
+    extern unsigned int hwr_poly_n;
     if (!R.on) return;
     logf_("hwr: frames %u prims %u %s %u (max %u/frame) software fallbacks %u overflow %u cpu-waits %u%s\n",
           hwr_stats.frames, hwr_stats.prims, R.base.full ? "barriers" : "snapshots", hwr_stats.snapshots,
           hwr_stats.max_snaps, hwr_stats.fallbacks, hwr_stats.overflow_frames, R.cpu_waits,
           hwr_stats.mask_checks && !R.base.full ? " (mask-check drawing: not emulated in hybrid mode)" : "");
     if (hwr_stats.mask_checks) logf_("hwr: %u primitives drawn with the mask check on\n", hwr_stats.mask_checks);
+    {   /* PGXP-lite (hwr_core.c), counted since the last line */
+        extern unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;
+        extern unsigned int pgxp_lite_addr_hits, pgxp_lite_hits, pgxp_lite_welds;
+        extern unsigned int pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards;
+        extern unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore;
+        extern unsigned int hwr_pgxp_corr_persp;
+        if (pgxp_lite_on)
+            logf_("hwr: PGXP: %u polygons at sub-pixel positions, %u at whole pixels (not from the GTE; of those %u with one corner found alone); corners found by address %u, by value %u; %u polygons with a corner standing for two vertices; %u vertices welded to a neighbour\n",
+                  hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_alone, pgxp_lite_addr_hits, pgxp_lite_hits, hwr_pgxp_amb, pgxp_lite_welds);
+        pgxp_lite_addr_hits = pgxp_lite_hits = pgxp_lite_welds = 0;
+        if (pgxp_corr_track)
+            logf_("hwr: PGXP corrector: %u lookups (lite misses), %u hits (position + depth supplied), %u guard skips (>1.5px)\n",
+                  pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards);
+        pgxp_corr_lookups = pgxp_corr_hits = pgxp_corr_guards = 0;
+        if (pgxp_cull_track)
+            logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero)\n",
+                  pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore);
+        pgxp_corr_nclip_total = pgxp_corr_nclip_flip = pgxp_corr_nclip_restore = 0;
+        if (pgxp_lite_on >= 2)
+            logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired, %u with a corrector corner), %u flat\n",
+                  hwr_pgxp_persp, hwr_pgxp_misfit, hwr_pgxp_corr_persp, hwr_pgxp_flat);
+        {   /* PGXP's share of the polygon time below (the polygon line itself is in the debug block) */
+            extern unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth, pgxp_lite_ticks;
+            static unsigned pg_last;
+            double n = hwr_stats.frames - pg_last, k, k8;
+            if (n < 1) n = 1;
+            k = 1000.0 / (double)sysGetTimebaseFrequency() / n;
+            k8 = k * 8;   /* the renderer times one polygon in 8 (PG_SAMPLE in hwr_core.c) */
+            pg_last = hwr_stats.frames;
+            if (pgxp_lite_on)
+                logf_("hwr: PGXP ms per frame: finding corners %.2f, choosing between vertices %.2f, depths %.2f; working out the GTE's projections %.2f\n",
+                      hwr_pgxp_t_find * k8, hwr_pgxp_t_pick * k8, hwr_pgxp_t_depth * k8, pgxp_lite_ticks * k);
+            hwr_pgxp_t_find = hwr_pgxp_t_pick = hwr_pgxp_t_depth = 0;
+            pgxp_lite_ticks = 0;
+        }
+        hwr_pgxp_polys = hwr_pgxp_misses = hwr_pgxp_persp = hwr_pgxp_flat = hwr_pgxp_misfit = hwr_pgxp_alone = hwr_pgxp_amb = hwr_pgxp_corr_persp = 0;
+    }
     if (R.base.full)
-        logf_("hwr: VRAM syncs: %u CPU->RSX, %u RSX->CPU, %.1f ms total\n", R.syncs_in, R.syncs_out,
-              R.sync_ticks * 1000.0 / (double)sysGetTimebaseFrequency());
+        logf_("hwr: VRAM syncs: %u CPU->RSX, %u RSX->CPU, %.1f ms total; %u VRAM copies done by the RSX\n", R.syncs_in, R.syncs_out,
+              R.sync_ticks * 1000.0 / (double)sysGetTimebaseFrequency(), gpu_copies);
     if (cfg.debug_log) {   /* per frame since the last line (submit, copy and waits are inside the commands) */
         static unsigned last_frames;
         double k = 1000.0 / (double)sysGetTimebaseFrequency(), n = hwr_stats.frames - last_frames;
@@ -1627,9 +1709,15 @@ static void log_stats(void)
               "upscaled pass %.2f, native pass %.2f), waiting for the RSX %.2f, frame end %.2f\n",
               R.t_cmd * k / n, R.t_submit * k / n, R.t_copy * k / n, R.t_up * k / n, R.t_nat * k / n,
               R.t_wait * k / n, R.t_present * k / n);
+        {   /* polygons: the sampled ticks x8 estimate all of them */
+            double k8 = k * 8;
+            logf_("hwr: polygons per frame %.0f, ms per frame: all %.2f (reading %.2f, sample shift %.2f, set-up and submits %.2f, vertices out %.2f)\n",
+                  hwr_poly_n / n, hwr_poly_t_all * k8 / n, hwr_poly_t_parse * k8 / n, hwr_poly_t_shift * k8 / n, hwr_poly_t_setup * k8 / n, hwr_poly_t_emit * k8 / n);
+        }
         last_frames = hwr_stats.frames;
     }
     R.t_cmd = R.t_submit = R.t_copy = R.t_wait = R.t_present = R.t_up = R.t_nat = 0;
+    hwr_poly_t_all = hwr_poly_t_parse = hwr_poly_t_shift = hwr_poly_t_setup = hwr_poly_t_emit = 0; hwr_poly_n = 0;
 }
 
 /* a notice for the screen when the full renderer could not be used, else NULL */

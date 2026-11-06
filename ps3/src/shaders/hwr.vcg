@@ -10,7 +10,7 @@ void main(float4 pos : POSITION,   /* x, y, u, v */
           float4 t2  : TEXCOORD2,  /* mode, raw, window mask x, window mask y */
           float4 t3  : TEXCOORD3,  /* window offset x, window offset y, pass, mask-set flag */
           float4 lim : TEXCOORD4,  /* umin, vmin, umax, vmax */
-          float4 pgx : TEXCOORD5,  /* PGXP slice 1: u/w, v/w, 1/w, pad (identity when off) */
+          float4 pg  : TEXCOORD5,  /* PGXP-lite: sub-pixel offset (1/1024 pixel), relative depth (1/32767; 0 none) */
           uniform float native,    /* 1 in the native VRAM pass: colours rounded like the PS1 */
           out float4 oPos : POSITION,
           out float4 oUv  : TEXCOORD0,
@@ -18,15 +18,20 @@ void main(float4 pos : POSITION,   /* x, y, u, v */
           out float4 oT1  : TEXCOORD2,
           out float4 oT2  : TEXCOORD3,
           out float4 oT3  : TEXCOORD4,
-          out float4 oLim : TEXCOORD5,
-          out float4 oPgx : TEXCOORD6)  /* PGXP slice 1: pgx passed through untouched */
+          out float4 oLim : TEXCOORD5)
 {
     /* depth orders the primitives of one op in the native pass (see hwr_rsx.c) */
-    oPos = float4(pos.x * (1.0f / 512.0f) - 1.0f, 1.0f - pos.y * (1.0f / 256.0f), col.w, 1.0f);
+    /* PGXP-lite: the upscaled pass draws the vertex where the GTE really put it;
+       the native pass stays at whole pixels, exactly as the PS1 draws */
+    float2 xy = pos.xy + pg.xy * ((1.0f - native) * (1.0f / 1024.0f));
+    /* with a depth, clip w: the RSX then interpolates the texture coordinates (and
+       colours) with perspective, so textures stay straight; the position after the
+       divide is the same. The native pass keeps the PS1's affine mapping. */
+    float w = (pg.z > 0.5f && native < 0.5f) ? pg.z * (1.0f / 32767.0f) : 1.0f;
+    oPos = float4(xy.x * (1.0f / 512.0f) - 1.0f, 1.0f - xy.y * (1.0f / 256.0f), col.w, 1.0f) * w;
     /* .zw: the native VRAM position, for the programs that read the pixel they
        draw over (mask check, bit-15 self copy) */
     oUv = float4(pos.z, pos.w, pos.x, pos.y);
-    oPgx = pgx;   /* PGXP slice 1: oPos.w stays 1.0, so no clip/depth/scissor math changes */
 #if FAST
     /* work the fragment programs would repeat per pixel: colour scaled for the mode
        (flat: /255, textured: /128) with PS1 red moved to .b, texel centres, and the

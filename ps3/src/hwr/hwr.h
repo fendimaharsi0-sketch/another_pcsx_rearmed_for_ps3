@@ -22,17 +22,14 @@
 #define WS_HWR_H
 #include <stdint.h>
 
-/* One vertex, 80 bytes. Values that are whole numbers are 16-bit integers the
+/* One vertex, 72 bytes. Values that are whole numbers are 16-bit integers the
  * GPU converts itself (RSX "S32K", GL_SHORT): the PPU pays for every int->float
  * conversion (load-hit-store) and for every byte written. The program inputs
  * are still float4s:
  *   POSITION  x, y, u, v        TEXCOORD0 r, g, b, z
  *   TEXCOORD1 tpx, tpy, cx, cy  TEXCOORD2 mode, raw, twmx, twmy
  *   TEXCOORD3 twox, twoy, pass, a   TEXCOORD4 umin, vmin, umax, vmax
- *   TEXCOORD5 uw, vw, invw, pad (PGXP slice 1: pre-divided texcoords u/w, v/w
- *   and 1/w from the validated GTE depth; identity uw=u, vw=v, invw=1 when
- *   PGXP texture correction is off or the vertex did not validate, so the
- *   fragment program's divide is a no-op there) */
+ *   TEXCOORD5 pgx, pgy (sub-pixel offset of the upscaled pass, 1/1024 pixel) */
 typedef struct {
     float x, y, u, v;          /* native VRAM coords (offset applied), texel coords */
     float r, g, b, z;          /* vertex colour 0..255; z: depth for the native pass (set by the backend) */
@@ -42,15 +39,9 @@ typedef struct {
                                       a: 1 = the mask-set flag (E6 bit 0) */
     int16_t umin, vmin, umax, vmax; /* texel range the primitive uses: sampling is clamped to it, so
                                        upscaled edges do not pick neighbouring texels (seams) */
-    float uw, vw, invw, pad;         /* PGXP slice 1, offset 64: u/w, v/w, 1/w (see above) */
+    int16_t pgx, pgy, pgz, pgw;    /* PGXP-lite: where the vertex really is, in 1/1024 pixel from x, y;
+                                      the upscaled pass draws it there (the native pass stays exact) */
 } hwr_vtx;
-
-/* PGXP slice 1 (canonical declarations: libpcsxcore/pgxp.h): hwr_pgxp_tex is
- * mirrored per command batch by the backend (master on + texture on); the
- * lookup/next-frame functions live in the core's pgxp.c. */
-extern int hwr_pgxp_tex;
-int pgxp_lookup(int sx, int sy, float *x, float *y, float *invw);
-void pgxp_next_frame(void);
 
 enum { HWR_BLEND_NONE = 0, HWR_BLEND_AVG, HWR_BLEND_ADD, HWR_BLEND_SUB, HWR_BLEND_ADDQ };
 
@@ -84,7 +75,13 @@ typedef struct hwr_dev {
     int full;                    /* see above */
     int mask_stencil;            /* full mode: the backend does the mask check with the stencil
                                     in both passes (no barrier before mask-checked primitives) */
+    /* optional: where the next submit's vertices may be written, for up to *cap of
+       them (128-byte aligned, the backend's own memory: submit then uses them where
+       they are instead of copying). NULL: the core's own buffer */
+    hwr_vtx *(*vtx_area)(struct hwr_dev *d, int *cap);
 } hwr_dev;
+
+extern int hwr_sprites_apart;          /* the backend: hwr_op.sprite is wanted (see hwr_core.c) */
 
 /* 1 if the CLUT of a 4bpp (mode 1) or 8bpp (mode 2) texture has an entry with bit 15
  * (STP) set: only then can one of its texels give a pixel bit 15. vram: the core's
@@ -113,7 +110,6 @@ int  hwr_active(void);
 /* --- core side (called through the core's gpu_frontend_hooks) --- */
 /* before the software renderer runs it; 1 = drawn here (full mode), skip it */
 int  hwr_cmd(const uint32_t *list, const uint32_t *end);
-uint32_t *gpulib_get_cmd_buffer(void);  /* gpulib: CPU-write command buffer, for PGXP shadow lookup */
 void hwr_flush(void);                                     /* submit everything queued */
 void hwr_vram_written(int x, int y, int w, int h);        /* upload, copy or savestate load */
 void hwr_sync_ecmds(const uint32_t *ex_regs);             /* host-endian E1..E6 */

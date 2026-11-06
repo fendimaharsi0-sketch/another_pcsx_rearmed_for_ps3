@@ -67,7 +67,7 @@ fpc() {
   cgcomp -f "$1" "$2" >/dev/null
 }
 cgcomp -v src/shaders/quad.vcg "$GEN/quad.vpo" >/dev/null
-for v in "blit 0 0 blit" "blit 1 0 blitd" "fxaa 0 0 fxaa" "fxaa 1 0 fxaad" "fxaa 0 1 fxaaf" "fxaa 1 1 fxaafd"; do
+for v in "blit 0 0 blit" "blit 1 0 blitd" "fxaa 0 0 fxaa" "fxaa 1 0 fxaad" "fxaa 0 1 fxaaf" "fxaa 1 1 fxaafd" "color 0 0 color" "color 1 0 colord"; do
   set -- $v
   cpp -P -DDITHER=$2 -DFXAA_FLOAT=$3 -Isrc/shaders src/shaders/$1.fcg >"$GEN/$4.fcg"
   fpc "$GEN/$4.fcg" "$GEN/$4.fpo"
@@ -80,6 +80,8 @@ done
     c_array "$GEN/fxaad.fpo" fxaad_fpo
     c_array "$GEN/fxaaf.fpo" fxaaf_fpo
     c_array "$GEN/fxaafd.fpo" fxaafd_fpo
+    c_array "$GEN/color.fpo" color_fpo
+    c_array "$GEN/colord.fpo" colord_fpo
 } >"$GEN/shaders.h"
 # hardware renderer: one fragment program per texture mode (+ texture window)
 # two sets: byte-decoding programs (fallback) and fast ones (FAST=1: the texture unit decodes VRAM)

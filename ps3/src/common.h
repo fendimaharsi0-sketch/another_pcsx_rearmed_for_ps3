@@ -45,7 +45,7 @@ typedef struct {
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
     int sprite_texfilter; /* RSX sprite filter: same 0/1/2 values as texfilter, default nearest; applies to textured GP0 sprites (do_rect) and to textured polygons whose UV mapping is axis-aligned (U only with X, V only with Y, like DuckStation); other polygons keep texfilter */
     int aspect;         /* ASPECT_* */
-    int widescreen;     /* GTE widescreen 16:9: 0 off (default), 1 on — RTPS/RTPT scale the projected X offset 3/4 (see gte_widescreen); pair with Aspect = Stretch to screen on a 16:9 TV */
+    int widescreen;     /* GTE widescreen 16:9: 0 off (default), 1 on — RTPS/RTPT scale the projected X offset 3/4 (see gte_widescreen); Aspect is forced to 16:9 while on */
     int frameskip;      /* 0 off, 1 auto */
     int dithering;
     int show_fps;
@@ -71,28 +71,36 @@ typedef struct {
     char mc1_shared[256]; /* library card file name for slot 1 Shared (saves/imported/<name>), global only; empty = default pcsx-card1.mcd */
     char mc2_shared[256]; /* same for slot 2 Shared (default pcsx-card2.mcd) */
     char last_dir[512];
-    int turbo_cd;       /* upstream TurboCD: instant CD seeks + faster reads; auto-off during XA audio and FMV */
+    int cd_speed;       /* CD-ROM speed: 0 normal, 1 turbo (data reads and seeks twice as fast; audio keeps its speed), 2 max (the core's TurboCD: instant seeks + faster reads) */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
-    int pgxp_enable;    /* global-only master gate for PGXP slice 1 (default off): the sub-options below only take effect when this is on */
-    int pgxp_texture;   /* PGXP texture correction: perspective-correct UV in the RSX renderer (default on, per game) */
-    int pgxp_culling;   /* PGXP culling correction: NCLIP recomputed from precise GTE positions (default on, per game) */
+    /* colour correction (Color page, per game): -10..+10, 0 neutral, no enable
+       toggle — all zero is the picture as it is, and the panel bypasses the
+       colour program entirely then */
+    int color_brightness;
+    int color_contrast;
+    int color_saturation;
+    int color_temperature;
+    int color_gamma;        /* gamma curve: + brightens midtones, - darkens them; 0 and 1 never move */
+    int pgxp;               /* PGXP-lite: 1 GTE vertices at sub-pixel positions (RSX renderer), 2 also perspective-correct textures */
+    int pgxp_corr;          /* PGXP RAM-shadow corrector: supply what lite missed (positions + depth) from the CPU's stores to RAM (per game, default off; only effective while pgxp != 0) */
+    int pgxp_culling;       /* PGXP culling corrector: recompute triangle culling (NCLIP) from precise GTE positions (per game, default off; only effective while pgxp != 0) */
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
-extern int gte_pgxp;   /* core, libpcsxcore/pgxp.c: bitmask (1 = texture, 2 = culling), mirrored from cfg by config_mirror_gte_pgxp() */
-extern int pgxp_track;   /* T1: 1 when the PGXP master switch is on, mirrored from cfg */
-void config_mirror_gte_pgxp(void);   /* recompute gte_pgxp from cfg.pgxp_enable/texture/culling */
-void lightrec_pgxp_gate(int on);   /* JIT gate, libpcsxcore/lightrec/plugin.c: on a master change, re-point cop2_notify in the state's copied ops + flush all blocks (skipped when Lightrec is not running) */
-void pgxp_next_frame(void);   /* core, libpcsxcore/pgxp.c: invalidate the GTE vertex cache (new frame) */
-void pgxp_invalidate_all(void);   /* core, libpcsxcore/pgxp.c: drop every PGXP shadow/cache/map entry (master toggle, new title) */
+extern int cdr_speed_up;     /* core, libpcsxcore/cdrom.c: 2 = data reads and seeks twice as fast, mirrored from cfg.cd_speed */
 void config_load(void);
 void config_save(void);
 /* per-game settings: configs/<game>.ini (game = ROM file name without extension) */
 void config_game_begin(const char *game);   /* at game start: its file, if any, applies */
 void config_game_end(void);                 /* back to the settings for all games */
 int  config_game_active(void);              /* the running game uses its own settings */
-void config_game_enable(int on);            /* in game: give it its own settings / remove them */
 int  config_game_exists(const char *game);
+int  config_game_delete(const char *game);   /* remove configs/<game>.ini, 1 = deleted */
+/* shared settings panel (menu.c): file helpers, no game_on/in_game changes */
+int  config_panel_overlay(const char *key, settings_t *s);  /* overlay the title's file if it exists */
+void config_panel_global(settings_t *out);  /* the settings for all games while one runs */
+int  config_panel_apply_title(const char *key, const settings_t *now, settings_t *baseline, int ingame);
+int  config_panel_apply_global(const settings_t *now, settings_t *baseline, int ingame);
 #define SCREEN_MIN 80
 #define SCREEN_MAX 130
 

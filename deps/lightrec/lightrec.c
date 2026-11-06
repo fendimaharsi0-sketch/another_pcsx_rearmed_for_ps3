@@ -12,13 +12,14 @@
 #include "lightrec-config.h"
 #include "lightning-wrapper.h"
 #include "lightrec.h"
-#include "../../libpcsxcore/pgxp.h"
 #include "memmanager.h"
 #include "reaper.h"
 #include "recompiler.h"
 #include "regcache.h"
 #include "optimizer.h"
 #include "tlsf/tlsf.h"
+
+#include "../../libpcsxcore/pgxp_lite.h"   /* PGXP RAM-shadow corrector (see lightrec_pgxp_cb below) */
 
 #include <errno.h>
 #include <inttypes.h>
@@ -38,8 +39,8 @@ static bool lightrec_block_is_fully_tagged(const struct block *block);
 
 static void lightrec_mtc2(struct lightrec_state *state, u8 reg, u32 data);
 static u32 lightrec_mfc2(struct lightrec_state *state, u8 reg);
-/* T3: defined below, used by lightrec_rw_helper. */
-static void lightrec_pgxp_cb(struct lightrec_state *state, u32 arg);
+
+static void lightrec_pgxp_cb(struct lightrec_state *state, u32 opcode, u32 *psxRegs);
 
 static void lightrec_reap_block(struct lightrec_state *state, void *data);
 
@@ -152,6 +153,45 @@ void lightrec_debug_counts(u32 *c, u64 *t)
 unsigned int lightrec_bad_accesses;
 u32 lightrec_bad_access_addr, lightrec_bad_access_pc;
 
+/* Debug log (psx_debug_trace): what the recompiled code's calls into C are, as
+   they cost on a slow host (the PS3's PPU: registers saved and restored each
+   time). Memory accesses (direct and generic) by region of the address, the
+   coprocessor moves, the GTE commands; the PC of the last RAM or BIOS access
+   (those should be direct once their block is recompiled). */
+enum { CC_RAM, CC_BIOS, CC_SCRATCH, CC_IRQ, CC_DMA, CC_TIMER, CC_CD, CC_GPU, CC_MDEC, CC_SPU, CC_HW, CC_OTHER, CC_N };
+static u32 cc_rw[CC_N], cc_rwg[CC_N], cc_mfc, cc_mtc, cc_cp, cc_mem_pc;
+static int cc_region(u32 a)
+{
+	if (a < 0x800000) return CC_RAM;
+	if (a >= 0x1fc00000 && a < 0x1fc80000) return CC_BIOS;
+	if (a >= 0x1f800000 && a < 0x1f800400) return CC_SCRATCH;
+	if (a >= 0x1f801070 && a < 0x1f801078) return CC_IRQ;
+	if (a >= 0x1f801080 && a < 0x1f801100) return CC_DMA;
+	if (a >= 0x1f801100 && a < 0x1f801130) return CC_TIMER;
+	if (a >= 0x1f801800 && a < 0x1f801804) return CC_CD;
+	if (a >= 0x1f801810 && a < 0x1f801818) return CC_GPU;
+	if (a >= 0x1f801820 && a < 0x1f801828) return CC_MDEC;
+	if (a >= 0x1f801c00 && a < 0x1f802000) return CC_SPU;
+	if (a >= 0x1f801000 && a < 0x1f803000) return CC_HW;
+	return CC_OTHER;
+}
+static void cc_count(u32 *t, const struct lightrec_state *state, union code op)
+{
+	u32 a = kunseg(state->regs.gpr[op.i.rs] + (s16)op.i.imm);
+	int r = cc_region(a);
+	t[r]++;
+	if (r <= CC_BIOS) cc_mem_pc = state->curr_pc;
+}
+/* out: CC_N direct, CC_N generic, mfc, mtc, GTE commands, last RAM/BIOS pc; then zeroed */
+int lightrec_debug_ccalls(u32 *out)
+{
+	int i;
+	for (i = 0; i < CC_N; i++) { out[i] = cc_rw[i]; out[CC_N + i] = cc_rwg[i]; cc_rw[i] = cc_rwg[i] = 0; }
+	out[2 * CC_N] = cc_mfc; out[2 * CC_N + 1] = cc_mtc; out[2 * CC_N + 2] = cc_cp; out[2 * CC_N + 3] = cc_mem_pc;
+	cc_mfc = cc_mtc = cc_cp = 0;
+	return 2 * CC_N + 4;
+}
+
 static void lightrec_swl(struct lightrec_state *state,
 			 const struct lightrec_mem_map_ops *ops,
 			 u32 opcode, void *host, u32 addr, u32 data)
@@ -190,6 +230,8 @@ static void lightrec_swr(struct lightrec_state *state,
 	ops->sw(state, opcode, host, addr, data);
 }
 
+void (*lightrec_swc2_hook)(u32 addr, u32 data);
+
 static void lightrec_swc2(struct lightrec_state *state, union code op,
 			  const struct lightrec_mem_map_ops *ops,
 			  void *host, u32 addr)
@@ -197,6 +239,8 @@ static void lightrec_swc2(struct lightrec_state *state, union code op,
 	u32 data = lightrec_mfc2(state, op.i.rt);
 
 	ops->sw(state, op.opcode, host, addr, data);
+	if (lightrec_swc2_hook && op.i.rt >= 12 && op.i.rt <= 15)
+		lightrec_swc2_hook(addr, data);
 }
 
 static u32 lightrec_lwl(struct lightrec_state *state,
@@ -454,24 +498,20 @@ static void lightrec_rw_helper(struct lightrec_state *state,
 		break;
 	}
 
-	/* T3: RAM-shadow update for the C fallback path (unknown addresses;
-	 * LWL/LWR/SWL/SWR go through here too, with the sub-word rules in
-	 * the pgxp helpers). Runs after the access, like the JIT fast path.
-	 * The helpers gate on pgxp_track, so this is a no-op when off. */
-	if (op.i.op == OP_LW || op.i.op == OP_LWC2 ||
-	    op.i.op == OP_SW || op.i.op == OP_SWC2 ||
-	    op.i.op == OP_SB || op.i.op == OP_SH ||
-	    op.i.op == OP_SWL || op.i.op == OP_SWR ||
-	    op.i.op == OP_LB || op.i.op == OP_LBU ||
-	    op.i.op == OP_LH || op.i.op == OP_LHU ||
-	    op.i.op == OP_LWL || op.i.op == OP_LWR)
-		lightrec_pgxp_cb(state, op.opcode);
+	/* PGXP RAM-shadow corrector: the C-fallback path for a load/store
+	 * (rec_io early return, or an unmapped address). Call after the access
+	 * above, when the memory is already in its final state, so a read sees
+	 * the just-written value and a write has already happened. SWC2 is
+	 * diverted here by the lite block in rec_store (it returns before
+	 * rec_pgxp_mem runs), so the SWC2 mirror is covered by this call. */
+	if (pgxp_corr_track)
+		lightrec_pgxp_cb(state, op.i.op, state->regs.gpr);
 }
 
 static void lightrec_rw_cb(struct lightrec_state *state, u32 arg)
 {
 	LR_DBG_ENTER(LR_C_RW, state->curr_pc, arg);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_count(cc_rw, state, (union code) arg); }
 	lightrec_rw_helper(state, (union code) arg, NULL, NULL, 0);
 	LR_DBG_LEAVE();
 }
@@ -508,6 +548,7 @@ static void lightrec_rw_generic_cb_(struct lightrec_state *state, u32 arg)
 	if (op_flag_movi(op->flags))
 		c.i.imm = 0;
 
+	if (psx_debug_trace) cc_count(cc_rwg, state, c);
 	lightrec_rw_helper(state, c, &op->flags, block, offset);
 }
 
@@ -600,7 +641,7 @@ u32 lightrec_mfc(struct lightrec_state *state, union code op)
 static void lightrec_mfc_cb(struct lightrec_state *state, union code op)
 {
 	LR_DBG_ENTER(LR_C_MFC, state->curr_pc, op.opcode);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_mfc++; }
 	u32 rt = lightrec_mfc(state, op);
 
 	if (op.i.op == OP_SWC2)
@@ -733,7 +774,7 @@ void lightrec_mtc(struct lightrec_state *state, union code op, u8 reg, u32 data)
 static void lightrec_mtc_cb(struct lightrec_state *state, u32 arg)
 {
 	LR_DBG_ENTER(LR_C_MTC, state->curr_pc, arg);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_mtc++; }
 	union code op = (union code) arg;
 	u32 data;
 	u8 reg;
@@ -750,103 +791,68 @@ static void lightrec_mtc_cb(struct lightrec_state *state, u32 arg)
 	LR_DBG_LEAVE();
 }
 
-/* T3: PGXP RAM-shadow update for a JIT load/store, called through the
- * C wrapper after the memory op (emitter's rec_pgxp_mem, branch-around on
- * pgxp_track) and from the C fallback (lightrec_rw_helper, unconditionally
- * -- the helpers gate on pgxp_track themselves). arg = the opcode.
- * Loads re-read the RAM word from the map: the destination register may
- * still be in a host register or a load-delay temp, so it is not trusted
- * here. Re-reading is safe because it only happens for RAM/scratchpad
- * addresses (no read side effects); any other address invalidates the
- * destination shadow without a read. Sub-word stores likewise re-read the
- * merged post-write word; partial loads only invalidate, so they need no
- * read at all. */
+/* PGXP RAM-shadow corrector: mirror a load/store from the Lightrec JIT
+ * into the RAM shadow (see pgxp_lite.h). Called by the emitter's wrapper
+ * after each load/store, and by lightrec_rw_helper for C-fallback
+ * accesses. This is the corrector's JIT hook. The interpreter mirror is
+ * psxinterpreter.c; the two agree op-for-op, so the shadow does not care
+ * which CPU runs the game. */
 static u32 lightrec_pgxp_ram_word(struct lightrec_state *state, u32 addr)
 {
-	/* Caller must have checked pgxp_ram_shadow_at(addr) first. */
-	if (addr < 0x00800000u)
-		return LE32TOH(((const u32 *)
-			state->maps[PSX_MAP_KERNEL_USER_RAM].address)
-			[(addr & 0x1fffffu) >> 2]);
-	return LE32TOH(((const u32 *)
-		state->maps[PSX_MAP_SCRATCH_PAD].address)
-		[(addr - 0x1f800000u) >> 2]);
+	addr &= ~3u;
+	/* a RAM word is what the shadow tracks: re-read it from the map.
+	 * Anything else (BIOS, I/O, unmapped) is out of the shadow's range;
+	 * pgxp_corr_ram_shadow_at returns NULL and the hook is a no-op. */
+	return pgxp_corr_ram_shadow_at(addr)
+		? *(u32 *)(state->maps[PSX_MAP_KERNEL_USER_RAM].address + addr)
+		: 0;
 }
 
-static void lightrec_pgxp_cb(struct lightrec_state *state, u32 arg)
+static void lightrec_pgxp_cb(struct lightrec_state *state, u32 opcode, u32 *psxRegs)
 {
-	union code op = (union code) arg;
-	u32 addr, val;
+	u32 addr = state->regs.gpr[opcode >> 16 & 0x1f] + (s16)(opcode & 0xffff);
+	u32 rt = opcode >> 21 & 0x1f;
 
-	if (op.i.op != OP_LW && op.i.op != OP_LWC2 &&
-	    op.i.op != OP_SW && op.i.op != OP_SWC2 &&
-	    op.i.op != OP_SB && op.i.op != OP_SH &&
-	    op.i.op != OP_SWL && op.i.op != OP_SWR &&
-	    op.i.op != OP_LB && op.i.op != OP_LBU &&
-	    op.i.op != OP_LH && op.i.op != OP_LHU &&
-	    op.i.op != OP_LWL && op.i.op != OP_LWR)
-		return;
-	addr = kunseg(state->regs.gpr[op.i.rs] + (s16)op.i.imm);
-	switch (op.i.op) {
-	case OP_LW:
-	case OP_LWC2:
-		if (!pgxp_ram_shadow_at(addr)) {
-			/* Not RAM/scratchpad (BIOS, I/O, unmapped): the value
-			 * is not a RAM vertex, so the destination shadow dies.
-			 * No memory is read (I/O reads can have side effects). */
-			pgxp_on_lw_ram(addr, 0, op.i.rt, op.i.op == OP_LWC2);
-			break;
-		}
-		if (addr < 0x00800000u)
-			val = LE32TOH(((const u32 *)
-				state->maps[PSX_MAP_KERNEL_USER_RAM].address)
-				[(addr & 0x1fffffu) >> 2]);
-		else
-			val = LE32TOH(((const u32 *)
-				state->maps[PSX_MAP_SCRATCH_PAD].address)
-				[(addr - 0x1f800000u) >> 2]);
-		pgxp_on_lw_ram(addr, val, op.i.rt, op.i.op == OP_LWC2);
+	/* A load-delay or a blocked load: ret below is the value actually
+	 * read/written; the destination register is not trusted. */
+	switch (opcode >> 26) {
+	case OP_SB:
+		pgxp_corr_on_sb_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
+		break;
+	case OP_SH:
+		pgxp_corr_on_sh_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
 		break;
 	case OP_SW:
-		pgxp_on_sw_ram(addr, state->regs.gpr[op.i.rt], op.i.rt, 0);
+		pgxp_corr_on_sw_ram(addr, state->regs.gpr[rt], rt, 0);
 		break;
-	case OP_SWC2:
-		pgxp_on_sw_ram(addr, lightrec_mfc2(state, op.i.rt), op.i.rt, 1);
+	case OP_SWL:
+		pgxp_corr_on_swl_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
+		break;
+	case OP_SWR:
+		pgxp_corr_on_swr_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
 		break;
 	case OP_LB:
 	case OP_LBU:
-		pgxp_on_lb_ram(op.i.rt);
+		pgxp_corr_on_lb_ram(rt);
 		break;
 	case OP_LH:
 	case OP_LHU:
-		pgxp_on_lh_ram(op.i.rt);
+		pgxp_corr_on_lh_ram(rt);
 		break;
 	case OP_LWL:
-	case OP_LWR:
-		/* Aligned: exactly LW (re-read word, carry iff exact match);
-		 * unaligned: invalidate (the pgxp helper checks alignment).
-		 * Non-RAM: no read, word 0 (helper invalidates either way). */
-		val = pgxp_ram_shadow_at(addr) ?
-			lightrec_pgxp_ram_word(state, addr) : 0;
-		if (op.i.op == OP_LWL)
-			pgxp_on_lwl_ram(addr, val, op.i.rt);
-		else
-			pgxp_on_lwr_ram(addr, val, op.i.rt);
+		pgxp_corr_on_lwl_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
 		break;
-	case OP_SB:
-	case OP_SH:
-	case OP_SWL:
-	case OP_SWR:
-		/* Merged post-write word, re-read from the map; non-RAM:
-		 * no read, word 0 (helper counts then no-ops on NULL slot). */
-		val = pgxp_ram_shadow_at(addr) ?
-			lightrec_pgxp_ram_word(state, addr) : 0;
-		switch (op.i.op) {
-		case OP_SB: pgxp_on_sb_ram(addr, val, op.i.rt); break;
-		case OP_SH: pgxp_on_sh_ram(addr, val, op.i.rt); break;
-		case OP_SWL: pgxp_on_swl_ram(addr, val, op.i.rt); break;
-		default: pgxp_on_swr_ram(addr, val, op.i.rt); break;
-		}
+	case OP_LWR:
+		pgxp_corr_on_lwr_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
+		break;
+	case OP_LW:
+		pgxp_corr_on_lw_ram(addr, lightrec_pgxp_ram_word(state, addr), rt, 0);
+		break;
+	case OP_LWC2:
+		pgxp_corr_on_lw_ram(addr, lightrec_pgxp_ram_word(state, addr), rt, 1);
+		break;
+	case OP_SWC2:
+		pgxp_corr_on_sw_ram(addr, state->regs.gpr[rt], rt, 1);
 		break;
 	}
 }
@@ -878,7 +884,7 @@ void lightrec_cp(struct lightrec_state *state, union code op)
 static void lightrec_cp_cb(struct lightrec_state *state, u32 arg)
 {
 	LR_DBG_ENTER(LR_C_CP, state->curr_pc, arg);
-	if (psx_debug_trace) lightrec_dbg.n_c++;
+	if (psx_debug_trace) { lightrec_dbg.n_c++; cc_cp++; }
 	lightrec_cp(state, (union code) arg);
 	LR_DBG_LEAVE();
 }
@@ -2490,6 +2496,20 @@ void lightrec_invalidate(struct lightrec_state *state, u32 addr, u32 len)
 void lightrec_invalidate_all(struct lightrec_state *state)
 {
 	memset(state->code_lut, 0, lut_elm_size(state) * CODE_LUT_SIZE);
+}
+
+void lightrec_recompile_all(struct lightrec_state *state)
+{
+	/* clearing the code table alone (lightrec_invalidate_all) lets the old blocks
+	   be found again in the block cache */
+	if (ENABLE_THREADED_COMPILER) {
+		lightrec_recompiler_pause(state->rec);
+		lightrec_reaper_reap(state->reaper);
+	}
+	lightrec_invalidate_all(state);
+	lightrec_free_all_blocks(state->block_cache);
+	if (ENABLE_THREADED_COMPILER)
+		lightrec_recompiler_unpause(state->rec);
 }
 
 void lightrec_set_unsafe_opt_flags(struct lightrec_state *state, u32 flags)

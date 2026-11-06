@@ -13,11 +13,11 @@
 #include <string.h>
 
 #include "gpu.h"
+#include "../../libpcsxcore/pgxp_lite.h"
 #include "gpu_hooks.h"
 #include "gpu_timing.h"
 #include "gpu_async.h"
 #include "../../libpcsxcore/gpu.h" // meh
-#include "../../libpcsxcore/pgxp.h"
 #include "../../frontend/plugin_lib.h"
 #include "../../include/compiler_features.h"
 
@@ -409,11 +409,8 @@ void GPUwriteStatus(uint32_t data)
       fb_dirty = 0;
       break;
     case 0x05:
-      /* PGXP-lite hybrid: the display address is the game's buffer, so a
-       * change means the game finished a frame — advance the game-frame
-       * clock (pgxp_frame) that shadows age against. */
-      pgxp_on_flip(data & 0x7ffff);
       src_x = data & 0x3ff; src_y = (data >> 10) & 0x1ff;
+      if (pgxp_lite_on) pgxp_lite_flip(data & 0x7ffff);   // PGXP-lite: a buffer flip starts a game frame (kill-gated: no call at all while off)
       changed = src_x != gpu.screen.src_x || src_y != gpu.screen.src_y;
       frame = *gpu.state.frame_count;
       // last_flip_frame check allows frameskip on dheight games
@@ -666,6 +663,8 @@ int do_vram_copy(uint16_t *vram, const uint32_t *ex_regs, const uint32_t *params
   uint32_t x, y;
 
   renderer_flush_queues();
+  if (gpu_frontend_hooks.vram_copy && gpu_frontend_hooks.vram_copy(sx, sy, dx, dy, w, h, msb))
+    return 4;
   if (gpu_frontend_hooks.vram_read)
     gpu_frontend_hooks.vram_read(sx, sy, w, h);
 
@@ -928,12 +927,10 @@ static noinline int do_cmd_buffer(struct psx_gpu *gpu, uint32_t *data, int count
 static noinline void flush_cmd_buffer(struct psx_gpu *gpu)
 {
   int cycles_last = 0;
-  int dummy = 0, left, total = gpu->cmd_len;
+  int dummy = 0, left;
   left = do_cmd_buffer(gpu, gpu->cmd_buffer, gpu->cmd_len, &dummy, &cycles_last);
-  if (left > 0) {
+  if (left > 0)
     memmove(gpu->cmd_buffer, gpu->cmd_buffer + gpu->cmd_len - left, left * 4);
-    pgxp_cmd_shift(left, total);
-  }
   if (left != gpu->cmd_len) {
     gpu->cmd_len = left;
     if (!gpu->dma.h && gpu->gpu_state_change)
@@ -978,17 +975,11 @@ static void GPUwriteDataMem_(uint32_t *mem, int count)
 void GPUwriteData(uint32_t data)
 {
   log_io(&gpu, "gpu_write %08x\n", data);
-  pgxp_cmd_write(gpu.cmd_len, data);
   gpu.cmd_buffer[gpu.cmd_len++] = HTOLE32(data);
   if (gpu.cmd_len >= CMD_BUFFER_LEN) {
     flush_cmd_buffer(&gpu);
     sync_ecmds_status_bits(&gpu);
   }
-}
-
-uint32_t *gpulib_get_cmd_buffer(void)
-{
-  return gpu.cmd_buffer;
 }
 
 static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
@@ -1005,8 +996,8 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr,
 static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
   uint32_t *progress_addr, int32_t *cycles_last_cmd)
 {
-  uint32_t addr, *list, ld_addr, list_psx;
-  int len, left, count, ld_count = 32, j;
+  uint32_t addr, *list, ld_addr;
+  int len, left, count, ld_count = 32;
   int cpu_cycles_sum = 0;
   int cpu_cycles_last = 0;
 
@@ -1020,7 +1011,6 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
   for (count = 0; (addr & 0x800000) == 0; count++)
   {
     list = rambase + (addr & 0x1fffff) / 4;
-    list_psx = addr; /* T3: PS1 address of list[0], before addr advances */
     len = LE32TOH(list[0]) >> 24;
     addr = LE32TOH(list[0]) & 0xffffff;
     preload(rambase + (addr & 0x1fffff) / 4);
@@ -1036,11 +1026,6 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
         log_anomaly(&gpu, "cmd_buffer overflow, likely garbage commands\n");
         gpu.cmd_len = 0;
       }
-      /* T3: attach RAM shadows to the copied words (validated per word;
-       * list[1+j] sits at PS1 address list_psx + 4 + 4*j). */
-      for (j = 0; j < len; j++)
-        pgxp_cmd_dma_word(gpu.cmd_len + j, LE32TOH(list[1 + j]),
-                          list_psx + 4 + 4 * j);
       memcpy(gpu.cmd_buffer + gpu.cmd_len, list + 1, len * 4);
       gpu.cmd_len += len;
       flush_cmd_buffer(&gpu);
@@ -1051,11 +1036,6 @@ static long GPUdmaChain_(uint32_t *rambase, uint32_t start_addr,
       left = do_cmd_buffer(&gpu, list + 1, len, &cpu_cycles_sum, &cpu_cycles_last);
       if (left) {
         memcpy(gpu.cmd_buffer, list + 1 + len - left, left * 4);
-        /* T3: attach RAM shadows to the leftover words (the tail of this
-         * link: list[1 + len - left + j] at list_psx + 4 + 4*(len-left+j)). */
-        for (j = 0; j < left; j++)
-          pgxp_cmd_dma_word(j, LE32TOH(list[1 + len - left + j]),
-                            list_psx + 4 + 4 * (len - left + j));
         gpu.cmd_len = left;
         log_anomaly(&gpu, "GPUdmaChain: %d/%d words left\n", left, len);
       }
@@ -1220,11 +1200,14 @@ static void GPUupdateLace_(void)
   if (!gpu.state.fb_dirty_display_area)
     return;
 
-  if (gpu.frameskip.set) {
-    if (!gpu.frameskip.frame_ready)
-      return;
-    gpu.frameskip.frame_ready = 0;
-  }
+  /* Only a frame the GPU actually skipped may be dropped here. The old
+     frame_ready token was produced only by decide_frameskip, so any
+     presentation without a fresh token dropped rendered frames: on the
+     PS3 frontend (no interval, no advice) that capped software + Auto
+     at ~40fps while emulation stayed at 100%. A rendered frame
+     (active == 0) must always be presented. */
+  if (gpu.frameskip.set && gpu.frameskip.active)
+    return;
 #endif
 
   if (gpu_async_enabled(&gpu))

@@ -13,8 +13,8 @@
 #define GAME_DIR APP_DIR "/configs"
 
 settings_t cfg = {
-    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_FXAA_SPU, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 1, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .turbo_cd = 0, .cheat_enable = 0, .pgxp_enable = 0, .pgxp_texture = 1, .pgxp_culling = 1,
+    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
+    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .pgxp = 0, .pgxp_corr = 0, .pgxp_culling = 0,
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -49,10 +49,15 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "mc1_mode", F(mc1_mode), 0, 2, 1 },
     { "mc2_mode", F(mc2_mode), 0, 2, 1 },
     { "analog", F(analog), 0, 1, 1 },
-    { "turbo_cd", F(turbo_cd), 0, 1, 1 },
+    { "cd_speed", F(cd_speed), 0, 2, 1 },
     { "cheat_enable", F(cheat_enable), 0, 1, 0 },
-    { "pgxp_enable", F(pgxp_enable), 0, 1, 0 },
-    { "pgxp_texture", F(pgxp_texture), 0, 1, 1 },
+    { "color_brightness", F(color_brightness), -10, 10, 1 },
+    { "color_contrast", F(color_contrast), -10, 10, 1 },
+    { "color_saturation", F(color_saturation), -10, 10, 1 },
+    { "color_temperature", F(color_temperature), -10, 10, 1 },
+    { "color_gamma", F(color_gamma), -10, 10, 1 },
+    { "pgxp", F(pgxp), 0, 2, 1 },
+    { "pgxp_corr", F(pgxp_corr), 0, 1, 1 },
     { "pgxp_culling", F(pgxp_culling), 0, 1, 1 },
 };
 #define NINTS (sizeof ints / sizeof ints[0])
@@ -68,6 +73,7 @@ static int read_file(const char *path, settings_t *s, int game)
     char line[600];
     int version = 1;
     unsigned i;
+    int legacy_turbo = -1, seen_cd_speed = 0;   /* legacy "turbo_cd" key, see below */
     FILE *f = fopen(path, "r");
     if (!f) return 0;
     while (fgets(line, sizeof line, f)) {
@@ -82,13 +88,21 @@ static int read_file(const char *path, settings_t *s, int game)
             if (!strcmp(k, ints[i].key) && (!game || ints[i].game)) {
                 int v = atoi(eq);
                 if (v >= ints[i].min && v <= ints[i].max) IV(s, i) = v;
+                if (!strcmp(k, "cd_speed")) seen_cd_speed = 1;
             }
+        /* legacy key: "turbo_cd" (0/1) was the old Turbo CD switch; 1 is the
+           old Max, now cd_speed 2. Applied only when the file has no cd_speed
+           of its own, so a file that already migrated never replays it; the
+           key is dropped on the next write (it is no longer in ints[]). */
+        if (!strcmp(k, "turbo_cd")) legacy_turbo = atoi(eq);
         if (!game && !strcmp(k, "last_dir")) snprintf(s->last_dir, sizeof s->last_dir, "%s", eq);
         if (!game && !strcmp(k, "vmc_source")) snprintf(s->vmc_source, sizeof s->vmc_source, "%s", eq);
         if (!game && !strcmp(k, "mc1_shared")) snprintf(s->mc1_shared, sizeof s->mc1_shared, "%s", eq);
         if (!game && !strcmp(k, "mc2_shared")) snprintf(s->mc2_shared, sizeof s->mc2_shared, "%s", eq);
         if (!strcmp(k, "version")) version = atoi(eq);
     }
+    if (!seen_cd_speed && (legacy_turbo == 0 || legacy_turbo == 1))
+        s->cd_speed = legacy_turbo ? 2 : 0;
     fclose(f);
     return version;
 }
@@ -138,22 +152,14 @@ int config_game_exists(const char *key)
 
 int config_game_active(void) { return game_on; }
 
-/* PGXP slice 1: the core's gate bitmask follows the frontend settings: the
- * master must be on, and each feature needs its own sub-option on. 0 means
- * the GTE hooks record nothing at all. Called everywhere gte_widescreen is
- * mirrored, so the two mirrors can never drift apart. */
-void config_mirror_gte_pgxp(void)
+int config_game_delete(const char *key)
 {
-    int old_track = pgxp_track;
-    gte_pgxp = cfg.pgxp_enable ? ((cfg.pgxp_texture ? 1 : 0) | (cfg.pgxp_culling ? 2 : 0)) : 0;
-    pgxp_track = cfg.pgxp_enable;
-    /* Gate: only a master CHANGE re-points the JIT (lightrec_pgxp_gate
-     * updates the state's copied ops + flushes every block, so all code
-     * matches the new registration). Sub-option flips and repeat mirror
-     * calls with the same master value do not invalidate. NULL state
-     * (boot, no game, interpreter CPU) is skipped inside the gate. */
-    if (pgxp_track != old_track)
-        lightrec_pgxp_gate(pgxp_track);
+    char p[700];
+    if (!key || !key[0]) return 0;
+    config_game_path(key, p, sizeof p);
+    if (remove(p) != 0) return 0;
+    logf_("settings: deleted %s\n", p);
+    return 1;
 }
 
 void config_game_begin(const char *key)
@@ -164,11 +170,7 @@ void config_game_begin(const char *key)
     game_on = read_file(game_path, &cfg, 1) > 0;
     if (game_on) logf_("settings: this game's own settings from %s\n", game_path);
     gte_widescreen = cfg.widescreen;   /* the game's own widescreen, or the global one */
-    config_mirror_gte_pgxp();
-    /* A new title starts with no shadows from the previous title (the
-       per-frame wipes are gone; aging alone would let the old title's
-       last-3-frames entries be borrowed in the new title's first frames). */
-    pgxp_invalidate_all();
+    cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1;   /* the game's own CD speed, or the global one */
 }
 
 void config_game_end(void)
@@ -180,29 +182,7 @@ void config_game_end(void)
     }
     game_on = in_game = 0;
     gte_widescreen = cfg.widescreen;   /* back to the settings for all games */
-    config_mirror_gte_pgxp();
-}
-
-/* in a game: on = from now on this game has its own settings (the current ones);
-   off = its file is removed and the settings for all games apply again */
-void config_game_enable(int on)
-{
-    if (!in_game || on == game_on) return;
-    if (on) {
-        mkdir(GAME_DIR, 0777);
-        global_cfg = cfg;
-        game_on = write_file(game_path, &cfg, 1);
-        if (game_on) logf_("settings: this game now has its own settings (%s)\n", game_path);
-    } else {
-        int w = cfg.screen_w, h = cfg.screen_h;
-        remove(game_path);
-        cfg = global_cfg;
-        cfg.screen_w = w; cfg.screen_h = h;
-        game_on = 0;
-        logf_("settings: this game's own settings removed, the settings for all games apply\n");
-    }
-    gte_widescreen = cfg.widescreen;   /* per-game on/off switches the active widescreen */
-    config_mirror_gte_pgxp();
+    cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1;   /* back to the CD speed for all games */
 }
 
 void config_save(void)
@@ -222,4 +202,74 @@ void config_save(void)
     logf_("settings saved%s (cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d)\n",
           game_on ? " for this game" : "", cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect,
           cfg.frameskip, cfg.dithering, cfg.show_fps, cfg.gpu_thread);
+}
+
+/* ---- shared settings panel (menu.c): file helpers ----
+   The panel edits cfg directly (in a game the changes apply live, as the old
+   inline page did). These helpers only write files and never restore cfg or
+   touch in_game. One exception, in config_panel_apply_title: a title-apply
+   that successfully writes the .ini in a game sets game_on=1 (see below),
+   so quit-time routing matches the file's existence. The panel keeps its own baseline (the
+   settings for all games at entry, updated by every apply and by back-save),
+   so back can save to the right target without disturbing launch/quit state.
+   On any write failure the helper returns 0 and the baseline is left
+   untouched, so the panel can report "Save failed" and the user can retry.
+   A title-apply whose .ini write succeeded but whose settings.txt write
+   failed leaves the new .ini in place; the next apply or back-save rewrites
+   both files from the same cfg, so the partial state self-heals. */
+int config_panel_overlay(const char *key, settings_t *s)
+{
+    char p[700];
+    if (!key || !key[0] || !s) return 0;
+    config_game_path(key, p, sizeof p);
+    return read_file(p, s, 1) > 0;
+}
+
+void config_panel_global(settings_t *out) { if (out) *out = global_cfg; }
+
+int config_panel_apply_title(const char *key, const settings_t *now, settings_t *baseline, int ingame)
+{
+    char p[700];
+    settings_t merged;
+    unsigned i;
+    if (!key || !key[0] || !now || !baseline) return 0;
+    mkdir(GAME_DIR, 0777);
+    config_game_path(key, p, sizeof p);
+    if (!write_file(p, now, 1)) return 0;   /* the title's file: per-game keys only */
+    /* The title now HAS a personal file, so the running game uses it: set
+       game_on, mirroring the deleted config_game_enable ON path (which did
+       global_cfg = cfg; game_on = write_file(...)). The panel's title-apply
+       already sets in-game global_cfg to the merged copy above, so no
+       wholesale re-snapshot is needed here. Without this, a title that
+       gains its .ini mid-session would quit with game_on=0, and the next
+       config_save would write its per-game values to settings.txt (global
+       pollution). Only on successful write: a failed write leaves game_on
+       unchanged, so the flag never claims a file that does not exist.
+       Home panels (ingame=0) never touch game_on: no game runs. */
+    if (ingame) game_on = 1;
+    /* settings.txt gets the settings for all games: the baseline's per-game
+       keys, the panel's global-only keys and strings (the config_save split,
+       plus vmc_source, which config_save omits because the import that sets
+       it never runs in a game; copying it here is a no-op in the panel). */
+    merged = *baseline;
+    for (i = 0; i < NINTS; i++) if (!ints[i].game) IV(&merged, i) = IV(now, i);
+    snprintf(merged.last_dir, sizeof merged.last_dir, "%s", now->last_dir);
+    snprintf(merged.vmc_source, sizeof merged.vmc_source, "%s", now->vmc_source);
+    snprintf(merged.mc1_shared, sizeof merged.mc1_shared, "%s", now->mc1_shared);
+    snprintf(merged.mc2_shared, sizeof merged.mc2_shared, "%s", now->mc2_shared);
+    if (!write_file(CFG_PATH, &merged, 0)) return 0;
+    *baseline = merged;
+    if (ingame) global_cfg = merged;
+    logf_("settings saved for this title (%s)\n", key);
+    return 1;
+}
+
+int config_panel_apply_global(const settings_t *now, settings_t *baseline, int ingame)
+{
+    if (!now || !baseline) return 0;
+    if (!write_file(CFG_PATH, now, 0)) return 0;   /* the title's file is untouched */
+    *baseline = *now;
+    if (ingame) global_cfg = *now;
+    logf_("settings saved for all games\n");
+    return 1;
 }

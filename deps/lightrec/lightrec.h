@@ -146,6 +146,12 @@ __api u32 lightrec_run_interpreter(struct lightrec_state *state,
 __api void lightrec_invalidate(struct lightrec_state *state, u32 addr, u32 len);
 __api void lightrec_invalidate_all(struct lightrec_state *state);
 
+/* PGXP-lite: while set, called at each SWC2 of a GTE screen coordinate (SXY0-2,
+   SXYP) with its address and value; blocks compiled while it is set store those
+   through C. lightrec_recompile_all makes every block compile again. */
+__api extern void (*lightrec_swc2_hook)(u32 addr, u32 data);
+__api void lightrec_recompile_all(struct lightrec_state *state);
+
 __api void lightrec_set_exit_flags(struct lightrec_state *state, u32 flags);
 __api u32 lightrec_exit_flags(struct lightrec_state *state);
 

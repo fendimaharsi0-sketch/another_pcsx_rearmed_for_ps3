@@ -10,11 +10,10 @@
 #endif
 
 #include "lightrec.h"
-#include "lightrec-private.h"
+#include "lightrec-private.h"   /* PGXP RAM-shadow corrector gate: struct lightrec_state (ops.cop2_notify) */
 #include "../cdrom.h"
 #include "../gpu.h"
 #include "../gte.h"
-#include "../pgxp.h"
 #include "../mdec.h"
 #include "../psxdma.h"
 #include "../psxhw.h"
@@ -23,6 +22,7 @@
 #include "../psxinterpreter.h"
 #include "../psxhle.h"
 #include "../psxevents.h"
+#include "../pgxp_lite.h"
 
 #include "../frontend/main.h"
 
@@ -115,27 +115,36 @@ static void cop2_notify(struct lightrec_state *state, u32 op, u32 data)
 	 * calls for MFC2/MTC2 (instead of inlining them), so every GTE register
 	 * move is visible here, in both the JIT and the interpreter paths.
 	 * Cost: MFC2/MTC2 become C calls even when tracking is off (the choice
-	 * is made at block-compile time); pgxp_on_notify itself returns
-	 * immediately when tracking is off. Unmeasured on hardware; revisit
-	 * if FPS drops. */
+	 * is made at block-compile time); pgxp_corr_on_notify itself returns
+	 * immediately when tracking is off. That cost is why the gate below
+	 * unregisters it entirely when the corrector is off. */
 	(void)state;
-	pgxp_on_notify(op, data);
+	pgxp_corr_on_notify(op, data);
 }
 
-/* PGXP gate: the master switch fully disconnects the JIT hooks. lightrec_init
- * memcpy'd lightrec_ops into state->ops, so this re-points the state's OWN
- * copy (the const table is untouched) and then flushes every compiled block,
- * so all live code matches the new registration: with NULL, the emitter
- * inlines MFC2/MTC2 again and rec_pgxp_mem emits nothing; with cop2_notify,
- * both hooks are back. Called only on a master change, from
- * config_mirror_gte_pgxp (menu toggle, game begin/end). NULL state (boot
- * before init, no game running, interpreter CPU) skips both steps; the next
- * init uses the current ops. Toggling happens with the game paused in the
- * menu, so flushing all blocks is safe (no block is executing). */
-void lightrec_pgxp_gate(int on)
+/* PGXP RAM-shadow corrector gate: the corrector switch fully disconnects
+ * the JIT hooks. lightrec_init memcpy'd lightrec_ops into state->ops, so
+ * this re-points the state's OWN copy (the const table is untouched) and
+ * then flushes every compiled block, so all live code matches the new
+ * registration: with NULL, the emitter inlines MFC2/MTC2 again and
+ * rec_pgxp_mem emits nothing; with cop2_notify, both hooks are back.
+ * The const table leaves cop2_notify NULL (a fresh init is OFF-correct);
+ * the gate is called with the EFFECTIVE track (pgxp_corr_track, setting
+ * AND lite mode) from game_settings_changed and run_game. It compares
+ * against the ACTUAL registration, not a remembered value, so a Lightrec
+ * re-init (live CPU switch) that resets it to NULL is self-healing via
+ * the per-execute check below — no stale "already applied" state. NULL
+ * state (boot before init, no game running, interpreter CPU) skips both
+ * steps. Toggling happens with the game paused in the menu, so flushing
+ * all blocks is safe (no block is executing). */
+void lightrec_pgxp_corr_gate(int on)
 {
+	int want, have;
 	if (!lightrec_state) return;
-	lightrec_state->ops.cop2_notify = on ? cop2_notify : NULL;
+	want = on ? 1 : 0;
+	have = lightrec_state->ops.cop2_notify != NULL;
+	if (want == have) return;
+	lightrec_state->ops.cop2_notify = want ? cop2_notify : NULL;
 	lightrec_invalidate_all(lightrec_state);
 }
 
@@ -165,12 +174,28 @@ static void lightrec_transition_from_pcsx(struct lightrec_state *state)
 	}
 }
 
+static u32 last_mem, last_val, c1, c2;   /* poll_skip: the last hardware read */
+
 static void hw_write_byte(struct lightrec_state *state,
 			  u32 op, void *host, u32 mem, u32 val)
 {
+	static u32 cd_index = ~0u;      /* the CD-ROM register bank last selected */
+
 	lightrec_transition_to_pcsx(state);
 
 	psxHwWrite8(&psxRegs, mem, val);
+	/* a write: not a plain polling loop. Except the CD-ROM's bank select written
+	   again with the bank already selected: the BIOS waits for the drive by
+	   selecting bank 1 and reading the interrupt flags, again and again (1.6
+	   million times a second while it shows its logo: 80% of the time on the PS3).
+	   Selecting the same bank again changes nothing, so the loop may be skipped
+	   like any other (poll_skip). */
+	if ((mem & 0x1fffffff) == 0x1f801800) {
+		if ((val & 3) != cd_index)
+			last_mem = 0;
+		cd_index = val & 3;
+	} else
+		last_mem = 0;
 
 	lightrec_transition_from_pcsx(state);
 }
@@ -181,6 +206,7 @@ static void hw_write_half(struct lightrec_state *state,
 	lightrec_transition_to_pcsx(state);
 
 	psxHwWrite16(&psxRegs, mem, val);
+	last_mem = 0;   /* a write: not a plain polling loop */
 
 	lightrec_transition_from_pcsx(state);
 }
@@ -191,6 +217,7 @@ static void hw_write_word(struct lightrec_state *state,
 	lightrec_transition_to_pcsx(state);
 
 	psxHwWrite32(&psxRegs, mem, val);
+	last_mem = 0;   /* a write: not a plain polling loop */
 
 	lightrec_transition_from_pcsx(state);
 }
@@ -204,31 +231,45 @@ static void hw_write_word(struct lightrec_state *state,
  * cycles as the time before, the CPU is in such a loop: time moves on by that
  * many cycles per read, without running the loop, until the value changes or
  * the next event is due. Only registers whose reads change nothing.
+ *
+ * A hardware write in between means it is not such a loop. Rayman read the DMA
+ * interrupt register between pieces of real work, the pieces were skipped with
+ * the time, and the game ran at 10 fps (73 million reads "skipped"): the DMA
+ * interrupt and control registers are never taken (a game checks them between
+ * pieces of work), a DMA channel's busy bit only in a loop of at most 32 cycles.
+ * Build 90 took every register only up to 32 cycles, and the BIOS's own waits
+ * while it shows its logo, longer, ran again: the status registers below are
+ * taken up to 256 cycles apart, as before build 90.
  */
 unsigned int lightrec_poll_skips, lightrec_poll_addr;
+/* reads of the same register with the same value at the same interval (up to
+   1024 cycles) that were not skipped: what a slow wait polls (debug log) */
+unsigned int lightrec_poll_missed, lightrec_poll_missed_addr, lightrec_poll_missed_gap;
+extern int psx_debug_trace;   /* libpcsxcore/misc.c: front end debug log */
 
-static bool poll_safe(u32 mem)
+/* the longest interval between reads a loop polling mem may have (0: never) */
+static u32 poll_limit(u32 mem)
 {
 	switch (mem & 0x1fffffff) {
 	case 0x1f801070: case 0x1f801074:   /* interrupt status / mask */
 	case 0x1f801044:                    /* pad/memory card status */
 	case 0x1f801800: case 0x1f801803:   /* CD-ROM status, interrupt enable/flags */
 	case 0x1f801814:                    /* GPU status */
-	case 0x1f8010f0: case 0x1f8010f4:   /* DMA control, DMA interrupts */
-		return true;
+		return 256;
 	}
 	/* DMA channel control (the busy bit): 0x1f801088 + 0x10 * channel */
-	return (mem & 0x1fffff8f) == 0x1f801088 && ((mem >> 4) & 0xf) >= 8 && ((mem >> 4) & 0xf) <= 0xe;
+	if ((mem & 0x1fffff8f) == 0x1f801088 && ((mem >> 4) & 0xf) >= 8 && ((mem >> 4) & 0xf) <= 0xe)
+		return 32;
+	return 0;
 }
 
 static u32 poll_skip(u32 mem, u32 val, int size)
 {
-	static u32 last_mem, last_val, c1, c2;
 	static int last_size;
 	u32 diff = psxRegs.cycle - c1;
 
 	if (mem == last_mem && size == last_size && val == last_val
-	    && diff > 0 && diff < 256 && diff == c1 - c2 && poll_safe(mem)) {
+	    && diff > 0 && diff == c1 - c2 && diff <= poll_limit(mem)) {
 		u32 n = 0;
 		while ((s32)(psxRegs.next_interupt - psxRegs.cycle) > (s32)diff && val == last_val) {
 			psxRegs.cycle += diff;
@@ -241,6 +282,11 @@ static u32 poll_skip(u32 mem, u32 val, int size)
 			lightrec_poll_skips += n;
 			lightrec_poll_addr = mem;
 		}
+	} else if (psx_debug_trace && mem == last_mem && size == last_size && val == last_val
+	           && diff > 0 && diff == c1 - c2 && diff <= 1024) {
+		lightrec_poll_missed++;
+		lightrec_poll_missed_addr = mem;
+		lightrec_poll_missed_gap = diff;
 	}
 
 	c2 = c1; c1 = psxRegs.cycle;
@@ -463,7 +509,6 @@ static bool lightrec_can_hw_direct(u32 kaddr, bool is_write, u8 size)
 
 static const struct lightrec_ops lightrec_ops = {
 	.cop2_op = cop2_op,
-	.cop2_notify = cop2_notify,
 	.enable_ram = lightrec_enable_ram,
 	.hw_direct = lightrec_can_hw_direct,
 	.code_inv = LIGHTREC_CODE_INV ? lightrec_code_inv : NULL,
@@ -657,6 +702,21 @@ static void lightrec_plugin_execute_internal(bool block_only)
 		psxInt.ExecuteBlock(&psxRegs, 0);
 	} else {
 		u32 cycles_lightrec = cycles_pcsx * 1024;
+		/* PGXP-lite follows SWC2 of the GTE's screen coordinates: blocks
+		   compiled before it was switched on store them inline, unseen */
+		if (unlikely(!!pgxp_lite_on != !!lightrec_swc2_hook)) {
+			lightrec_swc2_hook = pgxp_lite_on ? pgxp_lite_swc2 : NULL;
+			/* both ways: blocks compiled while ON keep the C call otherwise,
+			   so an OFF switch would still pay it on every SWC2 store */
+			lightrec_recompile_all(lightrec_state);
+		}
+		/* PGXP RAM-shadow corrector: cop2_notify registration must match
+		   the effective track; a Lightrec re-init (live CPU switch) resets
+		   it to NULL, so re-check here (same self-healing pattern as the
+		   lite swc2_hook check above). The gate itself compares against
+		   the actual registration, so this is a no-op once they match. */
+		if (lightrec_state && unlikely(!!pgxp_corr_track != !!lightrec_state->ops.cop2_notify))
+			lightrec_pgxp_corr_gate(pgxp_corr_track);
 		if (unlikely(use_lightrec_interpreter)) {
 			psxRegs.pc = lightrec_run_interpreter(lightrec_state,
 							      psxRegs.pc,

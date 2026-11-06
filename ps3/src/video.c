@@ -59,12 +59,26 @@ static u8 *frames; static u32 frames_off;
 static u32 *ovl; static u32 ovl_off; static int ovl_full_flush = 1;
 
 static rsxVertexProgram *vp; static void *vp_ucode;
-static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad;
+static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad, *fp_color, *fp_colord;
 static int fxaa_test(void);
 static void bind_texture(u32 unit, u8 location, u32 offset, unsigned w, unsigned h, u32 pitch, int linear, int swap_rb);
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog);
-static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, blit_unit, fxaa_unit;
+static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, fp_color_off, fp_colord_off, blit_unit, fxaa_unit, color_unit;
+/* colour correction (Salsa64/rsxkit mechanism, as the CRT filter used): the
+   RSX has no fragment-program constant registers — a const's value lives
+   inside the microcode, one copy per instruction that reads it. So the
+   colour values patch a CELL shadow copy of the ucode (via the const's
+   offset table) and, when anything changed, the shadow is copied into the
+   RSX buffer; the next rsxLoadFragmentProgramLocation re-reads it.
+   rsxSetFragmentProgramParameter is NOT used: it never delivered a value.
+   Two consts (cc_params float4 + cc_gamma float), two programs (plain +
+   dithered); the patch runs only when a slider moved, never per frame.
+   color_ok is 0 when the programs failed to load: colour never engages and
+   the picture is today's. */
+static void *color_buf, *colord_buf; static u32 *color_shadow, *colord_shadow;
+static u32 color_ucode_size, colord_ucode_size; static int color_ok;
+static int cc_applied[5], cc_have_applied;
 /* dithering of the RSX renderer's picture (video_set_dither): PS1 pixels per
    texture unit of the game texture; quick: menu redraws skip the smoothing */
 static int dith_on, quick; static float dith_nw, dith_nh;
@@ -84,7 +98,7 @@ void video_flush_cpu_writes(const void *p, size_t n)
     __asm__ volatile("sync" : : : "memory");
 }
 
-static u32 load_fp(rsxFragmentProgram *p, u32 *unit)
+static u32 load_fp(rsxFragmentProgram *p, u32 *unit, void **buf)
 {
     void *uc, *m; u32 sz, off;
     rsxProgramAttrib *a;
@@ -95,6 +109,7 @@ static u32 load_fp(rsxFragmentProgram *p, u32 *unit)
     rsxAddressToOffset(m, &off);
     a = rsxFragmentProgramGetAttrib(p, "tex");
     *unit = a ? a->index : 0;
+    if (buf) *buf = m;
     return off;
 }
 
@@ -146,13 +161,34 @@ int video_init(void)
     rsxVertexProgramGetUCode(vp, &vp_ucode, &sz);
     fp_blit = (rsxFragmentProgram *)blit_fpo;
     fp_fxaa = (rsxFragmentProgram *)fxaa_fpo;
-    if (!(fp_blit_off = load_fp(fp_blit, &blit_unit))) return 0;
-    if (!(fp_fxaa_off = load_fp(fp_fxaa, &fxaa_unit))) return 0;
+    if (!(fp_blit_off = load_fp(fp_blit, &blit_unit, NULL))) return 0;
+    if (!(fp_fxaa_off = load_fp(fp_fxaa, &fxaa_unit, NULL))) return 0;
+    {   /* colour correction: same sampler as the plain ones. Soft-fail: the
+           app still runs with today's picture if it cannot load. */
+        u32 uc2;
+        fp_color = (rsxFragmentProgram *)color_fpo;
+        fp_colord = (rsxFragmentProgram *)colord_fpo;
+        if ((fp_color_off = load_fp(fp_color, &color_unit, &color_buf)) &&
+            (fp_colord_off = load_fp(fp_colord, &uc2, &colord_buf))) {
+            void *uc;
+            rsxFragmentProgramGetUCode(fp_color, &uc, &sz);
+            color_ucode_size = sz;
+            color_shadow = malloc(sz);
+            if (color_shadow) memcpy(color_shadow, uc, sz);
+            rsxFragmentProgramGetUCode(fp_colord, &uc, &sz);
+            colord_ucode_size = sz;
+            colord_shadow = malloc(sz);
+            if (colord_shadow) memcpy(colord_shadow, uc, sz);
+            color_ok = color_shadow && colord_shadow;
+            if (!color_ok) logf_("video: colour program shadow failed, colour correction off\n");
+            if (uc2 != color_unit) logf_("video: colour dithering program uses another texture unit (%u)\n", uc2);
+        } else logf_("video: colour program failed to load, colour correction off\n");
+    }
     {   /* dithering variants: same samplers as the plain ones */
         u32 ub, uf;
         fp_blitd = (rsxFragmentProgram *)blitd_fpo;
         fp_fxaad = (rsxFragmentProgram *)fxaad_fpo;
-        if (!(fp_blitd_off = load_fp(fp_blitd, &ub)) || !(fp_fxaad_off = load_fp(fp_fxaad, &uf))) return 0;
+        if (!(fp_blitd_off = load_fp(fp_blitd, &ub, NULL)) || !(fp_fxaad_off = load_fp(fp_fxaad, &uf, NULL))) return 0;
         if (ub != blit_unit || uf != fxaa_unit) logf_("video: dithering programs use other texture units (%u %u)\n", ub, uf);
     }
 
@@ -160,7 +196,7 @@ int video_init(void)
         /* the half-precision FXAA drew wrong on this console: the float build */
         u32 u1, u2;
         fp_fxaa = (rsxFragmentProgram *)fxaaf_fpo; fp_fxaad = (rsxFragmentProgram *)fxaafd_fpo;
-        if (!(fp_fxaa_off = load_fp(fp_fxaa, &u1)) || !(fp_fxaad_off = load_fp(fp_fxaad, &u2))) return 0;
+        if (!(fp_fxaa_off = load_fp(fp_fxaa, &u1, NULL)) || !(fp_fxaad_off = load_fp(fp_fxaad, &u2, NULL))) return 0;
         fxaa_unit = u1;
         if (!fxaa_test()) logf_("video: the float FXAA program fails its test too: FXAA (RSX) may look wrong\n");
     }
@@ -430,7 +466,10 @@ void video_set_dither(int on, float native_w, float native_h) { dith_on = on; di
 void video_redraw_quick(int on) { quick = on; }
 
 /* clip-space rectangle <- texture rectangle (normalised). prog: bit 0 FXAA, bit 1
-   PS1 dithering (the texture is the game picture: dith_nw/nh give PS1 pixels) */
+   PS1 dithering (the texture is the game picture: dith_nw/nh give PS1 pixels),
+   bit 2 colour correction (final pass only: it replaces the Picture filter
+   while any slider is non-zero; the overlay and the intermediate passes
+   never set it) */
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog)
 {
@@ -457,7 +496,8 @@ static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, off + 24, 32, 2, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
     rsxLoadVertexProgram(rsx_ctx, vp, vp_ucode);
     video_vp_epoch++;          /* the hardware renderer reloads its own program */
-    if (fxaa) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_fxaad : fp_fxaa, dith ? fp_fxaad_off : fp_fxaa_off, GCM_LOCATION_RSX);
+    if (prog & 4) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_colord : fp_color, dith ? fp_colord_off : fp_color_off, GCM_LOCATION_RSX);
+    else if (fxaa) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_fxaad : fp_fxaa, dith ? fp_fxaad_off : fp_fxaa_off, GCM_LOCATION_RSX);
     else rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_blitd : fp_blit, dith ? fp_blitd_off : fp_blit_off, GCM_LOCATION_RSX);
     rsxDrawVertexArray(rsx_ctx, GCM_TYPE_TRIANGLE_STRIP, 0, 4);
 }
@@ -506,6 +546,94 @@ static void fx_surface(unsigned w, unsigned h)
     rsxSetSurface(rsx_ctx, &sf);
     rsxSetViewport(rsx_ctx, 0, 0, w, h, 0.0f, 1.0f, scale, offs);
     rsxSetScissor(rsx_ctx, 0, 0, w, h);
+}
+
+/* Patch one const's 4 floats into a colour shadow ucode (rsxkit pattern).
+   c->index is a byte offset into the .fpo pointing at the const's offset
+   table { u32 num; u32 offset[]; } — every microcode offset where the
+   const's value appears. Values are written with 16-bit halves swapped
+   (RSX microcode endianness). Returns 1 if anything changed. */
+static int color_patch_one(rsxFragmentProgram *fp, u32 *shadow, u32 size, const char *name, const float v[4])
+{
+    rsxProgramConst *c = rsxFragmentProgramGetConst(fp, name);
+    const rsxConstOffsetTable *t;
+    u32 w[4]; unsigned i; int changed = 0;
+    if (!c || !shadow) return 0;
+    t = (const rsxConstOffsetTable *)((const u8 *)fp + c->index);
+    /* sanity: a const cannot appear in thousands of instructions; a wild
+       table pointer (bad index) must not loop the whole ucode */
+    if (t->num > 4096) return 0;
+    for (i = 0; i < 4; i++) {
+        u32 x;
+        memcpy(&x, &v[i], 4);
+        w[i] = (x << 16) | (x >> 16);
+    }
+    for (i = 0; i < t->num; i++) {
+        u32 off = t->offset[i];
+        /* off is ucode-relative; never write outside the shadow */
+        if (off + 16 > size) return 0;
+        if (memcmp((u8 *)shadow + off, w, 16)) {
+            memcpy((u8 *)shadow + off, w, 16);
+            changed = 1;
+        }
+    }
+    return changed;
+}
+
+/* Colour correction is on when the programs loaded and any slider is
+   non-zero; all zero is the picture as it is, drawn by today's programs. */
+static int color_active(void)
+{
+    return color_ok && (cfg.color_brightness || cfg.color_contrast ||
+                        cfg.color_saturation || cfg.color_temperature || cfg.color_gamma);
+}
+
+/* Push cfg's slider values into the colour programs, but only when a slider
+   moved since the last push: the per-frame cost is a 4-int compare. Panel
+   edits apply live, no restart. */
+static void color_apply(void)
+{
+    static int logged;
+    int v[5] = { cfg.color_brightness, cfg.color_contrast, cfg.color_saturation, cfg.color_temperature, cfg.color_gamma };
+    float f[4], g[4];
+    int changed = 0;
+    if (!color_ok) return;
+    if (cc_have_applied && v[0] == cc_applied[0] && v[1] == cc_applied[1] &&
+        v[2] == cc_applied[2] && v[3] == cc_applied[3] && v[4] == cc_applied[4]) return;
+    /* Gate the once-log on debug_log: logf_ drops lines when debug is off,
+       so an ungated once-flag fires (and is lost) on the first colour frame
+       of the app session — then no later game in the same launch ever logs. */
+    if (!logged && cfg.debug_log) {
+        rsxProgramConst *c1, *c2, *g1, *g2;
+        logged = 1;
+        logf_("video: color program num_const %u\n", rsxFragmentProgramGetNumConst(fp_color));
+        c1 = rsxFragmentProgramGetConst(fp_color, "cc_params");
+        c2 = rsxFragmentProgramGetConst(fp_colord, "cc_params");
+        g1 = rsxFragmentProgramGetConst(fp_color, "cc_gamma");
+        g2 = rsxFragmentProgramGetConst(fp_colord, "cc_gamma");
+        logf_("video: color const cc_params: %s / %s, cc_gamma: %s / %s\n",
+              c1 ? "found" : "NULL", c2 ? "found" : "NULL", g1 ? "found" : "NULL", g2 ? "found" : "NULL");
+    }
+    f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = (float)v[2]; f[3] = (float)v[3];
+    g[0] = (float)v[4]; g[1] = 0.0f; g[2] = 0.0f; g[3] = 0.0f;
+    changed |= color_patch_one(fp_color, color_shadow, color_ucode_size, "cc_params", f);
+    changed |= color_patch_one(fp_colord, colord_shadow, colord_ucode_size, "cc_params", f);
+    changed |= color_patch_one(fp_color, color_shadow, color_ucode_size, "cc_gamma", g);
+    changed |= color_patch_one(fp_colord, colord_shadow, colord_ucode_size, "cc_gamma", g);
+    if (changed) {
+        /* The shadow changed: wait until the RSX finished the previous
+           frame (CPU poll on the backend label, same pattern as wait_flip),
+           then copy the patched ucode into the RSX buffers. The next
+           rsxLoadFragmentProgramLocation in quad_clip re-reads it. */
+        if (frame_label) {
+            unsigned k = 0;
+            while ((s32)(*frame_label - frame_seq) < 0 && ++k < 20000) usleep(50);
+        }
+        memcpy(color_buf, color_shadow, color_ucode_size);
+        memcpy(colord_buf, colord_shadow, colord_ucode_size);
+    }
+    cc_applied[0] = v[0]; cc_applied[1] = v[1]; cc_applied[2] = v[2]; cc_applied[3] = v[3]; cc_applied[4] = v[4];
+    cc_have_applied = 1;
 }
 
 /* ---- edge smoothing on the SPUs ----
@@ -566,7 +694,7 @@ static void quad(float x0, float y0, float x1, float y1, float u0, float v0, flo
 
 /* 0: not possible this frame (the caller draws the picture another way) */
 static int draw_spu_aa(u8 loc, u32 off, unsigned tw, unsigned th, u32 pitch,
-                       float u0, float v0, float u1, float v1, int swap_rb, float x0, float y0, float x1, float y1, int d)
+                       float u0, float v0, float u1, float v1, int swap_rb, float x0, float y0, float x1, float y1, int d, int cc)
 {
     unsigned W = ((unsigned)(x1 - x0 + 0.5f)) & ~3u, H = (unsigned)(y1 - y0 + 0.5f);
     int shown_out = 0;
@@ -577,14 +705,14 @@ static int draw_spu_aa(u8 loc, u32 off, unsigned tw, unsigned th, u32 pitch,
         sa.pending = 0; sa.stall = 0;
         if (r < 0) logf_("video: SPU smoothing missed the RSX's label\n");
         if (r > 0 && sa.w == W && sa.h == H) {
-            bind_texture(blit_unit, GCM_LOCATION_CELL, sa.off + sa.size, W, H, AA_PITCH, 0, swap_rb);
-            quad(x0, y0, x0 + W, y0 + H, 0.f, 0.f, 1.f, 1.f, 1.f / W, 1.f / H, 0);
+            bind_texture(cc ? color_unit : blit_unit, GCM_LOCATION_CELL, sa.off + sa.size, W, H, AA_PITCH, 0, swap_rb);
+            quad(x0, y0, x0 + W, y0 + H, 0.f, 0.f, 1.f, 1.f, 1.f / W, 1.f / H, cc ? 4 : 0);
             shown_out = 1;
         }
     }
     if (!shown_out) {
-        bind_texture(blit_unit, loc, off, tw, th, pitch, 1, swap_rb);
-        quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, d);
+        bind_texture(cc ? color_unit : blit_unit, loc, off, tw, th, pitch, 1, swap_rb);
+        quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, cc ? (4 | d) : d);
     }
     /* this frame, scaled to the screen, into IN for the SPUs (channels as they are) */
     sa_surface(W, H);
@@ -624,6 +752,9 @@ static void game_rect(float *x0, float *y0, float *x1, float *y1, float *shown)
     case ASPECT_FULL: shape = scr_aspect; break;
     default: shape = 4.f / 3.f; break;
     }
+    /* widescreen: the 3D was drawn for 16:9 (gte_widescreen), shown that wide
+       whatever the aspect setting (on a 4:3 TV, as wide as it goes) */
+    if (cfg.widescreen) { shape = 16.f / 9.f; *shown = 1.f; }
     if (shape > scr_aspect) { shape = scr_aspect; }
     if (*shown > 1.f) *shown = 1.f;
     w = aw * shape / scr_aspect;       /* works for non-square pixels (480p/576p) too */
@@ -652,6 +783,13 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
 {
     float x0, y0, x1, y1;
     int fxaa = cfg.filter == FILTER_FXAA && !quick, linear = cfg.filter != FILTER_SHARP, d = dither ? 2 : 0;
+    /* Colour correction replaces the Picture filter on the final pass only,
+       while any slider is non-zero (same precedence the CRT filter had):
+       the FXAA-into-buffer and SPU-IN passes stay plain, so the correction
+       is never applied twice. It also applies on quick redraws, so the
+       picture behind a menu matches the picture in the game. */
+    int cc = color_active();
+    color_apply();
     {
         float shown, c;
         game_rect(&x0, &y0, &x1, &y1, &shown);
@@ -667,7 +805,7 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
     if (border_dirty) video_clear(0xff000000);
     else video_reset_state();
     if (cfg.filter == FILTER_FXAA_SPU && !quick) {
-        if (draw_spu_aa(loc, off, tw, th, pitch, u0, v0, u1, v1, swap_rb, x0, y0, x1, y1, d)) return;
+        if (draw_spu_aa(loc, off, tw, th, pitch, u0, v0, u1, v1, swap_rb, x0, y0, x1, y1, d, cc)) return;
         fxaa = !spu_aa_available();    /* SPUs unavailable: FXAA on the RSX; busy: plain this frame */
     }
     if (fxaa) {
@@ -679,8 +817,8 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
                scaled picture, in one pass with offsets of one screen pixel. (FXAA at
                source resolution into a buffer costs that buffer's pixels plus a second
                full-screen pass: only worth it for a much smaller source.) */
-            bind_texture(fxaa_unit, loc, off, tw, th, pitch, 1, swap_rb);
-            quad(x0, y0, x1, y1, u0, v0, u1, v1, (u1 - u0) / (x1 - x0), (v1 - v0) / (y1 - y0), 1 | d);
+            bind_texture(cc ? color_unit : fxaa_unit, loc, off, tw, th, pitch, 1, swap_rb);
+            quad(x0, y0, x1, y1, u0, v0, u1, v1, (u1 - u0) / (x1 - x0), (v1 - v0) / (y1 - y0), cc ? (4 | d) : (1 | d));
             return;
         }
         if (sw && sh && sw <= FX_W && sh <= FX_H && fx_alloc()) {
@@ -688,13 +826,13 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
             bind_texture(fxaa_unit, loc, off, tw, th, pitch, 1, swap_rb);
             quad_clip(-1.f, 1.f, 1.f, -1.f, u0, v0, u1, v1, 1.f / tw, 1.f / th, 1 | d);
             video_reset_state();
-            bind_texture(blit_unit, GCM_LOCATION_RSX, fx_off, FX_W, FX_H, FX_W * 4, 1, 0);
-            quad(x0, y0, x1, y1, 0.f, 0.f, (float)sw / FX_W, (float)sh / FX_H, 1.f / FX_W, 1.f / FX_H, 0);
+            bind_texture(cc ? color_unit : blit_unit, GCM_LOCATION_RSX, fx_off, FX_W, FX_H, FX_W * 4, 1, 0);
+            quad(x0, y0, x1, y1, 0.f, 0.f, (float)sw / FX_W, (float)sh / FX_H, 1.f / FX_W, 1.f / FX_H, cc ? 4 : 0);
             return;
         }
     }
-    bind_texture(fxaa ? fxaa_unit : blit_unit, loc, off, tw, th, pitch, linear, swap_rb);
-    quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, fxaa | d);
+    bind_texture(cc ? color_unit : (fxaa ? fxaa_unit : blit_unit), loc, off, tw, th, pitch, linear, swap_rb);
+    quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, cc ? (4 | d) : (fxaa | d));
 }
 
 void video_draw_frame(const void *pix, unsigned w, unsigned h, size_t pitch)
