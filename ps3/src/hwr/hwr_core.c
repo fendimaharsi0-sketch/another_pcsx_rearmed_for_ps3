@@ -4,6 +4,7 @@
  * when a fresh snapshot of native VRAM is needed. */
 #include <string.h>
 #include "hwr.h"
+#include "interp_match.h"   /* frame interpolation by geometry: vertex matcher */
 
 #define VCAP      65536   /* vertices per submit */
 #define SCAP      32768   /* staged second-pass vertices */
@@ -51,6 +52,9 @@ void pgxp_lite_prefetch(const uint32_t *const *ptr, const uint32_t *words, int n
 /* PGXP RAM-shadow corrector (core: libpcsxcore/pgxp_lite.c), weak for the same reason */
 extern int pgxp_corr_track __attribute__((weak));
 int pgxp_corr_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c) __attribute__((weak));
+/* the interpolation matcher asks the core for the RAM offset of a packet
+   pointer (core: libpcsxcore/pgxp_lite.c); weak for the same reason */
+int pgxp_ram_off(const void *ptr) __attribute__((weak));
 static int pg_poly;                    /* the primitive being emitted has PGXP-lite offsets */
 unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;   /* polygons drawn with / without them (log) */
 unsigned int hwr_pgxp_corr_persp;   /* of the perspective polygons, those with at least one corrector-supplied corner (log) */
@@ -683,6 +687,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
     int n = quad ? 4 : 3, i, idx = 1, sc[4], ta[4], ca[4] = { 0 }, cx = 0, cy = 0;
     int umin = 255, umax = 0, vmin = 255, vmax = 0, nt = 0, pg = 0, spr = 0, s1 = 0, sdx = 0, sdy = 0;
     uint32_t xys[4];
+    uint32_t colw[4];   /* colour word per vertex, for the interpolation attribute hash */
     const uint32_t *xyp[4];
     pv p[4], t[6];
     unsigned long long pt0, pt1;
@@ -710,6 +715,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
             }
         } else p[i].u = p[i].v = 0.f;
         if (tex && raw) { p[i].r = p[i].g = p[i].b = 128.f; } else colour(&p[i], c);
+        colw[i] = c;
     }
     if (tex) {
         uint32_t clut = uvw[0] >> 16;
@@ -914,6 +920,59 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
     { unsigned long long q = PG_TB(); hwr_poly_t_setup += q - pt1; pt1 = q; }
     pg_poly = pg;
     cur_spr = spr;
+    /* Frame interpolation by geometry (interp_match.c): pair this polygon's
+       vertices with the previous frame's and, in the test modes, draw it at
+       the fixed fraction t. Sprites never interpolate (no stable identity,
+       and they leave trails); lines and fills never reach here. The lookup
+       also captures the vertex for the next frame, so the matcher runs in
+       every mode (On included) — the counters are the pairing evidence. */
+    if (interp_active()) {
+        int k, all = 1;
+        int done[4] = { 0, 0, 0, 0 };
+        float px[4], py[4];
+        int tri1 = !too_big(&p[0], &p[1], &p[2]);
+        int ispr = spr;
+        int have_off = pgxp_ram_off ? 1 : 0;
+        float tt = interp_test_t();
+        if (!ispr && tex) ispr = poly_is_sprite(t, nt);
+        if (ispr) {
+            interp_sprites++;
+        } else {
+            for (k = 0; k < nt; k++) {
+                int pi = tri1 ? (k < 3 ? k : k - 2) : k + 1;
+                float fx, fy;
+                int off = -1;
+                if (done[pi]) continue;
+                done[pi] = 1;
+                fx = t[k].x + (pg ? (float)t[k].qx / 1024.f : 0.f);
+                fy = t[k].y + (pg ? (float)t[k].qy / 1024.f : 0.f);
+                if (have_off) {
+                    int o = pgxp_ram_off(xyp[pi]);
+                    if (o >= 0) off = o;
+                }
+                if (!interp_vertex(off,
+                        interp_attr_hash(uvw[pi] & 0xffu, (uvw[pi] >> 8) & 0xffu,
+                            colw[pi] & 0xffu, (colw[pi] >> 8) & 0xffu,
+                            (colw[pi] >> 16) & 0xffu,
+                            tex ? (uvw[1] >> 16) : 0u, tex ? (uvw[0] >> 16) : 0u),
+                        fx, fy, &px[pi], &py[pi]))
+                    all = 0;
+            }
+            /* all-or-nothing per polygon: every drawn vertex must have a valid
+               prev, else none of them moves (a mesh never tears) */
+            if (all && tt >= 0.f) {
+                for (k = 0; k < nt; k++) {
+                    int pi = tri1 ? (k < 3 ? k : k - 2) : k + 1;
+                    float fx = t[k].x + (pg ? (float)t[k].qx / 1024.f : 0.f);
+                    float fy = t[k].y + (pg ? (float)t[k].qy / 1024.f : 0.f);
+                    t[k].x = interp_lerp(px[pi], fx, tt);
+                    t[k].y = interp_lerp(py[pi], fy, tt);
+                    t[k].qx = 0;
+                    t[k].qy = 0;
+                }
+            }
+        }
+    }
     emit(t, nt, semi, tex, sc);
     pg_poly = 0;
     grow_bbox(t, nt, sc);
@@ -1084,6 +1143,8 @@ int hwr_present(int x, int y, int w, int h, int bgr24)
     /* areas written only by uploads/fills (FMV, still screens) reach the target here */
     if (ndirty && !frame_overflow) { open_batch(); take_snapshot(); close_batch(); }
     hwr_stats.frames++;
+    /* frame interpolation: the frame just drawn becomes the previous one */
+    interp_present();
     if (frame_snaps > (int)hwr_stats.max_snaps) hwr_stats.max_snaps = frame_snaps;
     ok = !frame_overflow && !bgr24 && w > 0 && h > 0 && x >= 0 && y >= 0 && x + w <= 1024 && y + h <= 512;
     if (frame_overflow) add_dirty(0, 0, 1024, 512);  /* resync everything next frame */

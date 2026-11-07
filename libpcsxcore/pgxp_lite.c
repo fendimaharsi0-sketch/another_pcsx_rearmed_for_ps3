@@ -404,6 +404,19 @@ void pgxp_lite_swc2(uint32_t addr, uint32_t val)
 	pq_new(PQ_SWC2, p, val);
 }
 
+/* the RAM byte offset of a packet pointer, or -1 if it is not a RAM address
+ * (a copied command) or RAM is mapped at address 0 (host tests). Shared by
+ * the interpolation matcher for its address key; independent of pgxp_lite_on
+ * (the offset is a fact about the pointer, not about the lite tables). */
+int pgxp_ram_off(const void *ptr)
+{
+	uintptr_t off;
+	if (pgxp_lite_no_addr) return -1;   /* (RAM may be mapped at address 0: Lightrec on a PC) */
+	off = (uintptr_t)((const uint8_t *)ptr - (const uint8_t *)psxRegs.ptrs.psxM);
+	if (off >= 0x200000) return -1;     /* not read from RAM (a copied command) */
+	return (int)off;
+}
+
 int pgxp_lite_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c)
 {
 	const struct pgxp_aent *e;

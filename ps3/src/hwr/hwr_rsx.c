@@ -50,6 +50,7 @@
 #include "core_hooks.h"
 #include "shaders.h"
 #include "hwr.h"
+#include "interp_match.h"   /* frame interpolation by geometry: vertex matcher */
 #include "gpu_hooks.h"           /* from the core: plugins/gpulib */
 
 #define HWR_MAXS     4      /* widest scale: 1024 * 4 = 4096, the RSX's surface and texture limit */
@@ -1586,6 +1587,14 @@ static int cmd_timed(const uint32_t *list, const uint32_t *end)
    it (the RSX renderer was GPU-bound there: under 45 fps, broken sound) */
 int hwr_boot_hold;
 
+/* frame interpolation: a game-initiated VRAM read/copy marks the frame
+   non-interpolatable (its texture may be the framebuffer itself). The front
+   end's own readbacks call full_vram_read/copy directly, below, and must not
+   set the flag — so the flag is set here, at the hook assignment, not inside
+   the two functions. */
+static void interp_vram_read_wrap(int x, int y, int w, int h) { interp_note_fb(); full_vram_read(x, y, w, h); }
+static int interp_vram_copy_wrap(int sx, int sy, int dx, int dy, int w, int h, int msb) { interp_note_fb(); return full_vram_copy(sx, sy, dx, dy, w, h, msb); }
+
 static void start(void)
 {
     static int tested;
@@ -1635,8 +1644,8 @@ static void start(void)
     R.check = R.base.full && cfg.vram_check;
     gpu_frontend_hooks.cmd = R.check ? cmd_check : cmd_timed;
     gpu_frontend_hooks.vram_written = R.base.full ? full_vram_written : hwr_vram_written;
-    gpu_frontend_hooks.vram_read = R.base.full && !R.check ? full_vram_read : NULL;
-    gpu_frontend_hooks.vram_copy = R.base.full && !R.check ? full_vram_copy : NULL;
+    gpu_frontend_hooks.vram_read = R.base.full && !R.check ? interp_vram_read_wrap : NULL;
+    gpu_frontend_hooks.vram_copy = R.base.full && !R.check ? interp_vram_copy_wrap : NULL;
     gpu_frontend_hooks.sync_ecmds = hwr_sync_ecmds;
     gpu_frontend_hooks.present = present_hook;
     R.on = 1;
@@ -1679,6 +1688,10 @@ static void log_stats(void)
             logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero)\n",
                   pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore);
         pgxp_corr_nclip_total = pgxp_corr_nclip_flip = pgxp_corr_nclip_restore = 0;
+        if (interp_active())
+            logf_("hwr: interp: %u lookups, %u hits (addr %u, hash %u), %u moved, %u sprites, %u frames cut, %u fb-excluded, %u dropped (table full)\n",
+                  interp_lookups, interp_hits_addr + interp_hits_hash, interp_hits_addr, interp_hits_hash, interp_moved, interp_sprites, interp_frames_cut, interp_frames_fb, interp_full);
+        interp_log_reset();
         if (pgxp_lite_on >= 2)
             logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired, %u with a corrector corner), %u flat\n",
                   hwr_pgxp_persp, hwr_pgxp_misfit, hwr_pgxp_corr_persp, hwr_pgxp_flat);

@@ -394,20 +394,21 @@ static const item_t settings_items[] = {
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
     { "PGXP RAM shadow", "Experimental. Supplies vertices PGXP missed, from the CPU's stores to RAM (world geometry). Only works while PGXP is on." },
     { "PGXP culling", "Experimental. Recomputes triangle culling (NCLIP) from precise vertex positions, so faces that only wobble into view stop flickering. Only works while PGXP is on." },
+    { "Frame interpolation", "Experimental. RSX renderer: rebuilds in-between frames from the previous frame's geometry, so 30 fps games look smoother. Test t=0 draws the previous frame, t=0.5 the mid-frame." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 36 settings are grouped into 7 pages, flipped with L1/R1 (top row).
+   The 39 settings are grouped into 7 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
    up to NSET, and the host test checks uniqueness and the grouping itself. */
-#define NPAGES 7
+#define NPAGES 8
 static const char *set_page_titles[NPAGES] = {
-    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color", "PGXP"
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color", "PGXP", "Interpolation"
 };
 static const int set_page_items[NPAGES][9] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
@@ -417,9 +418,10 @@ static const int set_page_items[NPAGES][9] = {
     { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
     { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
     { 35, 36, 37 },                           /* PGXP: PGXP (steadier 3D), PGXP RAM shadow, PGXP culling */
+    { 38 },                                   /* Interpolation: Frame interpolation */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5, 3 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5, 3, 1 };
+typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 + 3 + 1 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -512,6 +514,7 @@ static void setting_value(int i, char *b, size_t n)
     case 35: snprintf(b, n, "%s", cfg.pgxp == 2 ? "On + textures" : cfg.pgxp ? "On" : "Off"); break;
     case 36: snprintf(b, n, "%s", cfg.pgxp_corr ? "On" : "Off"); break;
     case 37: snprintf(b, n, "%s", cfg.pgxp_culling ? "On" : "Off"); break;
+    case 38: snprintf(b, n, "%s", cfg.interp == 3 ? "Test t=0.5" : cfg.interp == 2 ? "Test t=0" : cfg.interp ? "On" : "Off"); break;
     }
 }
 
@@ -609,6 +612,7 @@ static void setting_change_(int i, int dir, int in_game)
     case 35: cfg.pgxp = (cfg.pgxp + (dir > 0 ? 1 : 2)) % 3; break;
     case 36: cfg.pgxp_corr ^= 1; break;
     case 37: cfg.pgxp_culling ^= 1; break;
+    case 38: cfg.interp = (cfg.interp + (dir > 0 ? 1 : 3)) % 4; break;
     }
 }
 

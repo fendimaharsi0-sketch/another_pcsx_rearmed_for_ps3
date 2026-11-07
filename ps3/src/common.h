@@ -84,6 +84,7 @@ typedef struct {
     int pgxp;               /* PGXP-lite: 1 GTE vertices at sub-pixel positions (RSX renderer), 2 also perspective-correct textures */
     int pgxp_corr;          /* PGXP RAM-shadow corrector: supply what lite missed (positions + depth) from the CPU's stores to RAM (per game, default off; only effective while pgxp != 0) */
     int pgxp_culling;       /* PGXP culling corrector: recompute triangle culling (NCLIP) from precise GTE positions (per game, default off; only effective while pgxp != 0) */
+    int interp;             /* frame interpolation by geometry: rebuild in-between frames from the previous frame's vertices, so 30 fps games look smoother (per game, default off; RSX renderer; 2 draws the previous frame's geometry, 3 the mid-frame — test modes) */
 } settings_t;
 extern settings_t cfg;
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
