@@ -53,7 +53,7 @@
 #include "gpu_hooks.h"           /* from the core: plugins/gpulib */
 
 #define HWR_MAXS     4      /* widest scale: 1024 * 4 = 4096, the RSX's surface and texture limit */
-#define HWR_ROWS     2304   /* target rows: 512 * 4.5 (the 4.5x setting scales only the height past 4x) */
+#define HWR_ROWS     2560   /* target rows: 512 * 5 (the 5x setting scales only the height past 4x) */
 #define HWR_NSNAP    16
 #define HWR_SNAPSZ   (1024 * 1024)
 #define HWR_VRING    (8 * 1024 * 1024)
@@ -68,7 +68,7 @@
 
 static struct {
     hwr_dev base;
-    int ok, failed, dead, S, on;   /* S: the renderer setting (2, 3, 4, 5 = 4.5x) */
+    int ok, failed, dead, S, on;   /* S: the scale code in half-steps (4 = 2x, 9 = 4.5x, 10 = 5x; in auto mode, the computed code) */
     int SX; float SY;              /* scale of the target: width, height */
     int full_ok;                  /* self-test result: full mode works on this console */
     u32 tgt_off, tgt_pitch, dep_off; volatile u32 *tgt;
@@ -868,14 +868,39 @@ static void rsxr_submit_(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx 
    and the RSX ran out of fill rate there. The scale for the picture shown is
    capped at what the screen needs (rounded up, at least 2x), never raised
    above the setting; it changes after the picture size has been stable for a
-   few frames, and the upscaled copy is rebuilt from the native VRAM. */
+   few frames, and the upscaled copy is rebuilt from the native VRAM.
+   Auto resolution replaces that cap with the target: the scale is the target
+   height over the picture height, in 0.5x steps (ties to the lower step),
+   clamped to what the target buffer holds (1x..5x); the width follows the
+   height (floor), capped at HWR_MAXS — the 4.5x setting's shape. */
 static struct { int sx; float sy; int frames; } want;
+
+/* scale code (half-steps) -> the target scales: width is the code's whole
+   part, capped at HWR_MAXS; height is the code in halves (9 -> 4.5x) */
+static void scale_from_code(int code, int *sx, float *sy)
+{
+    int cx = code / 2;
+    *sx = cx > HWR_MAXS ? HWR_MAXS : cx;
+    *sy = (float)code / 2.0f;
+}
 
 static void scale_for(int w, int h, int *sx, float *sy)
 {
-    int cx = R.S > HWR_MAXS ? HWR_MAXS : R.S, need;
-    float cy = R.S > HWR_MAXS ? 4.5f : (float)R.S;
-    *sx = cx; *sy = cy;
+    int at = cfg_auto_target_h();
+    int need;
+    if (at && h > 0) {
+        /* auto: nearest 0.5x step to the target, ties to the lower one:
+           steps = ceil(2*at/h - 0.5), in integers (4*at + h - 1) / (2*h) */
+        int steps = (4 * at + h - 1) / (2 * h);
+        float cy;
+        if (steps < 2) steps = 2;
+        if (steps > 10) steps = 10;
+        cy = (float)steps / 2.0f;
+        *sy = cy;
+        *sx = (int)cy > HWR_MAXS ? HWR_MAXS : (int)cy;
+        return;
+    }
+    scale_from_code(R.S, sx, sy);
     /* only high-resolution pictures (480 lines, 512/640 wide): a 240-line game keeps
        the setting even past the screen's lines (that extra smooths the edges) */
     if (h > 256) { need = ((int)video_height() + h / 2) / h; if (need < 2) need = 2; if ((float)need < *sy) *sy = (float)need; }
@@ -900,9 +925,16 @@ static void apply_scale(void)
 {
     if (!R.on || R.dead || want.frames < 3 || (want.sx == R.SX && want.sy == R.SY)) return;
     hwr_flush();
-    logf_("hwr: %dx%d picture: drawing at %dx wide, %gx tall (the screen has %u lines)\n",
-          R.pw, R.ph, want.sx, want.sy, video_height());
+    if (cfg_auto_target_h())
+        logf_("hwr: %dx%d picture: auto target %d, drawing at %dx wide, %gx tall (the screen has %u lines)\n",
+              R.pw, R.ph, cfg_auto_target_h(), want.sx, want.sy, video_height());
+    else
+        logf_("hwr: %dx%d picture: drawing at %dx wide, %gx tall (the screen has %u lines)\n",
+              R.pw, R.ph, want.sx, want.sy, video_height());
     R.SX = want.sx; R.SY = want.sy;
+    /* auto: the scale code follows the computed scale, so turning auto off
+       restarts the renderer only if the manual scale differs from it */
+    if (cfg_auto_target_h()) R.S = (int)(want.sy * 2.0f + 0.5f);
     hwr_attach_vram(gpulib_get_vram());     /* everything is copied from the native VRAM at the new scale */
 }
 
@@ -1587,12 +1619,16 @@ int hwr_boot_hold;
 static void start(void)
 {
     static int tested;
-    if (!cfg.gpu_scale || R.dead || R.on || hwr_boot_hold) return;
+    int at;
+    if (R.dead || R.on || hwr_boot_hold) return;
+    at = cfg_auto_target_h();
+    if (!cfg.gpu_scale && !at) return;
     if (!alloc_once()) return;
     gpulib_set_thread_rendering(0);     /* the hooks below must run on this thread */
-    R.S = cfg.gpu_scale;
-    R.SX = R.S > HWR_MAXS ? HWR_MAXS : R.S;
-    R.SY = R.S > HWR_MAXS ? 4.5f : (float)R.S;
+    /* auto: start at a safe 2x; scale_for/apply_scale corrects it within 3 frames */
+    R.S = at ? 4 : cfg.gpu_scale;
+    if (R.S == 1) R.S = 2;   /* 0.5x is not a scale (a hand-edited file): 1x instead */
+    scale_from_code(R.S, &R.SX, &R.SY);
     want.sx = R.SX; want.sy = R.SY; want.frames = 0;
     R.base.snapshot = rsxr_snapshot; R.base.submit = rsxr_submit; R.base.present = rsxr_present;
     R.base.vtx_area = rsxr_vtx_area;
@@ -1641,7 +1677,7 @@ static void start(void)
     /* the self-test ran at the first game start, maybe into another game's log */
     logf_("hwr: self-test: full mode %s, bit 15 %s, %s programs\n", R.full_ok ? "passed" : "FAILED",
           !R.full_ok ? "-" : R.bit15 ? "kept" : "NOT kept (failed its test)", R.fast ? "fast" : "byte-decoding");
-    logf_("hwr: GPU renderer on, %dx%s (%dx%d), %s mode\n", R.SX, R.S > HWR_MAXS ? " wide, 4.5x tall" : "", 1024 * R.SX, (int)(512.f * R.SY + 0.5f),
+    logf_("hwr: GPU renderer on, %dx wide, %gx tall (%dx%d), %s mode\n", R.SX, R.SY, 1024 * R.SX, (int)(512.f * R.SY + 0.5f),
           R.base.full ? (R.check ? "full, with the VRAM check (software renderer draws too)" : "full (the RSX draws everything)")
                       : "hybrid (software renderer + RSX)");
     logf_("hwr: texture filter %s\n", cfg.texfilter == 2 ? "bilinear (performance: hardware 15-bit, manual CLUT, upscaled pass only)" :
@@ -1737,8 +1773,10 @@ void hooks_game_stopping(void) { stop(); }
 
 void hooks_apply_gpu_settings(void)
 {
-    if (R.on && (cfg.gpu_scale != R.S || (R.base.full && R.check != cfg.vram_check))) stop();
-    if (!R.on && cfg.gpu_scale) start();
+    /* auto: the manual scale is ignored while a target is set, so changing it
+       must not restart the renderer (R.S is the computed scale code then) */
+    if (R.on && ((!cfg_auto_target_h() && cfg.gpu_scale != R.S) || (R.base.full && R.check != cfg.vram_check))) stop();
+    if (!R.on && (cfg.gpu_scale || cfg_auto_target_h())) start();
     if (!R.on) gpulib_set_thread_rendering(cfg.gpu_thread);
 }
 

@@ -392,13 +392,14 @@ static const item_t settings_items[] = {
     { "Temperature", "-10 warmer (red), +10 cooler (blue). 0 is the picture as it is." },
     { "Gamma", "-10 darker midtones, +10 brighter midtones. Black stays black, white stays white. 0 is the picture as it is." },
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
+    { "Auto resolution", "Target height the RSX renderer aims for, in 0.5x steps. Manual uses the Renderer scale." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 36 settings are grouped into 7 pages, flipped with L1/R1 (top row).
+   The 37 settings are grouped into 7 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -407,17 +408,17 @@ static const item_t settings_items[] = {
 static const char *set_page_titles[NPAGES] = {
     "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color", "PGXP"
 };
-static const int set_page_items[NPAGES][9] = {
+static const int set_page_items[NPAGES][10] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
-    { 1, 2, 3, 4, 5, 6, 7, 9, 10 },          /* Picture: Renderer, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
+    { 1, 36, 2, 3, 4, 5, 6, 7, 9, 10 },      /* Picture: Renderer, Auto resolution, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
     { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
     { 35 },                                  /* PGXP: PGXP (steadier 3D) */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5, 1 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 + 1 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 8, 5, 1 };
+typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 8 + 5 + 1 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -457,13 +458,23 @@ static void setting_value(int i, char *b, size_t n)
     switch (i) {
     case 0: snprintf(b, n, "%s", !cfg.dynarec ? "Interpreter" : cfg.dynarec_thread ? "Dynarec, 2 threads" : "Dynarec, 1 thread"); break;
     case 1:
-        if (cfg.gpu_scale) {
+        if (cfg_auto_target_h()) {
+            /* auto: the target, and the size it is drawn at now (the effective
+               scale from the renderer); in the game list only the target */
+            int w, h, sx = 0; float sy = 0.f;
+            int at = cfg_auto_target_h();
+            hwr_shown_size(&w, &h);
+            hooks_gpu_scale(&sx, &sy);
+            if (w > 0 && h > 0 && sx > 0) snprintf(b, n, "Auto %d (%dx%d)", at, w * sx, (int)(h * sy + 0.5f));
+            else snprintf(b, n, "Auto %d", at);
+        } else if (cfg.gpu_scale) {
             /* in a game: the resolution it is drawn at now (its picture size times
                the scale); in the game list only the scale (games differ) */
-            int w, h, sx = cfg.gpu_scale > 4 ? 4 : cfg.gpu_scale;
-            float sy = cfg.gpu_scale > 4 ? 4.5f : (float)cfg.gpu_scale;
-            const char *name = cfg.gpu_scale > 4 ? "RSX 4.5x" : cfg.gpu_scale == 4 ? "RSX 4x" : cfg.gpu_scale == 3 ? "RSX 3x" :
-                               cfg.gpu_scale == 2 ? "RSX 2x" : "RSX 1x";
+            int w, h, sx = cfg.gpu_scale / 2;
+            float sy = (float)cfg.gpu_scale / 2.0f;
+            char name[32];   /* "RSX 5x" is 7 bytes; %g of a float can be longer, so keep room */
+            if (sx > 4) sx = 4;
+            snprintf(name, sizeof name, "RSX %gx", sy);
             hwr_shown_size(&w, &h);
             {   /* drawn at less when the screen cannot show more (480-line pictures) */
                 int ex; float ey;
@@ -508,6 +519,12 @@ static void setting_value(int i, char *b, size_t n)
     case 33: color_slider(cfg.color_temperature, b, n); break;
     case 34: color_slider(cfg.color_gamma, b, n); break;
     case 35: snprintf(b, n, "%s", cfg.pgxp == 2 ? "On + textures" : cfg.pgxp ? "On" : "Off"); break;
+    case 36:
+        if (cfg.gpu_res_target == 1) snprintf(b, n, "TV");
+        else if (cfg.gpu_res_target == 480 || cfg.gpu_res_target == 720 || cfg.gpu_res_target == 960 ||
+                 cfg.gpu_res_target == 1080 || cfg.gpu_res_target == 1200) snprintf(b, n, "%d", cfg.gpu_res_target);
+        else snprintf(b, n, "Manual");
+        break;
     }
 }
 
@@ -545,11 +562,11 @@ static void setting_change_(int i, int dir, int in_game)
         }
         break;
     case 1: {
-        /* Software (native) -> RSX 1x (native, drawn by the RSX) -> 2x -> 3x -> 4x -> 4.5x */
-        static const int order[] = { 0, 1, 2, 3, 4, 5 };
+        /* Software (native) -> RSX 1x -> 1.5x -> 2x -> 2.5x -> 3x -> 3.5x -> 4x -> 4.5x -> 5x (half-steps) */
+        static const int order[] = { 0, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
         int k = 0;
-        while (k < 5 && order[k] != cfg.gpu_scale) k++;
-        k = (k + (dir > 0 ? 1 : 5)) % 6;
+        while (k < 9 && order[k] != cfg.gpu_scale) k++;
+        k = (k + (dir > 0 ? 1 : 9)) % 10;
         cfg.gpu_scale = order[k];
         break;
     }
@@ -603,6 +620,15 @@ static void setting_change_(int i, int dir, int in_game)
     case 33: color_step(&cfg.color_temperature, dir); break;
     case 34: color_step(&cfg.color_gamma, dir); break;
     case 35: cfg.pgxp = (cfg.pgxp + (dir > 0 ? 1 : 2)) % 3; break;
+    case 36: {
+        /* Manual -> TV (the TV's height) -> 480 -> 720 -> 960 -> 1080 -> 1200 */
+        static const int order[] = { 0, 1, 480, 720, 960, 1080, 1200 };
+        int k = 0;
+        while (k < 6 && order[k] != cfg.gpu_res_target) k++;
+        k = (k + (dir > 0 ? 1 : 6)) % 7;
+        cfg.gpu_res_target = order[k];
+        break;
+    }
     }
 }
 

@@ -13,7 +13,7 @@
 #define GAME_DIR APP_DIR "/configs"
 
 settings_t cfg = {
-    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 2, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
+    .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 4, .gpu_res_target = 0, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
     .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .pgxp = 0,
 };
 
@@ -22,7 +22,8 @@ settings_t cfg = {
 static const struct { const char *key; size_t off; int min, max, game; } ints[] = {
     { "dynarec", F(dynarec), 0, 1, 1 },
     { "dynarec_thread", F(dynarec_thread), 0, 1, 1 },
-    { "gpu_scale", F(gpu_scale), 0, 5, 1 },
+    { "gpu_scale", F(gpu_scale), 0, 10, 1 },
+    { "gpu_res_target", F(gpu_res_target), 0, 1200, 1 },
     { "filter", F(filter), 0, FILTER_COUNT - 1, 1 },
     { "texfilter", F(texfilter), 0, 2, 1 },
     { "sprite_texfilter", F(sprite_texfilter), 0, 2, 1 },
@@ -62,7 +63,20 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
 #define IV(s, i) (*(int *)((char *)(s) + ints[i].off))
 
 /* bumped when defaults change in a way that should reach existing settings files */
-#define CFG_VERSION 2
+#define CFG_VERSION 3
+
+/* auto resolution target (gpu_res_target): 0 = Manual, 1 = the TV's height,
+   else a target height. Anything else (a hand-edited file) is Manual. */
+int cfg_auto_target_h(void)
+{
+    int t = cfg.gpu_res_target;
+    if (t == 1) { int vh = (int)video_height(); return vh > 0 ? vh : 0; }
+    if (t == 480 || t == 720 || t == 960 || t == 1080 || t == 1200) return t;
+    return 0;
+}
+
+/* the RSX renderer should be on: a manual scale, or a resolvable auto target */
+int cfg_rsx_on(void) { return cfg.gpu_scale != 0 || cfg_auto_target_h() != 0; }
 
 /* reads key=value lines into *s; game: only the per-game keys. Returns the file's
    version (0: no file, 1: before versions were written) */
@@ -72,6 +86,7 @@ static int read_file(const char *path, settings_t *s, int game)
     int version = 1;
     unsigned i;
     int legacy_turbo = -1, seen_cd_speed = 0;   /* legacy "turbo_cd" key, see below */
+    int seen_scale = 0;   /* gpu_scale seen in this file (for the v3 re-encoding, below) */
     FILE *f = fopen(path, "r");
     if (!f) return 0;
     while (fgets(line, sizeof line, f)) {
@@ -85,7 +100,10 @@ static int read_file(const char *path, settings_t *s, int game)
         for (i = 0; i < NINTS; i++)
             if (!strcmp(k, ints[i].key) && (!game || ints[i].game)) {
                 int v = atoi(eq);
-                if (v >= ints[i].min && v <= ints[i].max) IV(s, i) = v;
+                if (v >= ints[i].min && v <= ints[i].max) {
+                    IV(s, i) = v;
+                    if (!strcmp(k, "gpu_scale")) seen_scale = 1;
+                }
                 if (!strcmp(k, "cd_speed")) seen_cd_speed = 1;
             }
         /* legacy key: "turbo_cd" (0/1) was the old Turbo CD switch; 1 is the
@@ -101,6 +119,16 @@ static int read_file(const char *path, settings_t *s, int game)
     }
     if (!seen_cd_speed && (legacy_turbo == 0 || legacy_turbo == 1))
         s->cd_speed = legacy_turbo ? 2 : 0;
+    /* gpu_scale re-encoding (version 3): old files store whole steps 0..5
+       (5 = 4x wide, 4.5x tall); new files store half-steps 0..10 (5 = 2.5x,
+       9 = 4.5x). A file older than version 3 keeps its old meaning: migrate
+       what it stored, before the value is ever used. Files the new code
+       writes carry version 3, so they are never migrated twice. */
+    if (version < 3 && seen_scale) {
+        static const int old_to_new[] = { 0, 2, 4, 6, 8, 9 };
+        int v = s->gpu_scale;
+        if (v >= 0 && v <= 5) s->gpu_scale = old_to_new[v];
+    }
     fclose(f);
     return version;
 }
@@ -128,7 +156,7 @@ void config_load(void)
     if (v == 1) {
         /* new defaults: RSX 2x, smoothing on the SPUs, FPS shown, frame skip auto
            (software renderer only), dithering off */
-        cfg.gpu_scale = 2; cfg.filter = FILTER_FXAA_SPU; cfg.show_fps = 1; cfg.frameskip = 1; cfg.dithering = 0;
+        cfg.gpu_scale = 4; cfg.filter = FILTER_FXAA_SPU; cfg.show_fps = 1; cfg.frameskip = 1; cfg.dithering = 0;
         logf_("settings: updated to the new defaults (RSX 2x, SPU smoothing, FPS, frame skip auto, no dithering)\n");
     }
 }
@@ -197,8 +225,8 @@ void config_save(void)
         write_file(game_path, &cfg, 1);
         write_file(CFG_PATH, &global_cfg, 0);
     } else write_file(CFG_PATH, &cfg, 0);
-    logf_("settings saved%s (cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d)\n",
-          game_on ? " for this game" : "", cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect,
+    logf_("settings saved%s (cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d)\n",
+          game_on ? " for this game" : "", cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect,
           cfg.frameskip, cfg.dithering, cfg.show_fps, cfg.gpu_thread);
 }
 

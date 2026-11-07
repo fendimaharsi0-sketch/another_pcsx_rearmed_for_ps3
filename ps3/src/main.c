@@ -127,7 +127,7 @@ static const char *option_value(const char *key)
     if (!strcmp(key, "pcsx_rearmed_dithering")) return cfg.dithering ? "enabled" : "disabled";
     /* skipped frames never reach the RSX renderer, which then misses drawing that
        later frames texture from: frame skip is for the software renderer only */
-    if (!strcmp(key, "pcsx_rearmed_frameskip_type")) return cfg.frameskip && !cfg.gpu_scale ? "auto" : "disabled";
+    if (!strcmp(key, "pcsx_rearmed_frameskip_type")) return cfg.frameskip && !cfg_rsx_on() ? "auto" : "disabled";
     if (!strcmp(key, "pcsx_rearmed_psxclock")) return cfg.cpu_clock == 2 ? "100" : cfg.cpu_clock == 1 ? "85" : "auto";
     if (!strcmp(key, "pcsx_rearmed_frameskip_threshold")) { snprintf(fsk, sizeof fsk, "33"); return fsk; }
     if (!strcmp(key, "pcsx_rearmed_display_fps_v2")) return "disabled";
@@ -136,7 +136,7 @@ static const char *option_value(const char *key)
     /* the GPU renderer's hooks run wherever the software renderer runs: keep it
        on this thread while the RSX renderer is on */
     if (!strcmp(key, "pcsx_rearmed_gpu_thread_rendering"))
-        return cfg.gpu_thread && !cfg.gpu_scale ? "enabled" : "disabled";
+        return cfg.gpu_thread && !cfg_rsx_on() ? "enabled" : "disabled";
     if (!strcmp(key, "pcsx_rearmed_show_overscan")) return "disabled";
     if (!strcmp(key, "pcsx_rearmed_screen_centering")) return "auto";
     if (!strcmp(key, "pcsx_rearmed_vibration")) return "enabled";   /* the Vibration setting: input.c */
@@ -847,8 +847,8 @@ static void run_game(const char *path)
         psx_debug_trace = cfg.debug_log;
     }
     logf_("%s " APP_VERSION " (" BUILD_BRANCH "@" BUILD_COMMIT "), built " __DATE__ " " __TIME__ "\n", APP_TITLE);
-    logf_("settings: cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
-          cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
+    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
+          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
           cfg.show_fps, cfg.gpu_thread);
     logf_("loading %s (%s)\n", is_bios ? "BIOS menu" : path, !cfg.dynarec ? "interpreter" : cfg.dynarec_thread ? "dynarec, compiling on the second thread" : "dynarec");
     logf_("BIOS: %s%s\n", hooks_bios_status(), cfg.boot_logo ? (hooks_bios_present() ? ", PS1 logo on" : ", PS1 logo needs a BIOS") : "");
@@ -873,7 +873,7 @@ static void run_game(const char *path)
     audio_set_input_rate(core_rate);
     /* the BIOS logo is drawn by the software renderer; the chosen one takes over
        when the BIOS reads the game's executable (or after 30 s, if it never does) */
-    hwr_boot_hold = cfg.gpu_scale && cfg.boot_logo && hooks_bios_present();
+    hwr_boot_hold = cfg_rsx_on() && cfg.boot_logo && hooks_bios_present();
     boot_frames = 0;
     if (hwr_boot_hold) logf_("BIOS logo: software renderer until the game starts\n");
     pgxp_lite_set(cfg.pgxp);   /* OFF -> ON: the tables are invalidated first */
@@ -1023,7 +1023,7 @@ static void run_game(const char *path)
                       "(GPU %.2f, sound %.2f, CPU and rest %.2f), audio buffered %u, empty audio blocks %u, renderer %s%s\n",
                       fps_shown, speed_shown, disp_hz, emu_ms, emu_max / 1000.0, gpu_ms, spu_ms, emu_ms - gpu_ms - spu_ms,
                       audio_fill(), audio_underruns(), frame.gpu ? "RSX" : "software",
-                      cfg.gpu_thread && !cfg.gpu_scale ? " + GPU thread" : "");
+                      cfg.gpu_thread && !cfg_rsx_on() ? " + GPU thread" : "");
                 emu_us = emu_max = 0; emu_runs = 0;
                 prof0[0] = gpulib_prof_ticks[0]; prof0[1] = gpulib_prof_ticks[1];
                 if (frame.gpu) hooks_log_gpu_stats();
@@ -1086,8 +1086,8 @@ static int app_main(void)
     watchdog_start();
     config_load();
     log_ready();                        /* log files only with Debug log on */
-    logf_("settings: cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d\n",
-          cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps);
+    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d\n",
+          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps);
     log_memory("start");
     {
         sys_ppu_thread_stack_t si;

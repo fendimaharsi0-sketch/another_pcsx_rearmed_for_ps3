@@ -40,7 +40,8 @@ enum { ASPECT_4_3 = 0, ASPECT_FULL, ASPECT_14_9, ASPECT_ZOOM_14_9, ASPECT_ZOOM, 
 typedef struct {
     int dynarec;        /* 1 = Lightrec, 0 = interpreter */
     int dynarec_thread; /* Lightrec compiles new code on the PPU's second thread */
-    int gpu_scale;      /* 0 = software renderer, 2..4 = RSX renderer at that scale, 5 = 4x wide, 4.5x tall */
+    int gpu_scale;      /* half-steps: 0 = software renderer, 2 = RSX 1x, 3 = 1.5x, 4 = 2x, 5 = 2.5x, 6 = 3x, 7 = 3.5x, 8 = 4x, 9 = 4x wide, 4.5x tall, 10 = 4x wide, 5x tall */
+    int gpu_res_target; /* auto resolution target height: 0 = Manual (the Renderer scale rules), 1 = the TV's height, else 480/720/960/1080/1200 */
     int filter;         /* FILTER_* */
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
     int sprite_texfilter; /* RSX sprite filter: same 0/1/2 values as texfilter, default nearest; applies to textured GP0 sprites (do_rect) and to textured polygons whose UV mapping is axis-aligned (U only with X, V only with Y, like DuckStation); other polygons keep texfilter */
@@ -84,6 +85,8 @@ typedef struct {
     int pgxp;               /* PGXP-lite: 1 GTE vertices at sub-pixel positions (RSX renderer), 2 also perspective-correct textures */
 } settings_t;
 extern settings_t cfg;
+int cfg_auto_target_h(void);  /* resolved auto resolution target height, 0 = Manual/off (TV resolves via video_height(); unknown video -> 0) */
+int cfg_rsx_on(void);         /* the RSX renderer should be on: a manual scale, or a resolvable auto target */
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
 extern int cdr_speed_up;     /* core, libpcsxcore/cdrom.c: 2 = data reads and seeks twice as fast, mirrored from cfg.cd_speed */
 void config_load(void);
