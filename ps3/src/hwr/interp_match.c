@@ -32,6 +32,8 @@ typedef struct { uint64_t base; uint32_t count; } interp_occ_t;
 static interp_entry_t *interp_prev, *interp_cur;
 static interp_occ_t *interp_occ;
 static int interp_mode_v;
+static float interp_disp_v = INTERP_DISP;        /* current per-vertex cut, native px */
+static float interp_disp_half_v = INTERP_DISP_HALF;   /* half-cut (per-frame rule) */
 static uint32_t interp_frame;      /* frames presented with captures */
 static uint32_t interp_cur_count;  /* vertices captured in the current frame */
 static int interp_fb_flag;         /* vram_read/copy happened this frame */
@@ -41,7 +43,9 @@ static unsigned int f_lookups, f_paired, f_moved, f_disp60;
 
 unsigned int interp_lookups, interp_hits_addr, interp_hits_hash,
     interp_moved, interp_sprites, interp_frames_cut, interp_frames_fb,
-    interp_full;
+    interp_full, interp_hash_miss, interp_hash_displaced,
+    interp_hist_121_240, interp_hist_241_480, interp_hist_481_960,
+    interp_hist_gt960;
 
 static uint32_t interp_mix(uint64_t key, uint32_t bits)
 {
@@ -53,8 +57,21 @@ static uint32_t interp_mix(uint64_t key, uint32_t bits)
 void interp_log_reset(void)
 {
     interp_lookups = interp_hits_addr = interp_hits_hash = interp_moved =
-        interp_sprites = interp_frames_cut = interp_frames_fb = interp_full = 0;
+        interp_sprites = interp_frames_cut = interp_frames_fb = interp_full =
+        interp_hash_miss = interp_hash_displaced =
+        interp_hist_121_240 = interp_hist_241_480 = interp_hist_481_960 =
+        interp_hist_gt960 = 0;
 }
+
+void interp_set_disp(int px)
+{
+    if (px < INTERP_DISP_MIN) px = INTERP_DISP_MIN;
+    if (px > INTERP_DISP_MAX) px = INTERP_DISP_MAX;
+    interp_disp_v = (float)px;
+    interp_disp_half_v = (float)px / 2.0f;
+}
+
+int interp_disp(void) { return (int)interp_disp_v; }
 
 void interp_set(int mode)
 {
@@ -190,12 +207,14 @@ static uint32_t interp_occ_next(uint64_t base)
     return 0;   /* occurrence map full: all further occurrences share occ 0 */
 }
 
-/* One lookup attempt against one table under one key. Returns 1 on a pair
- * (prev-frame entry within INTERP_DISP, prev position written out), 0 on a
- * miss, and sets *displaced when a prev-frame entry existed but was beyond
- * the cut. f_disp60 counts paired vertices displaced more than half the cut. */
+/* One lookup attempt against one table under one key. Returns 0 when no
+ * prev-frame entry exists under the key, 1 on a pair (prev-frame entry
+ * within the cut, prev position written out), 2 when a prev-frame entry
+ * existed but was displaced beyond the cut (its displacement,
+ * max(|dx|, |dy|) — the same metric as the cut — written to *out_disp).
+ * f_disp60 counts paired vertices displaced more than half the cut. */
 static int interp_try(interp_entry_t *tab, uint64_t key, float x, float y,
-                      float *out_px, float *out_py, int *displaced)
+                      float *out_px, float *out_py, float *out_disp)
 {
     interp_entry_t *e = interp_find(tab, key);
     float dx, dy;
@@ -204,14 +223,14 @@ static int interp_try(interp_entry_t *tab, uint64_t key, float x, float y,
     dy = y - e->y;
     if (dx < 0) dx = -dx;
     if (dy < 0) dy = -dy;
-    if (dx > INTERP_DISP || dy > INTERP_DISP) {
-        *displaced = 1;
-        return 0;
+    if (dx > interp_disp_v || dy > interp_disp_v) {
+        if (out_disp) *out_disp = dx > dy ? dx : dy;
+        return 2;
     }
     if (out_px) *out_px = e->x;
     if (out_py) *out_py = e->y;
     f_paired++;
-    if (dx > INTERP_DISP_HALF || dy > INTERP_DISP_HALF) f_disp60++;
+    if (dx > interp_disp_half_v || dy > interp_disp_half_v) f_disp60++;
     return 1;
 }
 
@@ -220,7 +239,8 @@ int interp_vertex(int addr_off, uint32_t attr_h, float x, float y,
 {
     uint64_t addr_key = 0, hash_key;
     uint32_t hash_occ;
-    int hit_addr = 0, hit_hash = 0, displaced = 0;
+    int addr_status = 0, hash_status = 0;   /* 0 no entry, 1 paired, 2 displaced */
+    float addr_disp = 0.0f, hash_disp = 0.0f;
 
     if (!interp_prev || !interp_cur || !interp_occ || interp_mode_v == INTERP_OFF)
         return 0;
@@ -248,18 +268,39 @@ int interp_vertex(int addr_off, uint32_t attr_h, float x, float y,
      * DMA lists whose RAM addresses do not repeat across frames. A hash
      * rescue is a real pair, not a move. */
     if (addr_off >= 0)
-        hit_addr = interp_try(interp_prev, addr_key, x, y, out_px, out_py, &displaced);
-    if (!hit_addr)
-        hit_hash = interp_try(interp_prev, hash_key, x, y, out_px, out_py, &displaced);
-    if (hit_addr)
+        addr_status = interp_try(interp_prev, addr_key, x, y, out_px, out_py, &addr_disp);
+    if (addr_status != 1)
+        hash_status = interp_try(interp_prev, hash_key, x, y, out_px, out_py, &hash_disp);
+    if (addr_status == 1)
         interp_hits_addr++;
-    else if (hit_hash)
+    else if (hash_status == 1)
         interp_hits_hash++;
-    else if (displaced)
-        /* "moved" counts only when a previous-frame candidate existed (by
-         * either key) but was displaced beyond the cut AND no pair was
-         * found. */
-        f_moved++, interp_moved++;
+    else {
+        /* No pair. The hash was tried (the address did not pair), so its
+         * outcome is counted: no entry vs a displaced entry. "moved" and
+         * the histogram count only when a previous-frame candidate existed
+         * (by either key) but was displaced beyond the cut; the histogram
+         * takes the SMALLEST displacement among the displaced candidates
+         * found, once per rejected vertex. */
+        if (hash_status == 0)
+            interp_hash_miss++;
+        else if (hash_status == 2)
+            interp_hash_displaced++;
+        if (addr_status == 2 || hash_status == 2) {
+            float d = addr_disp;
+            if (hash_status == 2 && (addr_status != 2 || hash_disp < addr_disp)) d = hash_disp;
+            f_moved++;
+            interp_moved++;
+            if (d <= 240.0f)
+                interp_hist_121_240++;
+            else if (d <= 480.0f)
+                interp_hist_241_480++;
+            else if (d <= 960.0f)
+                interp_hist_481_960++;
+            else
+                interp_hist_gt960++;
+        }
+    }
 
     /* 3. Store under BOTH keys, so the next frame can find this vertex
      * either way. A table-full store is dropped, never truncated. */
@@ -267,7 +308,7 @@ int interp_vertex(int addr_off, uint32_t attr_h, float x, float y,
         interp_store(interp_cur, addr_key, x, y, interp_frame);
     interp_store(interp_cur, hash_key, x, y, interp_frame);
     interp_cur_count++;
-    return hit_addr || hit_hash;
+    return addr_status == 1 || hash_status == 1;
 }
 
 void interp_note_fb(void)
@@ -291,8 +332,8 @@ void interp_present(void)
         return;
     }
     /* per-frame cut (Salsa64's thresholds, per vertex here): >5% of lookups
-     * moved, or >50% of paired vertices displaced >60 px, or <50% of vertices
-     * found a partner. */
+     * moved, or >50% of paired vertices displaced more than half the cut,
+     * or <50% of vertices found a partner. */
     interp_frame_cut_v = 0;
     if (f_lookups > 0) {
         if (f_moved * 20u > f_lookups) interp_frame_cut_v = 1;

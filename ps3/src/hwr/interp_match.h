@@ -21,14 +21,37 @@
  *
  * Rules (Salsa64's, streaming form — the fork's lists stream through do_poly,
  * so matching is a per-vertex lookup, not a post-frame batch):
- * - per-vertex cut: a vertex that moved more than INTERP_DISP px in one game
- *   frame is not interpolated (camera cut, teleport);
+ * - per-vertex cut: a vertex that moved more than the cut (setting
+ *   "interp_disp", default 120 px, native PS1 pixels — Salsa64's
+ *   INTERP_DISP 120, same value) in one game frame is not interpolated
+ *   (camera cut, teleport);
  * - per-polygon all-or-nothing: enforced by the caller — every drawn vertex
  *   of the polygon must have a valid prev, else none of them moves;
  * - per-frame cut (at present): >5% of lookups moved, or >50% of paired
- *   vertices displaced >60 px, or <50% of vertices found a partner.
+ *   vertices displaced more than half the cut, or <50% of vertices found
+ *   a partner.
  * The atomic rules (collapse / object / component) are NOT here yet — Salsa64
  * added them in interp 6-8, after the basic mode worked; see INTERP-DESIGN.md.
+ *
+ * Diagnostic split for hash failures + rejection histogram (cumulative
+ * counters, reset by interp_log_reset — same window as the log line):
+ * - hash_miss: a hash attempt found no previous-frame entry (no entry, or
+ *   an entry from an older frame). Counted once per vertex whose hash
+ *   attempt failed that way, and only when the hash was actually tried
+ *   (the address key did not already pair the vertex).
+ * - hash_displaced: a hash attempt found a previous-frame entry but it was
+ *   displaced beyond the cut. Counted once per vertex, only when the hash
+ *   was tried and did not pair.
+ * - histogram: counted once per REJECTED vertex — no pair by either key,
+ *   and at least one displaced candidate existed by either key (the same
+ *   vertices interp_moved counts). The bucket is the SMALLEST displacement
+ *   among the displaced candidates found (address and/or hash), where
+ *   displacement = max(|dx|, |dy|), the same metric as the cut. Buckets
+ *   are absolute native px, independent of the current cut: 121-240,
+ *   241-480, 481-960, >960. (At cut 240 a 150 px rejection cannot occur —
+ *   it pairs — so the 121-240 bucket stays empty at that cut; the buckets
+ *   answer "how far did the rejected candidates move", not "how far past
+ *   the cut".)
  */
 #ifndef INTERP_MATCH_H
 #define INTERP_MATCH_H
@@ -37,8 +60,10 @@
 #include <stddef.h>
 
 #define INTERP_MAX_VERTS 32768   /* vertices per frame table (Salsa64: VM_CLIP 32768) */
-#define INTERP_DISP 120.0f       /* per-vertex cut, screen px (Salsa64: INTERP_DISP 120) */
-#define INTERP_DISP_HALF 60.0f   /* per-frame cut: paired displaced more than this */
+#define INTERP_DISP 120.0f       /* default per-vertex cut, native PS1 px (Salsa64: INTERP_DISP 120) */
+#define INTERP_DISP_HALF 60.0f   /* default half-cut (per-frame cut: paired displaced more than this) */
+#define INTERP_DISP_MIN 60       /* tunable cut range, setting "interp_disp" (menu item 39) */
+#define INTERP_DISP_MAX 480
 
 /* setting values (config key "interp", menu item 38) */
 #define INTERP_OFF 0
@@ -52,6 +77,13 @@
 void interp_set(int mode);
 int interp_mode(void);
 int interp_active(void);         /* mode != 0 */
+/* Set the per-vertex cut in native PS1 px (setting "interp_disp": the menu
+ * cycles 60/120/240/480, default 120). Clamped to 60..480; the half-cut
+ * used by the per-frame rule stays half the cut. Independent of the mode:
+ * changing it never allocates or frees the tables. Safe to call on every
+ * settings change, next to interp_set. */
+void interp_set_disp(int px);
+int interp_disp(void);           /* current cut in px */
 /* Fixed t for the test modes, or -1.0f when no test lerp applies. */
 float interp_test_t(void);
 /* Clear both tables (new title): no vertex of the old title may pair. */
@@ -89,10 +121,14 @@ void interp_note_fb(void);
 int interp_frame_cut(void);
 
 /* Cumulative counters for the log line (log_stats resets them via
- * interp_log_reset, same pattern as the PGXP corrector counters). */
+ * interp_log_reset, same pattern as the PGXP corrector counters). The
+ * histogram buckets count rejected vertices by smallest displacement
+ * (see the counting rule at the top of this header). */
 extern unsigned int interp_lookups, interp_hits_addr, interp_hits_hash,
     interp_moved, interp_sprites, interp_frames_cut, interp_frames_fb,
-    interp_full;
+    interp_full, interp_hash_miss, interp_hash_displaced,
+    interp_hist_121_240, interp_hist_241_480, interp_hist_481_960,
+    interp_hist_gt960;
 void interp_log_reset(void);
 
 #endif /* INTERP_MATCH_H */

@@ -188,10 +188,11 @@ are emitted**. So the matcher is a streaming per-vertex lookup:
    (occurrence counter incremented as vertices stream in).
 2. After the vertex loop (positions final, §3.3), look each vertex up in
    the `prev` table:
-   - Hit + `|dx| ≤ 120 px` and `|dy| ≤ 120 px` (screen px at the game's
-     native resolution; Salsa64's `INTERP_DISP` 120, same value) ⇒
+   - Hit + `|dx| ≤ cut` and `|dy| ≤ cut` (native PS1 px; the cut is the
+     `interp_disp` setting, default 120 — Salsa64's `INTERP_DISP` 120,
+     same value — tunable 60/120/240/480, see §7) ⇒
      candidate prev position.
-   - Miss, or displacement >120 px ⇒ no prev for this vertex (`moved`).
+   - Miss, or displacement > cut ⇒ no prev for this vertex (`moved`).
 3. **Per-polygon all-or-nothing**: all vertices of the polygon must have
    a valid prev, else none of them lerps / gets a prev stored. (Salsa64's
    group rule, applied to the polygon — the fork's group.)
@@ -210,8 +211,9 @@ unacceptable failure modes.
 
 Per-frame cut (computed at present, logged, gates slice 2): the frame is
 not interpolatable if >5% of looked-up vertices were `moved`, or >50% of
-paired vertices displaced >60 px, or <50% of vertices found a partner
-(Salsa64's thresholds, §0). It is **not** enforced live during the frame
+paired vertices displaced more than half the cut, or <50% of vertices
+found a partner (Salsa64's thresholds, §0; the half-cut follows
+`interp_disp`, so at cut 240 the displacement bar is 120 px). It is **not** enforced live during the frame
 (the cut is only known at frame end) — in slice 1 test mode the per-vertex
 and per-polygon rules are the live guards; in slice 2 the cut gates the
 intermediate emission.
@@ -242,12 +244,38 @@ A shader-lerp variant (second attribute + `lerp` uniform, Salsa64's
 `rsxkit_lincomb_lerp.vcg`) is a later optimisation, not a correctness
 requirement.
 
-### 3.5 Counters (log line, every 60 presented frames when `debug_log`)
+### 3.5 Counters (log line, every 10 s while the RSX renderer runs —
+`log_stats` is called from `hooks_log_gpu_stats`, itself every 10 s in the
+game loop, gated only on `frame.gpu`, not on Debug log; the earlier "every
+60 presented frames" was wrong)
 
 `hwr: interp: %u lookups, %u hits (addr %u, hash %u), %u moved, %u sprites,
-%u frames cut, %u fb-excluded, %u dropped (table full)` — same shape as the
-corrector's log line. The address-vs-hash split is the coverage evidence
-for §2; the dropped count is the table-capacity evidence.
+%u frames cut, %u fb-excluded, %u dropped (table full); hash miss %u, hash
+displaced %u; hist 121-240 %u, 241-480 %u, 481-960 %u, >960 %u` — same shape
+as the corrector's log line, existing fields first and in order. The
+address-vs-hash split is the coverage evidence for §2; the dropped count
+is the table-capacity evidence. New fields (2026-11-07, tunable-cut step):
+- `hash miss`: a hash attempt found no previous-frame entry (no entry, or
+  an entry from an older frame). Counted once per vertex whose hash attempt
+  failed that way, and only when the hash was actually tried (the address
+  key did not already pair the vertex).
+- `hash displaced`: a hash attempt found a previous-frame entry but it was
+  displaced beyond the cut. Counted once per vertex, only when the hash
+  was tried and did not pair.
+- `hist …`: counted once per REJECTED vertex — no pair by either key, and
+  at least one displaced candidate existed by either key (the same vertices
+  `moved` counts). The bucket is the SMALLEST displacement among the
+  displaced candidates found (address and/or hash), where displacement =
+  max(|dx|, |dy|), the same metric as the cut. Buckets are absolute native
+  px, independent of the current cut: 121-240, 241-480, 481-960, >960.
+  (At cut 240 a 150 px rejection cannot occur — it pairs — so the 121-240
+  bucket stays empty at that cut; the buckets answer "how far did the
+  rejected candidates move", not "how far past the cut".)
+These answer the open CTR question: rejections clustering at 121-240 mean
+loosening the cut to 240 is right; spreading to >960 means the candidates
+are wrong vertices (recycled addresses / wrong occurrences), and loosening
+would only pair wrong vertices. `interp_log_reset()` resets the new
+counters too; the existing counters' semantics did not change.
 
 ## 4. Scheduling (fresh vs repeated fields)
 
@@ -384,6 +412,34 @@ build the frame record; it only captures vertex positions (§3.1).
   value display + change (`menu.c:512-514, 609-611`); `interp_set()` called
   at launch (`main.c:856-862`) and in `game_settings_changed()`
   (`main.c:695`), next to the `pgxp_*_set` calls.
+- **Tunable cut + overlay (2026-11-07, items 39/40, Interpolation page).**
+  `interp_disp` (item 39): per-vertex cut in native PS1 px, 60/120/240/480,
+  default 120. `settings_t.interp_disp`; default `.interp_disp = 120`;
+  key `{ "interp_disp", F(interp_disp), 60, 480, 1 }` (a hand-edited
+  in-range value loads as-is; out-of-range file values are ignored, the
+  same rule as every other setting); menu cycles the four doubling values;
+  the matcher reads it via `interp_set_disp()` (clamped 60..480, half-cut
+  derived), called from `game_settings_changed()` and at launch next to
+  `interp_set()`, so it takes effect live from the in-game panel. Changing
+  it never allocates or frees the matcher tables.
+  `interp_overlay` (item 40): Off/On, default Off. `settings_t.interp_overlay`;
+  default `.interp_overlay = 0`; key `{ "interp_overlay", F(interp_overlay), 0, 1, 1 }`;
+  menu toggle `^= 1`. When On AND `interp` != Off, `interp_overlay()` in
+  `main.c` draws the live counters in rows 48–146 (below the FPS band
+  8–42, above the notice 660–700; three 30 px lines at y 50/82/114):
+  `interp cut <px> lk <lookups> hit <hits> (addr <a> hash <h>) <%>` /
+  `moved <n> hash miss <n> hash disp <n> cut <frames cut> drop <n>` /
+  `hist 121-240 <n> 241-480 <n> 481-960 <n> >960 <n>` — the same cumulative
+  counters as the log line (§3.5), so screen and log agree; both reset
+  when `log_stats` prints (every 10 s), so the values are per log window,
+  not since launch. Throttled to ~1 Hz plus a change check (same pattern
+  as `fps_overlay`); it flushes its own rows, because it must also flush
+  the one-time clear when the overlay or interp is turned off mid-game.
+  Display only: it reads the matcher's extern counters, never writes
+  matcher state (no overlay parameter exists in `interp_match.{h,c}`), so
+  it cannot affect pairing. On the software renderer the matcher never
+  runs and the overlay reads zeros. NSET is 41 (items 0–40); the
+  Interpolation page holds `{ 38, 39, 40 }`, count 3.
 - **Kill-gate** (copy the `pgxp_lite_on` pattern — call-site gating, not a
   single choke point): every producer/consumer checks `interp_on` first.
   OFF ⇒ no capture in `do_poly`, no table allocation, no lookup, no
@@ -483,3 +539,53 @@ worse quality, better latency), camera estimation for entering geometry.
      feature never enabled (kill-gate proof).
   5. FPS with the feature On vs Off on the same scene (PPE cost of
      matching — slice 1 has no extra RSX work, so any drop is the matcher).
+
+## 12. Tunable cut + overlay step (2026-11-07)
+
+Why: the CTR hardware re-test showed the hash fallback works mechanically
+but rescues ~0% in gameplay, with moved ~79–84% of lookups. The open
+question is whether the rejected candidates are the same vertex moving
+fast (loosening the cut helps) or a wrong vertex at a recycled address /
+wrong occurrence (loosening hurts). This step gives Fendi the knob and the
+readout to answer it on hardware: `interp_disp` (120 → 240 → 480 on the
+same CTR session), the live overlay, and the hash-split + histogram log
+fields (§3.5, §7).
+
+What it proves on hardware (Fendi's side):
+1. Same CTR session, `interp` On, overlay On: read the overlay live while
+   tuning the cut 120 → 240 → 480 — hit/moved per value, same scene.
+   If hits climb at 240/480, the rejections were fast-moving same
+   vertices; if moved stays ~80% and the histogram spreads to >960, the
+   candidates are wrong vertices.
+2. Read the histogram from the log line (`hwr: interp: …; hist …`): the
+   verdict field — clustering at 121–240 means loosen to 240; spreading
+   to >960 means loosening pairs wrong vertices.
+3. Overlay on/off check: on shows the three lines in rows 48–146 (below
+   the FPS readout, no overlap); off clears them with no stale text; the
+   FPS overlay and the renderer notice are undisturbed.
+4. `interp` Off after On: picture identical to a fresh boot with the
+   feature never enabled (kill-gate proof, as before).
+
+What it does NOT prove: host tests prove the logic (cut boundaries,
+histogram bucketing, split counters, overlay isolation by construction —
+the matcher has no overlay input). Only Fendi's hardware session can show
+whether cut 240 pairs CTR, whether the overlay reads correctly on his
+screen, and whether the ~1 Hz refresh is smooth enough. The overlay's
+numbers are per 10 s log window (§3.5), so a "hit %" read mid-window is
+a partial window, not a session total.
+
+Verification (this step, `~/workspace/ps3-interp-verify/`):
+- Matcher host test: 170 checks, 0 failures (92 existing + 78 new:
+  cut boundaries 121/240/480/60, half-cut follows the cut, cut survives
+  off/on, hash_miss vs hash_displaced split, histogram buckets incl.
+  smallest-displacement rule, determinism of the counter deltas).
+  gcc -O2 -Wall -Wextra, zero warnings.
+- Config host test (real `config.c`): 23 checks, 0 failures — defaults
+  120/Off, all four cut values + both overlay values round-trip,
+  hand-edited in-range value loads, out-of-range file values ignored,
+  per-game override + restore, per-game and global save write both keys.
+- PPU compile (`compile.sh`, BASE re-pointed to the overlay backup):
+  every touched file + all 13 `common.h` includers exit 0 with warnings
+  identical to the backup; `spu_mdec.c` fails identically in both trees
+  (pre-existing missing generated header, untouched). No strays
+  (.o/.d/revision.h: none).
