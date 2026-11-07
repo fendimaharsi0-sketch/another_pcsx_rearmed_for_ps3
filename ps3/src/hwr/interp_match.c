@@ -190,50 +190,84 @@ static uint32_t interp_occ_next(uint64_t base)
     return 0;   /* occurrence map full: all further occurrences share occ 0 */
 }
 
+/* One lookup attempt against one table under one key. Returns 1 on a pair
+ * (prev-frame entry within INTERP_DISP, prev position written out), 0 on a
+ * miss, and sets *displaced when a prev-frame entry existed but was beyond
+ * the cut. f_disp60 counts paired vertices displaced more than half the cut. */
+static int interp_try(interp_entry_t *tab, uint64_t key, float x, float y,
+                      float *out_px, float *out_py, int *displaced)
+{
+    interp_entry_t *e = interp_find(tab, key);
+    float dx, dy;
+    if (!e || e->frame != interp_frame - 1) return 0;
+    dx = x - e->x;
+    dy = y - e->y;
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+    if (dx > INTERP_DISP || dy > INTERP_DISP) {
+        *displaced = 1;
+        return 0;
+    }
+    if (out_px) *out_px = e->x;
+    if (out_py) *out_py = e->y;
+    f_paired++;
+    if (dx > INTERP_DISP_HALF || dy > INTERP_DISP_HALF) f_disp60++;
+    return 1;
+}
+
 int interp_vertex(int addr_off, uint32_t attr_h, float x, float y,
                   float *out_px, float *out_py)
 {
-    uint64_t base, key;
-    uint32_t occ;
-    interp_entry_t *e;
-    int hit = 0;
+    uint64_t addr_key = 0, hash_key;
+    uint32_t hash_occ;
+    int hit_addr = 0, hit_hash = 0, displaced = 0;
 
     if (!interp_prev || !interp_cur || !interp_occ || interp_mode_v == INTERP_OFF)
         return 0;
+
+    /* Occurrence numbering is eager and per key kind: the count of prior
+     * same-base vertices this frame, in draw order. The lookup in this
+     * frame must use the same number the store used in the previous frame,
+     * so both numbers are taken up front, once per vertex, whether or not
+     * the key ends up used for the lookup. A lazy hash number would shift
+     * whenever an earlier same-attribute vertex paired by address, and the
+     * next frame's hash lookup would miss. */
+    hash_occ = interp_occ_next(attr_h | INTERP_KEY_KIND_HASH);
+    hash_key = INTERP_KEY_KIND_HASH | ((uint64_t)attr_h << 16) | hash_occ;
     if (addr_off >= 0) {
-        base = (uint64_t)(uint32_t)(addr_off >> 2);
-        occ = interp_occ_next(base | INTERP_KEY_KIND_ADDR);
-        key = INTERP_KEY_KIND_ADDR | (base << 16) | occ;
-    } else {
-        base = attr_h;
-        occ = interp_occ_next(base | INTERP_KEY_KIND_HASH);
-        key = INTERP_KEY_KIND_HASH | ((uint64_t)base << 16) | occ;
+        uint64_t addr_base = (uint64_t)(uint32_t)(addr_off >> 2);
+        uint32_t addr_occ = interp_occ_next(addr_base | INTERP_KEY_KIND_ADDR);
+        addr_key = INTERP_KEY_KIND_ADDR | (addr_base << 16) | addr_occ;
     }
 
     f_lookups++;
     interp_lookups++;
-    e = interp_find(interp_prev, key);
-    if (e && e->frame == interp_frame - 1) {
-        float dx = x - e->x, dy = y - e->y;
-        if (dx < 0) dx = -dx;
-        if (dy < 0) dy = -dy;
-        if (dx <= INTERP_DISP && dy <= INTERP_DISP) {
-            if (out_px) *out_px = e->x;
-            if (out_py) *out_py = e->y;
-            f_paired++;
-            if (addr_off >= 0) interp_hits_addr++;
-            else interp_hits_hash++;
-            if (dx > INTERP_DISP_HALF || dy > INTERP_DISP_HALF) f_disp60++;
-            hit = 1;
-        } else {
-            f_moved++;
-            interp_moved++;
-        }
-    }
-    interp_store(interp_cur, key, x, y, interp_frame);
+
+    /* 1. Address key first (DMA lists). 2. Attribute-hash fallback on ANY
+     * address failure (no entry, wrong frame, or displaced): the CTR case —
+     * DMA lists whose RAM addresses do not repeat across frames. A hash
+     * rescue is a real pair, not a move. */
+    if (addr_off >= 0)
+        hit_addr = interp_try(interp_prev, addr_key, x, y, out_px, out_py, &displaced);
+    if (!hit_addr)
+        hit_hash = interp_try(interp_prev, hash_key, x, y, out_px, out_py, &displaced);
+    if (hit_addr)
+        interp_hits_addr++;
+    else if (hit_hash)
+        interp_hits_hash++;
+    else if (displaced)
+        /* "moved" counts only when a previous-frame candidate existed (by
+         * either key) but was displaced beyond the cut AND no pair was
+         * found. */
+        f_moved++, interp_moved++;
+
+    /* 3. Store under BOTH keys, so the next frame can find this vertex
+     * either way. A table-full store is dropped, never truncated. */
+    if (addr_off >= 0)
+        interp_store(interp_cur, addr_key, x, y, interp_frame);
+    interp_store(interp_cur, hash_key, x, y, interp_frame);
     interp_cur_count++;
-    (void)occ;
-    return hit;
+    return hit_addr || hit_hash;
 }
 
 void interp_note_fb(void)

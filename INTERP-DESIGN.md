@@ -99,16 +99,21 @@ Coverage limits, stated plainly:
   found this hole (packets split across chain links / a chain started while
   `cmd_len > 0` lose their RAM address). Those vertices fall to the
   attr-hash key (§2.2).
-- **Address stability across frames is assumed, not proven.** The game
-  rebuilds its display list each frame, normally at the same RAM addresses
-  (fixed ordering table + packet buffer). The fork ALREADY bets on this for
-  PGXP-lite's address table and the corrector RAM shadow (both key on RAM
-  address + exact-word validation, 3-frame window). Interpolation makes the
-  same bet, extended from projections to positions. The slice-1 counters
-  (§3.5) measure the hit rate, which is the evidence for or against it.
-- **A copied/rebuilt packet at a new address breaks the key** — that
-  vertex is unmatched that frame (prev = current, i.e. no interpolation for
-  it), never a wrong position. Same fail-safe as the corrector.
+- **Address stability across frames is assumed, not proven — and hardware
+  DISPROVED it for CTR (2026-11-07, log SCUS-94426, build `ffa2e34+`).**
+  Pairing in gameplay: 0.12% → 0% → 0% → 0.37% → 0.88% per window; the
+  static menu scene paired 89%, proving the matcher, not the identity. The
+  game rebuilds its display list each frame at different RAM addresses
+  (rotating/scratch buffer): the address never repeats. Window 6 is the
+  fingerprint — 4012 "moved": an address DID repeat, but the geometry at
+  that address was different (scratch reuse), correctly rejected by the
+  120 px cut. The slice-1 counters measured this, as designed — the bet
+  the whole slice rested on lost for this game.
+- **A copied/rebuilt packet at a new address falls to the attr-hash key**
+  (§2.2) — since the CTR test, the hash is tried on ANY address miss (no
+  entry, wrong frame, displaced beyond the cut), not only when no address
+  exists, and each vertex is stored under BOTH keys. The address key stays
+  primary (exact); the hash rescues vertices whose list moved.
 
 ### 2.2 Attribute-hash key (fallback) — no PS1 analog of Salsa64's hash
 
@@ -126,7 +131,12 @@ ordering within the frame, the 120 px displacement window (§3.2), and the
 per-polygon all-or-nothing rule (§3.2). A wrong attr-hash match moves a
 vertex at most 120 px for one frame and is counted (`interp_hash_bad`
 cannot be known directly; the proxy is the hash-key hit rate vs the
-address-key hit rate in the log). Coverage of the fallback is unproven;
+address-key hit rate in the log). Since the CTR hardware test, the fallback
+runs on ANY address miss and every vertex is stored under BOTH keys (§3.1),
+so the next frame can find it either way; occurrence numbering is eager
+and per key kind, taken up front once per vertex, so lookup and store
+agree across frames given stable draw order. Coverage of the fallback is
+UNPROVEN on hardware — the CTR re-test is the evidence that decides it;
 the counters report the address-vs-hash split per frame.
 
 ### 2.3 What the PGXP tables can and cannot do

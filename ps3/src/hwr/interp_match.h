@@ -8,10 +8,16 @@
  * Identity: (RAM word offset of the packet word + occurrence index) primary
  * — the analog of Salsa64's (RDRAM address + load order); a content hash over
  * the stable (non-positional) attributes (u, v, r, g, b, texpage, clut)
- * fallback for direct-write lists, whose packet words go through gpu.cmd_buffer
- * and carry no RAM address. A PS1 packet word holds screen-space coordinates,
- * which change every frame, so hashing the word itself would be useless as
- * identity (Salsa64 hashes the model-space vertex entry, which is stable).
+ * fallback, tried on ANY address miss (no entry, wrong frame, or displaced
+ * beyond the cut) — and for direct-write lists, whose packet words go
+ * through gpu.cmd_buffer and carry no RAM address, it is the only key.
+ * Hardware evidence (CTR, 2026-11-07): a game's display lists may be rebuilt
+ * at different RAM addresses every frame, so the address key alone pairs
+ * ~0% there; the hash is what rescues those vertices (Salsa64's Perfect
+ * Dark lesson). Each vertex is stored under BOTH keys. A PS1 packet word
+ * holds screen-space coordinates, which change every frame, so hashing the
+ * word itself would be useless as identity (Salsa64 hashes the model-space
+ * vertex entry, which is stable).
  *
  * Rules (Salsa64's, streaming form — the fork's lists stream through do_poly,
  * so matching is a per-vertex lookup, not a post-frame batch):
@@ -60,10 +66,12 @@ float interp_lerp(float prev, float cur, float t);
 /* Streaming per-vertex step. addr_off: RAM byte offset of the packet word,
  * or -1 when the pointer is not a RAM address (direct-write list / cmd_buffer
  * copy). attr_h: interp_attr_hash(...) of the vertex's stable attributes.
- * x, y: final drawn position (integer + PGXP offset combined). On a valid
- * match, *out_px and *out_py get the previous frame's position and the return is
- * 1; else 0. The vertex is always captured into the current frame's table
- * (when active). Returns 0 when inactive. */
+ * x, y: final drawn position (integer + PGXP offset combined). The address
+ * key is tried first; on any address failure the attribute-hash key is
+ * tried, and the vertex is stored under BOTH keys for the next frame. On a
+ * valid match, *out_px and *out_py get the previous frame's position and the
+ * return is 1; else 0. The vertex is always captured into the current
+ * frame's table (when active). Returns 0 when inactive. */
 int interp_vertex(int addr_off, uint32_t attr_h, float x, float y,
                   float *out_px, float *out_py);
 
