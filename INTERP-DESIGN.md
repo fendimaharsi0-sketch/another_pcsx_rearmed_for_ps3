@@ -124,20 +124,44 @@ hashing the packet word as identity is useless.
 
 The stable part of a PS1 vertex is its non-positional attributes: `(u, v,
 r, g, b)` + the polygon's texpage/clut. The fallback key is therefore
-`FNV-1a(u, v, r, g, b, texpage, clut) + occurrence`. It is strictly weaker
-than Salsa64's hash: many vertices share attributes (a flat-shaded wall,
-a tiled floor, repeated sprites). Mitigations, in order: occurrence
-ordering within the frame, the 120 px displacement window (§3.2), and the
-per-polygon all-or-nothing rule (§3.2). A wrong attr-hash match moves a
-vertex at most 120 px for one frame and is counted (`interp_hash_bad`
-cannot be known directly; the proxy is the hash-key hit rate vs the
-address-key hit rate in the log). Since the CTR hardware test, the fallback
-runs on ANY address miss and every vertex is stored under BOTH keys (§3.1),
-so the next frame can find it either way; occurrence numbering is eager
-and per key kind, taken up front once per vertex, so lookup and store
-agree across frames given stable draw order. Coverage of the fallback is
-UNPROVEN on hardware — the CTR re-test is the evidence that decides it;
-the counters report the address-vs-hash split per frame.
+`FNV-1a(u, v, r, g, b, texpage, clut)` — with NO occurrence. It is strictly
+weaker than Salsa64's hash: many vertices share attributes (a flat-shaded
+wall, a tiled floor, repeated sprites). Mitigations, in order: the
+displacement window (§3.2), nearest-position resolution among the
+duplicates (§3.1), and the per-polygon all-or-nothing rule (§3.2). A wrong
+attr-hash match moves a vertex at most the cut for one frame and is counted
+(`interp_hash_bad` cannot be known directly; the proxies are the hash-key
+hit rate vs the address-key hit rate and the new `hash ambig` counter in
+the log). Since the CTR hardware test, the fallback runs on ANY address
+miss and every vertex is stored under BOTH keys (§3.1), so the next frame
+can find it either way.
+
+**Why occurrence was dropped (2026-11-07, the cut-480 verdict).** The
+fallback originally carried occurrence (`hash + occurrence`, eager,
+per key kind, taken up front once per vertex, so lookup and store agreed
+given stable draw order). CTR killed that assumption twice over: first the
+address (`~0%` pairing — lists rebuilt at new addresses), then the
+occurrence. At cut 480 the occurrence-carrying hash paired 37–49% of
+vertices in gameplay with the displacement histogram concentrated tight
+at 241–480 px — and Fendi's eyes killed it: Test t=0/t=0.5 showed
+"pecah poly berantakan" (torn polygons). The histogram's tight
+concentration did NOT prove the pairs correct — wrong same-attribute
+vertices cluster in the same range; eyes win over numbers. Prime suspect,
+now the design's stated cause: occurrence churn — CTR re-sorts its display
+list every frame (OT depth sort), so a vertex's occurrence index changes
+frame to frame and the hash key matched a DIFFERENT vertex that happened
+to share attributes and that occurrence index. Occurrence is therefore no
+longer any part of hash identity: it survives only as a STORAGE slot index
+(draw order among same-attribute vertices that frame), and the lookup
+probes every slot the previous frame stored and pairs with the NEAREST
+candidate by displacement (§3.1). Known limitation, host-tested: two
+same-attribute vertices that SWAP positions between frames cross-pair
+(nearest position cannot tell them apart); the per-polygon all-or-nothing
+rule is the only guard, and the `hash ambig` counter (§3.5) reports how
+often a lookup had to choose among duplicates at all. Coverage of the
+fallback is UNPROVEN on hardware — the CTR re-test at cut 480, Test
+t=0.5, is the evidence that decides it; the counters report the
+address-vs-hash split and the ambiguity per frame.
 
 ### 2.3 What the PGXP tables can and cannot do
 
@@ -167,11 +191,29 @@ Two ping-pong tables (`prev`, `cur`), allocated lazily on first enable
   Each entry: key `u64` (address-key or hash-key + occurrence, tag bit
   distinguishes them), `x, y` float (final drawn position, §3.3),
   `frame` u16. ~24 B/entry ⇒ ~768 KB per table, ~1.5 MB for both.
-- A per-frame occurrence map `key → count`, reset at each present — 32768
-  slots, sized to the vertex table (a frame can hold as many distinct bases
-  as vertices; a smaller map would fill on heavy scenes and collapse all
-  further occurrences to 0). ~512 KB. Total matcher memory ~2.0 MB, all
-  freed when the setting goes back to Off.
+- Two per-frame occurrence maps `key base → count`, 32768 slots each: the
+  CURRENT frame's map (counts as vertices stream in — the address key's
+  occurrence, and the hash key's storage slot, both come from it) and the
+  PREVIOUS frame's map (swapped at present; the hash lookup reads the
+  previous frame's duplicate count for an attribute hash from it, which
+  bounds the slot probe 0..count-1). A frame can hold as many distinct
+  bases as vertices; a smaller map would fill on heavy scenes and collapse
+  all further occurrences to 0. ~384 KB each. Total matcher memory ~2.3 MB
+  (was ~2.0 MB before the prev-frame map), all freed when the setting goes
+  back to Off.
+- Hash entries are slot-indexed under the SAME open-address table (no
+  separate hash structure): a vertex is stored under
+  `KIND_HASH | (attr_hash << 16) | slot`, where slot is its draw-order
+  index among same-attribute vertices that frame. The lookup probes slots
+  0..count-1 in the prev table and pairs with the NEAREST candidate by
+  displacement max(|dx|,|dy|) (ties: lowest slot wins). A store dropped by
+  a full table leaves a hole — its slot simply finds no entry and is
+  skipped, so a gap never hides a later slot. The probe loop is clamped to
+  INTERP_MAX_VERTS (a stored entry's slot is always below it: the table
+  holds at most that many entries), so per-lookup cost is O(duplicates of
+  that attribute hash last frame) with each probe one open-address find.
+  The ADDRESS key is unchanged (address + occurrence as identity, single
+  slot probed).
 - Full table ⇒ that frame is not interpolated (`interp_full`, logged),
   never truncated (Salsa64: a task exceeding `VTX_INTERP` is drawn whole
   and not interpolated).
@@ -185,9 +227,15 @@ lerped (test mode) or stored with prev positions (slice 2) **while they
 are emitted**. So the matcher is a streaming per-vertex lookup:
 
 1. During the `do_poly` vertex loop, compute per-vertex key + occurrence
-   (occurrence counter incremented as vertices stream in).
+   (the ADDRESS occurrence counter incremented as vertices stream in; the
+   hash key takes no number on the lookup path — its storage slot is taken
+   at store time, step 4).
 2. After the vertex loop (positions final, §3.3), look each vertex up in
    the `prev` table:
+   - Address key: the single slot for (address, occurrence).
+   - Hash key (on any address failure): EVERY slot 0..(prev-frame
+     duplicate count - 1) for the attribute hash; pair with the NEAREST
+     candidate within the cut.
    - Hit + `|dx| ≤ cut` and `|dy| ≤ cut` (native PS1 px; the cut is the
      `interp_disp` setting, default 120 — Salsa64's `INTERP_DISP` 120,
      same value — tunable 60/120/240/480, see §7) ⇒
@@ -196,9 +244,13 @@ are emitted**. So the matcher is a streaming per-vertex lookup:
 3. **Per-polygon all-or-nothing**: all vertices of the polygon must have
    a valid prev, else none of them lerps / gets a prev stored. (Salsa64's
    group rule, applied to the polygon — the fork's group.)
-4. Append the vertex (key, occurrence, final x/y) to the `cur` table.
+4. Append the vertex (key, occurrence, final x/y) to the `cur` table —
+   under BOTH keys; the hash store takes its slot number here, in draw
+   order.
 5. At `hwr_present`, swap `cur` → `prev` and clear `cur` for the next
-   frame. Per-frame stats (§3.5) are finalised here, including the
+   frame; the occurrence maps swap the same way (the just-finished
+   frame's counts become the previous frame's counts, the new current map
+   is cleared). Per-frame stats (§3.5) are finalised here, including the
    per-frame cut decision (§3.2, below) which gates slice 2's emission.
 
 What slice 1 deliberately omits (Salsa64 added these in interp 6–8, after
@@ -251,7 +303,7 @@ game loop, gated only on `frame.gpu`, not on Debug log; the earlier "every
 
 `hwr: interp: %u lookups, %u hits (addr %u, hash %u), %u moved, %u sprites,
 %u frames cut, %u fb-excluded, %u dropped (table full); hash miss %u, hash
-displaced %u; hist 121-240 %u, 241-480 %u, 481-960 %u, >960 %u` — same shape
+displaced %u; hist 121-240 %u, 241-480 %u, 481-960 %u, >960 %u; hash ambig %u` — same shape
 as the corrector's log line, existing fields first and in order. The
 address-vs-hash split is the coverage evidence for §2; the dropped count
 is the table-capacity evidence. New fields (2026-11-07, tunable-cut step):
@@ -265,12 +317,20 @@ is the table-capacity evidence. New fields (2026-11-07, tunable-cut step):
 - `hist …`: counted once per REJECTED vertex — no pair by either key, and
   at least one displaced candidate existed by either key (the same vertices
   `moved` counts). The bucket is the SMALLEST displacement among the
-  displaced candidates found (address and/or hash), where displacement =
+  displaced candidates found (address and/or hash — now every hash
+  candidate under the key, not just one), where displacement =
   max(|dx|, |dy|), the same metric as the cut. Buckets are absolute native
   px, independent of the current cut: 121-240, 241-480, 481-960, >960.
   (At cut 240 a 150 px rejection cannot occur — it pairs — so the 121-240
   bucket stays empty at that cut; the buckets answer "how far did the
   rejected candidates move", not "how far past the cut".)
+- `hash ambig` (2026-11-07, occurrence-independent step): a hash attempt
+  that found MORE THAN ONE previous-frame candidate under the hash key,
+  regardless of whether the nearest paired. Counted once per such lookup,
+  only when the hash was actually tried. It is the log line's last field;
+  the overlay does NOT show it — its third line is already at the verified
+  1230 px width limit (see §7). High ambiguity means nearest-position is
+  guessing among duplicates; read it next to the hash hit rate.
 These answer the open CTR question: rejections clustering at 121-240 mean
 loosening the cut to 240 is right; spreading to >960 means the candidates
 are wrong vertices (recycled addresses / wrong occurrences), and loosening
@@ -440,6 +500,12 @@ build the frame record; it only captures vertex positions (§3.1).
   it cannot affect pairing. On the software renderer the matcher never
   runs and the overlay reads zeros. NSET is 41 (items 0–40); the
   Interpolation page holds `{ 38, 39, 40 }`, count 3.
+  The `hash ambig` counter (2026-11-07, occurrence-independent step) is
+  LOG-ONLY, not on the overlay: appending ` ambig <n>` to line 3 would
+  take its worst realistic case (7-digit counters) from 65 to 79 chars,
+  x_end 18 + 79×16 = 1282 px, past the verified 1230 px text limit (the
+  overlay's own comment caps lines at 75 chars). Read ambiguity from the
+  log line instead, next to the hash hit rate.
 - **Kill-gate** (copy the `pgxp_lite_on` pattern — call-site gating, not a
   single choke point): every producer/consumer checks `interp_on` first.
   OFF ⇒ no capture in `do_poly`, no table allocation, no lookup, no
@@ -585,6 +651,85 @@ Verification (this step, `~/workspace/ps3-interp-verify/`):
   hand-edited in-range value loads, out-of-range file values ignored,
   per-game override + restore, per-game and global save write both keys.
 - PPU compile (`compile.sh`, BASE re-pointed to the overlay backup):
+  every touched file + all 13 `common.h` includers exit 0 with warnings
+  identical to the backup; `spu_mdec.c` fails identically in both trees
+  (pre-existing missing generated header, untouched). No strays
+  (.o/.d/revision.h: none).
+
+## 13. Occurrence-independent hash matching (2026-11-07)
+
+Why: Fendi's visual verdict on Test t=0/t=0.5 at cut 480 — "pecah poly
+berantakan" — killed the occurrence-carrying hash key. The pairs at cut
+480 (37–49% hits in CTR gameplay) were WRONG: CTR re-sorts its display
+list every frame (OT depth sort), so a vertex's occurrence index changes
+frame to frame and the hash key matched a different same-attribute vertex
+at the same occurrence. The histogram's tight 241–480 concentration did
+NOT prove the pairs correct. The per-frame disp60-rule fix stays SHELVED
+(moot until identity is correct). Slice 2 stays blocked on identity.
+
+What changed (`interp_match.{h,c}` + log line only; no new settings, no
+hook change, no overlay change):
+- The hash key carries NO occurrence: `KIND_HASH | (attr_hash << 16)`.
+  Occurrence survives only as a STORAGE slot index (draw order among
+  same-attribute vertices that frame). The lookup probes every slot
+  0..(prev-frame duplicate count - 1) for the attribute hash — the count
+  comes from a second, prev-frame occurrence map swapped at present — and
+  pairs with the NEAREST candidate by displacement max(|dx|,|dy|), ties
+  to the lowest slot. The eager hash occurrence call on the lookup path
+  is removed (its comment explained why it existed; the reason is gone).
+- The ADDRESS key is unchanged (address + occurrence, single slot).
+  Dual store under both keys stays; the hash slot number is taken at
+  store time, in draw order.
+- New diagnostic counter `interp_hash_ambig`: hash lookups that found
+  MORE THAN ONE previous-frame candidate under the hash key, whether or
+  not the nearest paired. Appended to the log line as the last field
+  (`; hash ambig %u`). LOG-ONLY: the overlay's third line would grow
+  past the verified 1230 px limit (79 chars worst case → x_end 1282 px).
+  Reset by `interp_log_reset()`; the prev-frame map is cleared by
+  `interp_invalidate()`, freed by `interp_set(OFF)`, swapped/cleared by
+  `interp_present()` exactly like the tables.
+- The histogram now takes the smallest displacement among ALL hash
+  candidates under the key (plus the address candidate), not just one.
+- Memory: +~384 KB for the second occurrence map (~2.3 MB matcher total).
+  Per-lookup cost is O(duplicates of that attribute hash last frame),
+  probe loop clamped to INTERP_MAX_VERTS.
+- Known limitation (host-tested, asserted as what the code does): two
+  same-attribute vertices that SWAP positions between frames cross-pair —
+  nearest position cannot tell them apart.
+
+What it proves on hardware (Fendi's side):
+1. Same CTR session, `interp` On, cut 480, Test t=0.5: the picture should
+   be SMOOTH (a coherent mid-frame) instead of torn. That is the decisive
+   test — eyes, not the hit rate: a high hit rate with tearing would mean
+   nearest-position is still pairing wrong vertices.
+2. Read `hash ambig` from the log line next to the hash hit rate: high
+   ambiguity means nearest-position is guessing among duplicates (many
+   same-attribute vertices per frame); low ambiguity with smooth visuals
+   means the identity is genuinely resolved.
+3. `interp` Off after On: picture identical to a fresh boot with the
+   feature never enabled (kill-gate proof, as before).
+
+What it does NOT prove: host tests prove the logic (reordered draw order
+pairs correctly, nearest wins among duplicates, occurrence no longer
+affects hash pairing, the swap cross-pair limitation, ambiguity counting).
+Only Fendi's hardware session + his eyes can prove CTR pairs correctly
+now — a host test cannot know whether CTR's same-attribute vertices are
+distinguishable by position alone.
+
+Verification (this step, `~/workspace/ps3-interp-verify/`):
+- Matcher host test: 220 checks, 0 failures (170 existing + 50 new),
+  gcc -O2 -Wall -Wextra, zero warnings. New: reordered draw order (the
+  CTR case — shuffled order, new addresses, 3/3 hash hits, ambig +3);
+  nearest wins among duplicates (105 px pairs with the 100 px vertex,
+  195 px with the 200 px vertex); swap cross-pairs (asserted limitation);
+  occurrence-free pairing (same vertex second in frame 1, first in
+  frame 0, still pairs); ambiguity counter (0 unique, +1 duplicated,
+  +0 when the address pairs and the hash is untried); histogram smallest
+  displacement across ALL hash candidates (150 vs 350 px → 121-240).
+  The address-key tests (including same-address occurrence) still pass
+  unchanged, as do the capacity tests (16000 fit / 17000 overflow —
+  hash entries still live in the same 32768-slot table).
+- PPU compile (`compile.sh`, BASE re-pointed to the noocc backup):
   every touched file + all 13 `common.h` includers exit 0 with warnings
   identical to the backup; `spu_mdec.c` fails identically in both trees
   (pre-existing missing generated header, untouched). No strays

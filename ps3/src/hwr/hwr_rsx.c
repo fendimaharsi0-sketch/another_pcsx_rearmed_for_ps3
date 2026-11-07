@@ -1689,9 +1689,9 @@ static void log_stats(void)
                   pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore);
         pgxp_corr_nclip_total = pgxp_corr_nclip_flip = pgxp_corr_nclip_restore = 0;
         if (interp_active())
-            logf_("hwr: interp: %u lookups, %u hits (addr %u, hash %u), %u moved, %u sprites, %u frames cut, %u fb-excluded, %u dropped (table full); hash miss %u, hash displaced %u; hist 121-240 %u, 241-480 %u, 481-960 %u, >960 %u\n",
+            logf_("hwr: interp: %u lookups, %u hits (addr %u, hash %u), %u moved, %u sprites, %u frames cut, %u fb-excluded, %u dropped (table full); hash miss %u, hash displaced %u; hist 121-240 %u, 241-480 %u, 481-960 %u, >960 %u; hash ambig %u\n",
                   interp_lookups, interp_hits_addr + interp_hits_hash, interp_hits_addr, interp_hits_hash, interp_moved, interp_sprites, interp_frames_cut, interp_frames_fb, interp_full,
-                  interp_hash_miss, interp_hash_displaced, interp_hist_121_240, interp_hist_241_480, interp_hist_481_960, interp_hist_gt960);
+                  interp_hash_miss, interp_hash_displaced, interp_hist_121_240, interp_hist_241_480, interp_hist_481_960, interp_hist_gt960, interp_hash_ambig);
         interp_log_reset();
         if (pgxp_lite_on >= 2)
             logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired, %u with a corrector corner), %u flat\n",

@@ -19,6 +19,30 @@
  * word itself would be useless as identity (Salsa64 hashes the model-space
  * vertex entry, which is stable).
  *
+ * The hash key carries NO occurrence (since 2026-11-07, the
+ * occurrence-independent step): CTR re-sorts its display list every frame
+ * (OT depth sort), so a vertex's occurrence index changes frame to frame
+ * and the old (attributes + occurrence) key matched a DIFFERENT vertex that
+ * happened to share attributes and that occurrence — at cut 480 that paired
+ * 37-49% of vertices, and Fendi's eyes killed it ("pecah poly berantakan":
+ * torn polygons). Occurrence is therefore only a STORAGE slot index: each
+ * vertex is stored under KIND_HASH | (attr_hash << 16) | occ, where occ is
+ * its draw-order index among same-attribute vertices that frame, and the
+ * lookup probes EVERY slot 0..(prev-frame duplicate count - 1) for that
+ * attribute hash (the count comes from a second, prev-frame occurrence map
+ * swapped at present) and pairs with the NEAREST candidate by displacement
+ * max(|dx|, |dy|), the same metric as the cut — nearest-position resolution.
+ * Ties go to the lowest slot (first stored). A lookup that finds more than
+ * one previous-frame candidate under the hash key counts interp_hash_ambig
+ * (see below): high ambiguity means nearest-position is guessing among
+ * duplicates. Known limitation, asserted by host test: two same-attribute
+ * vertices that SWAP positions between frames cross-pair (each pairs with
+ * the other's previous position) — nearest position cannot tell them apart,
+ * and the per-polygon all-or-nothing rule is the only guard. The ADDRESS
+ * key is unchanged (address + occurrence): address hits are ~0 in CTR
+ * gameplay anyway, and its occurrence still disambiguates same-address
+ * vertices in stable lists.
+ *
  * Rules (Salsa64's, streaming form — the fork's lists stream through do_poly,
  * so matching is a per-vertex lookup, not a post-frame batch):
  * - per-vertex cut: a vertex that moved more than the cut (setting
@@ -45,13 +69,20 @@
  * - histogram: counted once per REJECTED vertex — no pair by either key,
  *   and at least one displaced candidate existed by either key (the same
  *   vertices interp_moved counts). The bucket is the SMALLEST displacement
- *   among the displaced candidates found (address and/or hash), where
+ *   among the displaced candidates found (address and/or hash — now every
+ *   hash candidate under the key, not just one), where
  *   displacement = max(|dx|, |dy|), the same metric as the cut. Buckets
  *   are absolute native px, independent of the current cut: 121-240,
  *   241-480, 481-960, >960. (At cut 240 a 150 px rejection cannot occur —
  *   it pairs — so the 121-240 bucket stays empty at that cut; the buckets
  *   answer "how far did the rejected candidates move", not "how far past
  *   the cut".)
+ * - hash_ambig: a hash lookup that found MORE THAN ONE previous-frame
+ *   candidate under the hash key, regardless of whether the nearest paired.
+ *   Counted once per such lookup, only when the hash was actually tried
+ *   (the address key did not already pair the vertex). The log line's last
+ *   field; the overlay does NOT show it (its third line is already at the
+ *   verified 1230 px width limit — see INTERP-DESIGN.md §7).
  */
 #ifndef INTERP_MATCH_H
 #define INTERP_MATCH_H
@@ -126,7 +157,7 @@ int interp_frame_cut(void);
  * (see the counting rule at the top of this header). */
 extern unsigned int interp_lookups, interp_hits_addr, interp_hits_hash,
     interp_moved, interp_sprites, interp_frames_cut, interp_frames_fb,
-    interp_full, interp_hash_miss, interp_hash_displaced,
+    interp_full, interp_hash_miss, interp_hash_displaced, interp_hash_ambig,
     interp_hist_121_240, interp_hist_241_480, interp_hist_481_960,
     interp_hist_gt960;
 void interp_log_reset(void);
