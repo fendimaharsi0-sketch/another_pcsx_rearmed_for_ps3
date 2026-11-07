@@ -16,6 +16,7 @@ The greatest credit belongs to **Calyps0man**, whose work made this fork possibl
 
 At this time, the changes in this fork are limited to cosmetic improvements and quality-of-life features. No core emulation work has been undertaken. The additions are:
 
+- **Separate install (version 1.01 and newer)** — installs as "Another PCSX-ReARMed for PS3" (PCSR00002), coexisting with the upstream build instead of replacing it. Settings, memory cards, and cheat settings from the upstream install do not carry over.
 - **Cheat support** — a fullscreen cheat menu with per-game cheat settings. Cheats must first be enabled via the global “Enable cheats” setting in System & Saves (off by default); only then will the cheat menu appear in the quick menu and any cheat apply.
 - **Game cover support** — display of game cover artwork in the game list. Covers are looked up next to the game file, in the `USRDIR/covers/` folder (by game file name or serial), then in the webMAN MOD cover pack by serial; the serial is taken from the file name, or read out of the disc image itself when the name carries none.
 - **CD speed-up** — CD-ROM reading at Normal, Turbo, or Max (TurboCD) speed.
