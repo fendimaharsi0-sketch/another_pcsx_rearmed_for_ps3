@@ -106,4 +106,15 @@ static int pgxp_depths(const float *x, const float *y, float *z, int n)
     return 1;
 }
 
+/* mode2w: the depth a mode-2 polygon uses for one corner. Lite's depth is
+ * keyed by the screen word, so it can be another vertex's depth; the RAM
+ * shadow's is keyed by the packet's own RAM address and comes from the
+ * same GTE op as the corner's position, so when the shadow has a
+ * validated entry its depth wins. The position is untouched (only the
+ * depth is picked here); a shadow miss keeps lite's depth. */
+static inline float pgxp_pick_z(float lite_z, float shadow_z, int has_shadow)
+{
+    return has_shadow ? shadow_z : lite_z;
+}
+
 #endif

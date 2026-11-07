@@ -65,11 +65,6 @@ struct pgxp_cand { float dx, dy, z; uint32_t seq; };
 int pgxp_lite_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c);
 extern unsigned int pgxp_lite_addr_hits;
 
-/* the RAM byte offset of a packet pointer, or -1 if it is not a RAM address
- * (a copied command) or RAM is mapped at address 0 (host tests). Shared by
- * the interpolation matcher for its address key; independent of pgxp_lite_on. */
-int pgxp_ram_off(const void *ptr);
-
 /* the renderer: the vertices projected to this word recently, c[0..1]; returns
    how many (0: not known; 2: two different vertices rounded to that pixel) */
 int pgxp_lite_cands(uint32_t sxy, struct pgxp_cand *c);
