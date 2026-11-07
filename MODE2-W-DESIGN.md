@@ -22,9 +22,6 @@ files reverted out of this tree; interp code stays in git history at
      own sz3. Mapping SXY<->SZ is already resolved in code (see the comment
      above `pgxp_corr_cand_at` in pgxp_lite.c: shadow invw = 1/SZ3, lite z =
      raw depth / 4096 — the same number, up to SZ3 truncation).
-   - RAM shadow entry `pgxp_corr_entry_t { short sx, sy; int valid;
-     unsigned frame; float x, y, invw; }` — x, y, invw ride together,
-     keyed by RAM address + exact-word validation + Build A guard (1.5px).
    - `pgxp_corr_cand_at(ptr, word, c)` returns a full candidate
      (dx, dy, z = 1/invw = SZ3).
 3. Current priority in `ps3/src/hwr/hwr_core.c` do_poly (~lines 744-762):
