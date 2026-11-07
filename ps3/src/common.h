@@ -135,6 +135,8 @@ void video_draw_overlay_rows(int y0, int y1);
 int  video_overlay_border(void);   /* black border left of the game picture, overlay pixels */
 void video_borders_dirty(void);    /* clear the borders again (something was drawn there) */
 void video_present(void);
+void video_request_screenshot(const char *name);   /* pause menu: capture the next clean presented frame as a PNG */
+void video_cancel_screenshot(void);                /* drop a pending request (game closed before it fired) */
 void video_flush_cpu_writes(const void *p, size_t n);
 /* RSX state shared with the GPU renderer backend */
 struct _gcmCtxData;

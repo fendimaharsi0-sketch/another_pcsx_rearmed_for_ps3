@@ -19,7 +19,10 @@
 #include <rsx/rsx_program.h>
 #include <sysutil/video.h>
 #include <sys/systime.h>
+#include <time.h>
+#include <sys/stat.h>
 #include "common.h"
+#include "screenshot.h"
 #include "shaders.h"
 
 #define CB_SIZE     0x100000
@@ -46,6 +49,13 @@ static struct { u32 *ptr; u32 off; } fb[3];
 static int nbuf = 2;
 static u32 depth_off;
 static int cur = -1, disp = 0, pend = -1;
+/* PNG screenshot (pause menu "Save Screenshot"): one-shot. The menu sets the
+   request and closes; the next clean presented game frame arms it (its buffer
+   is the picture without any menu); the present after that reads the armed
+   buffer, now on screen and fully drawn, and writes the PNG. shot_name is
+   the game's serial (or ROM name) for the file name, taken at request time. */
+static int shot_req, shot_armed;
+static char shot_name[128];
 static int shown;               /* game frame buffer read by the last queued display frame */
 /* timing stats. No RSX timestamps: PSL1GHT's rsxSetTimeStamp writes past the space
    it reserves and leaves a garbage word in the command buffer, which hangs the RSX. */
@@ -90,6 +100,23 @@ static float *vbuf; static u32 vbuf_off; static int quad_n;
 
 unsigned video_width(void) { return scr_w; }
 unsigned video_height(void) { return scr_h; }
+
+/* Pause menu "Save Screenshot": only a request. The capture itself runs in
+   video_present, on the next clean presented frame after the menu closes,
+   so the picture has no menu on it. A request that is never armed (flips
+   kept failing) stays pending until it is armed or cancelled. */
+void video_request_screenshot(const char *name)
+{
+    snprintf(shot_name, sizeof shot_name, "%s", name && name[0] ? name : "unknown");
+    shot_req = 1;
+    shot_armed = 0;
+}
+
+void video_cancel_screenshot(void)
+{
+    shot_req = 0;
+    shot_armed = 0;
+}
 
 void video_flush_cpu_writes(const void *p, size_t n)
 {
@@ -927,10 +954,70 @@ int video_overlay_border(void)
 void video_draw_overlay(void) { ovl_full_flush = 1; draw_overlay(0, OVL_H); }
 void video_draw_overlay_rows(int y0, int y1) { draw_overlay(y0, y1); }
 
+/* Build the screenshot path: APP_DIR/screenshots/<name>_<YYYYMMDD-HHMMSS>_pgxp<M>_cull<C>.png,
+   with a _2/_3/... suffix when two captures land in the same second (the
+   one-shot flag makes that possible: request, capture, menu, request again).
+   Mirrors hooks_dump_vram's first-free-number naming. Returns 0 or -1. */
+static int screenshot_make_path(char *out, size_t n, const char *name, int pgxp, int cull)
+{
+    char ts[32];
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    int k;
+    struct stat st;
+    if (!out || n < 64 || !tm) return -1;
+    if (!strftime(ts, sizeof ts, "%Y%m%d-%H%M%S", tm)) return -1;
+    mkdir(APP_DIR "/screenshots", 0777);
+    for (k = 0; k < 10000; k++) {
+        if (k == 0)
+            snprintf(out, n, APP_DIR "/screenshots/%s_%s_pgxp%d_cull%d.png", name, ts, pgxp, cull);
+        else
+            snprintf(out, n, APP_DIR "/screenshots/%s_%s_pgxp%d_cull%d_%d.png", name, ts, pgxp, cull, k + 1);
+        if (stat(out, &st) != 0) return 0;
+    }
+    return -1;
+}
+
+/* Write the armed frame as a PNG and log it, on every path (success or
+   failure) clearing the request so it never fires twice or on another
+   game. The armed buffer is on screen now (disp), fully drawn: the flip
+   for it completed in this present's wait (or in the video_begin just
+   before it). The CPU reads it directly, as the FXAA self-test reads its
+   RSX-drawn test buffer (no cache op: the CPU never writes the display
+   buffers after the init memset, and the flip is the RSX's completion
+   signal for the frame). */
+static void screenshot_capture(void)
+{
+    char path[512];
+    int ok = 0;
+    path[0] = 0;
+    if (screenshot_make_path(path, sizeof path, shot_name, cfg.pgxp, cfg.pgxp_culling) == 0)
+        ok = screenshot_write_png(path, fb[disp].ptr, scr_w, scr_h) == 0;
+    if (ok) {
+        /* the counters are the running 10 s window (partial): they reset
+           only on the periodic log print, so label them as such */
+        extern unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_alone, hwr_pgxp_amb;
+        extern unsigned int pgxp_lite_addr_hits, pgxp_lite_hits, pgxp_lite_welds;
+        extern unsigned int pgxp_corr_lookups, pgxp_corr_hits;
+        extern unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte;
+        logf_("screenshot: saved %s (%ux%u, pgxp %d cull %d shadow %d cpu %s; running window, partial — PGXP %u sub-pixel, %u whole-pixel, corners addr %u value %u, amb %u alone %u welds %u, corrector %u lookups %u hits, culling %u recomputed %u flipped %u restored %u nogte)\n",
+              path, scr_w, scr_h, cfg.pgxp, cfg.pgxp_culling, cfg.pgxp_corr, cfg.dynarec ? "dynarec" : "interp",
+              hwr_pgxp_polys, hwr_pgxp_misses, pgxp_lite_addr_hits, pgxp_lite_hits, hwr_pgxp_amb, hwr_pgxp_alone, pgxp_lite_welds,
+              pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte);
+    } else {
+        logf_("screenshot: failed to write %s\n", path[0] ? path : shot_name);
+    }
+    shot_armed = 0;
+    shot_req = 0;
+}
+
 void video_present(void)
 {
+    int dg, doth;   /* this frame's picture, snapshotted before the reset below */
+    int was_armed = shot_armed;   /* an arm from a previous present: this one captures it */
     WHERE("present");
     watchdog_frame();
+    dg = drew_game; doth = drew_other;
     /* a frame without the game picture (menus): the borders need clearing again */
     if (!drew_game || drew_other) border_dirty = nbuf;
     else if (border_dirty) border_dirty--;
@@ -950,9 +1037,18 @@ void video_present(void)
         cur = -1;
         quad_n = 0;
         vs.frames++;
+        /* a screenshot request arms on the first clean game frame queued
+           for flip (game picture, no overlay). The frame just flipped in
+           is NOT it: the first frame after the menu closes is a full
+           overlay draw (drew_other = 1), so arming skips it by itself. */
+        if (shot_req && dg && !doth) shot_armed = 1;
     } else {
         /* not queued: keep drawing into the same (hidden) buffer next time */
         rsxFlushBuffer(rsx_ctx);
         logf_("video: flip failed\n");
     }
+    /* the buffer armed on an earlier present went on screen in this
+       present's wait (or in the video_begin just before it): read it now,
+       after the new flip is queued, so the encode never delays the display */
+    if (was_armed) screenshot_capture();
 }

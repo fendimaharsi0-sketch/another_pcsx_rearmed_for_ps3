@@ -1049,6 +1049,7 @@ static void run_game(const char *path)
     }
     app_in_game = 0;
     hooks_game_stopping();
+    video_cancel_screenshot();   /* a request never armed must not fire on the next game */
     spu_mdec_enable(0);
     cheat_reset_all();   /* never let one game's fed codes write into the next game's RAM */
     retro_unload_game();
