@@ -136,7 +136,7 @@ spu-strip "$GEN/mdec_spu.elf"
 c_array "$GEN/mdec_spu.elf" mdec_spu_elf >"$GEN/spu_bins.h"
 
 echo "== front-end"
-CF="-O2 -Wall -Wno-unused-function -mcpu=cell -I$PSL1GHT/ppu/include -I$PSL1GHT/portlibs/ppu/include -I$GEN -Isrc -Isrc/hwr \
+CF="-O2 -Wall -Wno-unused-function -mcpu=cell -I$PSL1GHT/ppu/include -I$GEN -Isrc -Isrc/hwr \
     -I$CORE/deps/libretro-common/include -I$CORE/plugins/gpulib ${FE_CFLAGS:-}"
 OBJS=""
 for f in src/*.c src/hwr/*.c; do
@@ -147,8 +147,8 @@ for f in src/*.c src/hwr/*.c; do
 done
 
 echo "== link"
-ppu-gcc -mcpu=cell -Wl,--gc-sections -L$PSL1GHT/ppu/lib -L$PSL1GHT/portlibs/ppu/lib $OBJS "$B/libcore.a" \
-    -lrsx -lgcm_sys -lio -laudio -lsysutil -lsysmodule -lrt -llv2 -lm -lz -o "$B/$NAME.elf"
+ppu-gcc -mcpu=cell -Wl,--gc-sections -L$PSL1GHT/ppu/lib $OBJS "$B/libcore.a" \
+    -lrsx -lgcm_sys -lio -laudio -lsysutil -lsysmodule -lrt -llv2 -lm -o "$B/$NAME.elf"
 ppu-strip "$B/$NAME.elf" -o "$B/${NAME}_stripped.elf"
 sprxlinker "$B/${NAME}_stripped.elf"
 CID=UP0001-PCSR00003_00-0000000000000001
