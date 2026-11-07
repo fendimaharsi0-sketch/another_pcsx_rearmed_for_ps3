@@ -465,17 +465,29 @@ void pgxp_lite_set(int on)
 /* ---- PGXP corrector (see pgxp_lite.h): tracking only. ----
  * Ported from the research branch's pgxp.c tracking (T1 register shadows,
  * T3 RAM/scratchpad shadows, sub-word hooks), renamed pgxp_* -> pgxp_corr_*.
- * NOT ported (orphan, stays on the research branch): the slice-1 cache,
- * the command shadow, the edge map, hybrid welds/ambiguity, the
- * texture-precision counters and flip tables, the per-frame wipe, and the
- * do_poly substitution. The sub-word hooks below keep only the tracking
- * (the research sub-word and load counters are gone with the texprec
- * logging they fed). The game-frame clock is lite's
+ * NOT ported (orphan, stays on the research branch): the command shadow,
+ * the edge map, hybrid welds/ambiguity, the texture-precision counters and
+ * flip tables, the per-frame wipe, and the do_poly substitution. The
+ * slice-1 cache the culling corrector used to read is gone too (Design A
+ * reads the GTE shadow directly — see below). The sub-word hooks below
+ * keep only the tracking (the research sub-word and load counters are gone
+ * with the texprec logging they fed). The game-frame clock is lite's
  * (pgxp_lite_frame); the projection sequence is lite's pgxp_seq, shared,
  * so a lite and a corrector candidate for one corner order on one clock. */
 
 int pgxp_corr_track;
 unsigned int pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards;
+
+/* Population gate for the GTE/GPR shadows (see pgxp_lite.h): either
+ * corrector consumes them — the RAM-shadow corrector (for the draw-time
+ * join) and the culling corrector (Design A reads the GTE shadow at
+ * NCLIP time). The RAM-shadow ARRAY is not populated by this gate: the
+ * store hooks (on_sw_ram, sub-word stores) stay gated on
+ * pgxp_corr_track alone, and so does the draw-time join. */
+static int pgxp_corr_populate(void)
+{
+	return pgxp_corr_track || pgxp_cull_track;
+}
 
 /* T1: per-register shadows. i is the exact integer (packed SXY word) the
  * shadow was recorded for; a shadow is only ever used when the register's
@@ -523,7 +535,7 @@ static int pgxp_corr_live(const pgxp_corr_shadow_t *sh)
 
 void pgxp_corr_on_rtps(unsigned packed, float x, float y, float invw, int valid)
 {
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	/* RTPS shifts the SXY FIFO first (SXY0<-SXY1<-SXY2), then writes the new
 	 * SXY2: mirror the shift here. No CPU instruction can observe the GTE
 	 * state between the reg shift and this call (a GTE op is atomic), so
@@ -542,7 +554,7 @@ void pgxp_corr_on_rtps(unsigned packed, float x, float y, float invw, int valid)
 void pgxp_corr_on_rtpt(int v, unsigned packed, float x, float y, float invw, int valid)
 {
 	int reg;
-	if (!pgxp_corr_track || v < 0 || v > 2) return;
+	if (!pgxp_corr_populate() || v < 0 || v > 2) return;
 	/* RTPT writes all three vertices straight into SXY0/1/2: no FIFO shift. */
 	reg = 12 + v;
 	if (valid) {
@@ -557,7 +569,7 @@ void pgxp_corr_on_rtpt(int v, unsigned packed, float x, float y, float invw, int
 void pgxp_corr_on_mfc2(int rd, int rt, unsigned val)
 {
 	int src;
-	if (!pgxp_corr_track || rt == 0) return; /* r0 never carries a shadow */
+	if (!pgxp_corr_populate() || rt == 0) return; /* r0 never carries a shadow */
 	src = (rd == 15) ? 14 : rd; /* MFC2 from SXYP reads SXY2 */
 	if (src < 12 || src > 14 || !pgxp_corr_gte[src].valid || pgxp_corr_gte[src].i != val) {
 		pgxp_corr_gpr[rt].valid = 0;
@@ -569,9 +581,15 @@ void pgxp_corr_on_mfc2(int rd, int rt, unsigned val)
 void pgxp_corr_on_mtc2(int rt, int rd, unsigned data, int from_ram)
 {
 	pgxp_corr_shadow_t in;
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	in.valid = 0;
-	if (!from_ram && rt != 0 && pgxp_corr_gpr[rt].valid && pgxp_corr_gpr[rt].i == data)
+	/* Frame-current guard: only a shadow stamped in the current game
+	 * frame may enter the GTE shadow. in is a whole-struct copy, so the
+	 * frame checked here is the ORIGINAL projection frame — a stale
+	 * GPR value (state restore, reused register) marks the destination
+	 * invalid instead of poisoning it. */
+	if (!from_ram && rt != 0 && pgxp_corr_gpr[rt].valid && pgxp_corr_gpr[rt].i == data
+	    && pgxp_corr_gpr[rt].frame == pgxp_lite_frame)
 		in = pgxp_corr_gpr[rt];
 	/* from_ram (LWC2): the value came from RAM, whose shadow is unknown
 	 * until the load hook (pgxp_corr_on_lw_ram, is_cop2=1) sets the real
@@ -590,7 +608,7 @@ void pgxp_corr_on_mtc2(int rt, int rd, unsigned data, int from_ram)
 void pgxp_corr_on_notify(unsigned opcode, unsigned data)
 {
 	unsigned op, rs, rt, rd;
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	op = opcode >> 26;
 	if (op == 0x11) {
 		/* COP2 moves: rs 0x00=MFC2, 0x02=CFC2, 0x04=MTC2, 0x06=CTC2. */
@@ -634,17 +652,20 @@ void pgxp_corr_on_sw_ram(unsigned addr, unsigned word, int rt, int is_cop2)
 void pgxp_corr_on_lw_ram(unsigned addr, unsigned word, int rt, int is_cop2)
 {
 	const pgxp_corr_shadow_t *slot;
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	slot = pgxp_corr_ram_slot(addr);
 	if (is_cop2) {
+		/* Frame-current guard (same rule as MTC2 above): only a RAM
+		 * slot stamped in the current game frame may enter the GTE
+		 * shadow; an older stamp marks the destination invalid. */
 		if (rt == 15) {
 			/* LWC2 to SXYP shifts the FIFO, exactly like MTC2. */
 			pgxp_corr_gte[12] = pgxp_corr_gte[13];
 			pgxp_corr_gte[13] = pgxp_corr_gte[14];
-			if (slot && slot->valid && slot->i == word) pgxp_corr_gte[14] = *slot;
+			if (slot && slot->valid && slot->i == word && slot->frame == pgxp_lite_frame) pgxp_corr_gte[14] = *slot;
 			else pgxp_corr_gte[14].valid = 0;
 		} else if (rt >= 12 && rt <= 14) {
-			if (slot && slot->valid && slot->i == word) pgxp_corr_gte[rt] = *slot;
+			if (slot && slot->valid && slot->i == word && slot->frame == pgxp_lite_frame) pgxp_corr_gte[rt] = *slot;
 			else pgxp_corr_gte[rt].valid = 0;
 		}
 		/* Other GTE regs carry no screen-coordinate shadow. */
@@ -696,26 +717,26 @@ void pgxp_corr_on_swr_ram(unsigned addr, unsigned merged, int rt)
 
 void pgxp_corr_on_lb_ram(int rt)
 {
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	if (rt != 0) pgxp_corr_gpr[rt].valid = 0;
 }
 
 void pgxp_corr_on_lh_ram(int rt)
 {
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	if (rt != 0) pgxp_corr_gpr[rt].valid = 0;
 }
 
 void pgxp_corr_on_lwl_ram(unsigned addr, unsigned word, int rt)
 {
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	if ((addr & 3) == 0) pgxp_corr_on_lw_ram(addr, word, rt, 0);
 	else if (rt != 0) pgxp_corr_gpr[rt].valid = 0;
 }
 
 void pgxp_corr_on_lwr_ram(unsigned addr, unsigned word, int rt)
 {
-	if (!pgxp_corr_track) return;
+	if (!pgxp_corr_populate()) return;
 	if ((addr & 3) == 0) pgxp_corr_on_lw_ram(addr, word, rt, 0);
 	else if (rt != 0) pgxp_corr_gpr[rt].valid = 0;
 }
@@ -726,6 +747,15 @@ void pgxp_corr_invalidate(void)
 	memset(pgxp_corr_gte, 0, sizeof pgxp_corr_gte);
 	memset(pgxp_corr_ram_shadow, 0, sizeof pgxp_corr_ram_shadow);
 	memset(pgxp_corr_scratch_shadow, 0, sizeof pgxp_corr_scratch_shadow);
+}
+
+/* Drop only the register shadows (GTE + GPR), leaving the RAM shadow
+ * alone: the culling toggle's wipe, and the launch-time wipe when only
+ * culling is on (the RAM corrector's own launch wipe is above). */
+void pgxp_corr_invalidate_regs(void)
+{
+	memset(pgxp_corr_gpr, 0, sizeof pgxp_corr_gpr);
+	memset(pgxp_corr_gte, 0, sizeof pgxp_corr_gte);
 }
 
 void pgxp_corr_set(int on)
@@ -784,95 +814,71 @@ int pgxp_corr_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c)
 	return 1;
 }
 
-/* ---- Culling corrector (NCLIP, see pgxp_lite.h) ----
- * The slice-1 cache: a 4096-entry hash of projected vertices, keyed by
- * integer screen position. Ported from the research branch's slice-1
- * cache (push/lookup), renamed pgxp_corr_*. The slice-1 texture correction
- * that also read this cache there is NOT ported; the only consumer here is
- * the NCLIP decision below. No statistics in the push/lookup (the research
- * hit/miss counters fed the orphan log); the NCLIP counters are the
- * corrector's own (below). */
+/* ---- Culling corrector (NCLIP, see pgxp_lite.h): Design A ----
+ * No cache: the decision below reads the GTE register shadow
+ * (pgxp_corr_gte[12/13/14]) directly. Each entry is validated against the
+ * SXY register it claims to describe, so a vertex can only ever answer
+ * for its own register — the slice-1 cache's first-writer-wins collision
+ * (two vertices rounding to one pixel, the wrong one answering) is gone
+ * by construction. */
 
 int pgxp_cull_track;
-unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore;
-
-#define PGXP_CORR_CACHE_BITS 12
-#define PGXP_CORR_CACHE_SIZE (1 << PGXP_CORR_CACHE_BITS)
-#define PGXP_CORR_CACHE_MASK (PGXP_CORR_CACHE_SIZE - 1)
-
-typedef struct { short sx, sy; int valid; unsigned frame; float x, y, invw; } pgxp_corr_entry_t;
-
-static pgxp_corr_entry_t pgxp_corr_cache[PGXP_CORR_CACHE_SIZE];
-
-static inline unsigned pgxp_corr_hash(int sx, int sy)
-{
-	/* unsigned arithmetic throughout: the signed product would overflow 32
-	 * bits for large |sx| (undefined behaviour); the wrapped bit pattern is
-	 * identical, so this keeps the old hash's distribution with defined behaviour. */
-	return ((unsigned)sx * 73856093u ^ (unsigned)sy * 19349663u) & PGXP_CORR_CACHE_MASK;
-}
-
-void pgxp_corr_push(int sx, int sy, float x, float y, int z)
-{
-	pgxp_corr_entry_t *e;
-
-	if (z <= 0) return;
-	e = &pgxp_corr_cache[pgxp_corr_hash(sx, sy)];
-	/* First writer wins while the entry is live (same as before, but the
-	 * window is PGXP_AGE game frames instead of one presented frame); a
-	 * stale or never-written slot takes the new value. */
-	if (!e->valid || (pgxp_lite_frame - e->frame) > PGXP_AGE) {
-		e->sx = (short)sx; e->sy = (short)sy;
-		e->x = x; e->y = y; e->invw = 1.0f / (float)z;
-		e->valid = 1; e->frame = pgxp_lite_frame;
-	}
-	/* else: first writer in this window wins. A later push for the same pixel
-	 * (or a hash collision with another pixel) is ignored, so shared edges
-	 * resolve to one value and do not flicker frame to frame. */
-}
-
-static int pgxp_corr_lookup(int sx, int sy, float *x, float *y, float *invw)
-{
-	pgxp_corr_entry_t *e = &pgxp_corr_cache[pgxp_corr_hash(sx, sy)];
-
-	if (!e->valid) return 0;
-	/* Stale entries fail here (and are cleared, so the slot is reusable). */
-	if ((pgxp_lite_frame - e->frame) > PGXP_AGE) { e->valid = 0; return 0; }
-	if (e->sx != sx || e->sy != sy) return 0;
-	/* Validation (DuckStation's Validate() rule, in this architecture's terms):
-	 * the float must claim to describe exactly this integer vertex, in this
-	 * window, and lie within ~1px of it. A saturated or stale entry fails here
-	 * and the caller falls back to the integer vertex. */
-	if (e->x < (float)sx - 0.02f || e->x > (float)sx + 1.02f) return 0;
-	if (e->y < (float)sy - 0.02f || e->y > (float)sy + 1.02f) return 0;
-	*x = e->x; *y = e->y; *invw = e->invw;
-	return 1;
-}
-
-void pgxp_corr_cache_invalidate(void)
-{
-	memset(pgxp_corr_cache, 0, sizeof pgxp_corr_cache);
-}
+unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte;
 
 void pgxp_cull_set(int on)
 {
-	/* Effective only while lite is on (same derivation as pgxp_corr_set). */
+	/* Effective only while lite is on (same derivation as pgxp_corr_set).
+	 * A value change of the EFFECTIVE track clears the register shadows:
+	 * the game-frame clock stands still while lite is off (pgxp_lite_vsync
+	 * / pgxp_lite_flip are kill-gated on lite), so entries from before
+	 * the switch would still count as fresh — the same reason
+	 * pgxp_lite_set invalidates the lite tables on OFF -> ON. The RAM
+	 * shadow is NOT cleared here (that is pgxp_corr_set's job); the
+	 * register shadows rebuild from the next projections and moves. */
 	int track = on && pgxp_lite_on;
 	if (pgxp_cull_track != track) {
 		pgxp_cull_track = track;
-		pgxp_corr_cache_invalidate();
+		pgxp_corr_invalidate_regs();
 	}
+}
+
+/* The packed SXY word for an integer vertex: SX in the low half, SY in
+ * the high half — the same packing the GTE register holds (gteSX0 is
+ * CP2D.p[12].sw.l, gteSY0 is .sw.h; RTPS/RTPT record the raw register
+ * word as the shadow's i). Reconstructed here from the halves NCLIP
+ * already passes, so the signature is unchanged. */
+static inline unsigned pgxp_corr_pack(int sx, int sy)
+{
+	return (unsigned)(uint16_t)sx | ((unsigned)(uint16_t)sy << 16);
 }
 
 int pgxp_corr_nclip(int sx0, int sy0, int sx1, int sy1, int sx2, int sy2, int64_t *det)
 {
-	float x0, y0, x1, y1, x2, y2, iw, d;
+	/* The three FIFO vertices, in register order. */
+	static const int reg[3] = { 12, 13, 14 };
+	const int sx[3] = { sx0, sx1, sx2 };
+	const int sy[3] = { sy0, sy1, sy2 };
+	float x[3], y[3], d;
 	int64_t idet;
+	int i;
 	if (!pgxp_cull_track) return 0;
-	if (!pgxp_corr_lookup(sx0, sy0, &x0, &y0, &iw) ||
-	    !pgxp_corr_lookup(sx1, sy1, &x1, &y1, &iw) ||
-	    !pgxp_corr_lookup(sx2, sy2, &x2, &y2, &iw)) return 0;   /* any miss: integer result kept */
-	d = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+	for (i = 0; i < 3; i++) {
+		const pgxp_corr_shadow_t *sh = &pgxp_corr_gte[reg[i]];
+		/* All three checks must pass: live (projected within PGXP_AGE
+		 * game frames), the packed word is exactly this SXY register's
+		 * current value, and the float lies within ~1px of its integer
+		 * (a clamped/saturated GTE float fails here, as the old cache
+		 * lookup's validation did). Any failure: the integer result is
+		 * kept, counted once per NCLIP decision. */
+		if (!pgxp_corr_live(sh) || sh->i != pgxp_corr_pack(sx[i], sy[i])
+		    || sh->x < (float)sx[i] - 0.02f || sh->x > (float)sx[i] + 1.02f
+		    || sh->y < (float)sy[i] - 0.02f || sh->y > (float)sy[i] + 1.02f) {
+			pgxp_corr_nclip_nogte++;
+			return 0;
+		}
+		x[i] = sh->x; y[i] = sh->y;
+	}
+	d = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);
 	if (d == 0.0f) return 0;   /* precise winding zero: integer result kept */
 	/* The integer winding, same formula as gteNCLIP_'s (per-term s64 casts;
 	 * the two agree for every reachable coordinate: the GTE clamps SX/SY

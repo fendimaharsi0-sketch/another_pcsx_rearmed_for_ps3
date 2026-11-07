@@ -104,10 +104,20 @@ int pgxp_lite_find(uint32_t sxy, float *dx, float *dy, float *z);
  * Shared gate (both correctors): each tracking hook is gated by the flag
  * of the corrector(s) that consume it, so the hooks run exactly when a
  * consumer needs them and never otherwise:
- *   GTE RTPS/RTPT -> cache fill: pgxp_cull_track only.
- *   GTE RTPS/RTPT -> register shadow: pgxp_corr_track only.
- *   MFC2/MTC2 (cop2_notify), loads/stores (interpreter + Lightrec emitter),
- *   draw-time join: pgxp_corr_track only.
+ *   GTE RTPS/RTPT -> register shadow (GTE + GPR shadows): pgxp_corr_track
+ *   OR pgxp_cull_track. The culling corrector (Design A) reads the GTE
+ *   shadow directly at NCLIP time, so it needs the register shadow even
+ *   when the RAM-shadow corrector is off; the RAM-shadow array itself is
+ *   only ever written by the store hooks below, which stay gated on
+ *   pgxp_corr_track alone, and the draw-time RAM join (pgxp_corr_cand_at)
+ *   likewise — so culling-alone adds only cheap GTE-op bookkeeping, not
+ *   the RAM-shadow cost.
+ *   MFC2/MTC2 (cop2_notify), loads (LW/LWC2 into GTE/GPR): the same OR
+ *   gate. Under Lightrec cop2_notify is registered when EITHER corrector
+ *   is on (lightrec_pgxp_corr_gate takes the OR); the emitter's RAM-mirror
+ *   (rec_pgxp_mem) stays gated on pgxp_corr_track alone.
+ *   Stores (SW/SWC2/SB/SH/SWL/SWR) into the RAM shadow: pgxp_corr_track
+ *   only.
  *   NCLIP correction: pgxp_cull_track only.
  * Each track flag is its setting AND lite mode (derived in pgxp_corr_set /
  * pgxp_cull_set, which the front end calls wherever it calls pgxp_lite_set),
@@ -117,7 +127,7 @@ int pgxp_lite_find(uint32_t sxy, float *dx, float *dy, float *z);
 extern int pgxp_corr_track;         /* 1 while the RAM-shadow corrector is effective (setting AND lite mode) */
 extern int pgxp_cull_track;         /* 1 while the culling corrector is effective (setting AND lite mode) */
 extern unsigned int pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards;   /* statistics (log) */
-extern unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore;   /* culling statistics (log) */
+extern unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte;   /* culling statistics (log) */
 
 /* a shadow: the precise float position (x, y) + depth (invw = 1/SZ3) for the
  * integer word i. seq = projection number (one per GTE projection, in
@@ -168,6 +178,10 @@ void pgxp_corr_on_lwr_ram(unsigned addr, unsigned word, int rt);
  * no shadow from the previous title can be borrowed). The game-frame clock
  * is NOT reset: it is a clock, and old stamps age out by the arithmetic. */
 void pgxp_corr_invalidate(void);
+/* drop only the register shadows (GTE + GPR), leaving the RAM shadow
+ * alone: the culling toggle's wipe, and the launch-time wipe when only
+ * culling is on. */
+void pgxp_corr_invalidate_regs(void);
 /* set the corrector with transition handling: a value change invalidates
  * the shadows first. The front end calls this wherever it calls
  * pgxp_lite_set (setting change, launch). */
@@ -186,33 +200,36 @@ void lightrec_pgxp_corr_gate(int on);
  * in pgxp_corr_guards. */
 int pgxp_corr_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c);
 
-/* ---- culling corrector (NCLIP): a second, separate corrector ----
- * The slice-1 cache (below) is filled by the GTE hooks and read only by
- * the NCLIP decision (pgxp_corr_nclip). The slice-1 texture correction
- * that also read this cache on the research branch is NOT ported (a
- * different consumer, out of scope). */
+/* ---- culling corrector (NCLIP): Design A ----
+ * No cache. The NCLIP decision reads the GTE register shadow
+ * (pgxp_corr_gte[12/13/14]) directly: each entry is validated against the
+ * SXY register it claims to describe (exact packed-word match, live
+ * within PGXP_AGE game frames, float within ~1px of its integer), so two
+ * vertices that rounded to the same pixel can never answer for each other
+ * — the slice-1 cache's first-writer-wins collision, which fed NCLIP a
+ * neighbouring vertex's position, is gone by construction. The shadow is
+ * filled by the GTE hooks (RTPS/RTPT) and by the register moves (MFC2 ->
+ * GPR -> MTC2, LW/LWC2 from RAM), all gated on pgxp_corr_track OR
+ * pgxp_cull_track, so culling works with the RAM-shadow corrector off.
+ * MTC2 and LWC2-into-GTE only accept a shadow stamped in the current
+ * game frame (pgxp_lite_frame); an older stamp marks the destination
+ * invalid instead of poisoning it. */
 
-/* Record a GTE-projected vertex into the slice-1 cache (gte.c, RTPS/RTPT):
- * (sx, sy) is the integer screen position the game got, (x, y) the
- * pre-truncation float position, z the projected depth (GTE SZ, > 0).
- * Vertices at/behind the camera (z <= 0) are not recorded. */
-void pgxp_corr_push(int sx, int sy, float x, float y, int z);
-
-/* Drop every cache entry at once (culling toggle, or a new title). The
- * game-frame clock is NOT reset. */
-void pgxp_corr_cache_invalidate(void);
 /* Set the culling corrector with transition handling: the effective track
- * is the setting AND lite mode (a value change invalidates the cache
- * first). The front end calls this wherever it calls pgxp_lite_set. */
+ * is the setting AND lite mode (a value change of the effective track
+ * clears the register shadows first — the game-frame clock stands still
+ * while lite is off, so entries from before the switch would still count
+ * as fresh). The front end calls this wherever it calls pgxp_lite_set. */
 void pgxp_cull_set(int on);
 
 /* NCLIP decision (gte.c, gteNCLIP_): recompute the winding from the precise
- * GTE positions when all three FIFO vertices validate in the cache.
+ * GTE positions when all three FIFO vertices validate in the GTE shadow.
  * Returns 1 and fills *det with the corrected determinant (already
  * sliver-bumped, as s64) when the precise winding is nonzero; 0 (the
- * integer result is kept) when any vertex misses, or the precise winding
- * is exactly zero. Counts nclip_total on a correction, nclip_flip when
- * the integer and precise windings differ in sign, nclip_restore when the
+ * integer result is kept) when any vertex misses (counted in
+ * pgxp_corr_nclip_nogte), or the precise winding is exactly zero (counted
+ * nowhere). Counts nclip_total on a correction, nclip_flip when the
+ * integer and precise windings differ in sign, nclip_restore when the
  * integer winding was zero. A sliver with a nonzero precise winding is
  * bumped to +/-1 so the game's sign test sees it unambiguously
  * (DuckStation's sliver rule). */

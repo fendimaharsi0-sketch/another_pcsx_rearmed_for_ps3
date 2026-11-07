@@ -117,26 +117,38 @@ static void cop2_notify(struct lightrec_state *state, u32 op, u32 data)
 	 * Cost: MFC2/MTC2 become C calls even when tracking is off (the choice
 	 * is made at block-compile time); pgxp_corr_on_notify itself returns
 	 * immediately when tracking is off. That cost is why the gate below
-	 * unregisters it entirely when the corrector is off. */
+	 * unregisters it entirely when both correctors are off. */
 	(void)state;
 	pgxp_corr_on_notify(op, data);
 }
 
-/* PGXP RAM-shadow corrector gate: the corrector switch fully disconnects
- * the JIT hooks. lightrec_init memcpy'd lightrec_ops into state->ops, so
- * this re-points the state's OWN copy (the const table is untouched) and
- * then flushes every compiled block, so all live code matches the new
+/* PGXP corrector gate: the cop2_notify registration must match the
+ * effective track of EITHER corrector (pgxp_corr_track for the RAM
+ * shadow, pgxp_cull_track for Design A culling, which reads the GTE
+ * shadow at NCLIP time). Registering this callback makes the Lightrec
+ * emitter fall back to C calls for MFC2/MTC2 (instead of inlining them),
+ * so every GTE register move is visible here, in both the JIT and the
+ * interpreter paths. Cost: MFC2/MTC2 become C calls even when tracking is
+ * off (the choice is made at block-compile time); pgxp_corr_on_notify
+ * itself returns immediately when tracking is off. That cost is why the
+ * gate below unregisters it entirely when BOTH correctors are off. The
+ * RAM-shadow memory hooks (rec_pgxp_mem) stay gated on pgxp_corr_track
+ * alone, so culling-alone pays the MFC2/MTC2 C-call cost but no
+ * RAM-shadow cost. lightrec_init memcpy'd lightrec_ops into state->ops,
+ * so this re-points the state's OWN copy (the const table is untouched)
+ * and then flushes every compiled block, so all live code matches the new
  * registration: with NULL, the emitter inlines MFC2/MTC2 again and
  * rec_pgxp_mem emits nothing; with cop2_notify, both hooks are back.
  * The const table leaves cop2_notify NULL (a fresh init is OFF-correct);
- * the gate is called with the EFFECTIVE track (pgxp_corr_track, setting
- * AND lite mode) from game_settings_changed and run_game. It compares
- * against the ACTUAL registration, not a remembered value, so a Lightrec
- * re-init (live CPU switch) that resets it to NULL is self-healing via
- * the per-execute check below — no stale "already applied" state. NULL
- * state (boot before init, no game running, interpreter CPU) skips both
- * steps. Toggling happens with the game paused in the menu, so flushing
- * all blocks is safe (no block is executing). */
+ * the gate is called with the EFFECTIVE track of either corrector
+ * (pgxp_corr_track || pgxp_cull_track, setting AND lite mode) from
+ * game_settings_changed and run_game. It compares against the ACTUAL
+ * registration, not a remembered value, so a Lightrec re-init (live CPU
+ * switch) that resets it to NULL is self-healing via the per-execute
+ * check below — no stale "already applied" state. NULL state (boot
+ * before init, no game running, interpreter CPU) skips both steps.
+ * Toggling happens with the game paused in the menu, so flushing all
+ * blocks is safe (no block is executing). */
 void lightrec_pgxp_corr_gate(int on)
 {
 	int want, have;
@@ -710,13 +722,14 @@ static void lightrec_plugin_execute_internal(bool block_only)
 			   so an OFF switch would still pay it on every SWC2 store */
 			lightrec_recompile_all(lightrec_state);
 		}
-		/* PGXP RAM-shadow corrector: cop2_notify registration must match
-		   the effective track; a Lightrec re-init (live CPU switch) resets
-		   it to NULL, so re-check here (same self-healing pattern as the
-		   lite swc2_hook check above). The gate itself compares against
-		   the actual registration, so this is a no-op once they match. */
-		if (lightrec_state && unlikely(!!pgxp_corr_track != !!lightrec_state->ops.cop2_notify))
-			lightrec_pgxp_corr_gate(pgxp_corr_track);
+		/* PGXP correctors: cop2_notify registration must match the
+		   effective track of EITHER corrector; a Lightrec re-init (live
+		   CPU switch) resets it to NULL, so re-check here (same
+		   self-healing pattern as the lite swc2_hook check above). The
+		   gate itself compares against the actual registration, so this
+		   is a no-op once they match. */
+		if (lightrec_state && unlikely(!!(pgxp_corr_track || pgxp_cull_track) != !!lightrec_state->ops.cop2_notify))
+			lightrec_pgxp_corr_gate(pgxp_corr_track || pgxp_cull_track);
 		if (unlikely(use_lightrec_interpreter)) {
 			psxRegs.pc = lightrec_run_interpreter(lightrec_state,
 							      psxRegs.pc,

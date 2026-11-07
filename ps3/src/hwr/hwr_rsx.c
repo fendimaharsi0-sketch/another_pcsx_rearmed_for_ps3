@@ -1665,7 +1665,7 @@ static void log_stats(void)
         extern unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;
         extern unsigned int pgxp_lite_addr_hits, pgxp_lite_hits, pgxp_lite_welds;
         extern unsigned int pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards;
-        extern unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore;
+        extern unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte;
         extern unsigned int hwr_pgxp_corr_persp;
         if (pgxp_lite_on)
             logf_("hwr: PGXP: %u polygons at sub-pixel positions, %u at whole pixels (not from the GTE; of those %u with one corner found alone); corners found by address %u, by value %u; %u polygons with a corner standing for two vertices; %u vertices welded to a neighbour\n",
@@ -1676,9 +1676,9 @@ static void log_stats(void)
                   pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards);
         pgxp_corr_lookups = pgxp_corr_hits = pgxp_corr_guards = 0;
         if (pgxp_cull_track)
-            logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero)\n",
-                  pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore);
-        pgxp_corr_nclip_total = pgxp_corr_nclip_flip = pgxp_corr_nclip_restore = 0;
+            logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero), %u fell back (no GTE shadow)\n",
+                  pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte);
+        pgxp_corr_nclip_total = pgxp_corr_nclip_flip = pgxp_corr_nclip_restore = pgxp_corr_nclip_nogte = 0;
         if (pgxp_lite_on >= 2)
             logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired, %u with a corrector corner), %u flat\n",
                   hwr_pgxp_persp, hwr_pgxp_misfit, hwr_pgxp_corr_persp, hwr_pgxp_flat);

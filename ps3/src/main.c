@@ -88,8 +88,8 @@ extern int pgxp_corr_track;   /* core, libpcsxcore/pgxp_lite.c: the RAM-shadow c
 extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling corrector's effective track (setting AND lite mode) */
 extern void pgxp_corr_set(int on);   /* core, libpcsxcore/pgxp_lite.c: sets the RAM-shadow corrector's effective track (setting AND lite mode) */
 extern void pgxp_corr_invalidate(void);   /* core, libpcsxcore/pgxp_lite.c: clears the register + RAM shadows */
+extern void pgxp_corr_invalidate_regs(void);   /* core, libpcsxcore/pgxp_lite.c: clears the register shadows only (culling launch wipe) */
 extern void pgxp_cull_set(int on);   /* core, libpcsxcore/pgxp_lite.c: sets the culling corrector's effective track (setting AND lite mode) */
-extern void pgxp_corr_cache_invalidate(void);   /* core, libpcsxcore/pgxp_lite.c: clears the culling cache */
 extern void lightrec_pgxp_corr_gate(int on);   /* core, libpcsxcore/lightrec/plugin.c: re-points cop2_notify + flushes all blocks */
 /* Slot 1 Shared card, as the core reads it: the library file name from
    settings, or "" when none is chosen (the core then falls back to the
@@ -692,7 +692,7 @@ static void apply_controller_type(void)
     retro_set_controller_port_device(1, dev);
 }
 
-void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; pgxp_lite_set(cfg.pgxp); pgxp_corr_set(cfg.pgxp_corr); pgxp_cull_set(cfg.pgxp_culling); lightrec_pgxp_corr_gate(pgxp_corr_track); cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
+void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; pgxp_lite_set(cfg.pgxp); pgxp_corr_set(cfg.pgxp_corr); pgxp_cull_set(cfg.pgxp_culling); lightrec_pgxp_corr_gate(pgxp_corr_track || pgxp_cull_track); cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
 
 /* ---- cheats: feeding the core's dormant engine ----
  * The engine (libpcsxcore/cheat.c) applies fed codes at VBlank and knows
@@ -856,10 +856,10 @@ static void run_game(const char *path)
     pgxp_lite_set(cfg.pgxp);   /* OFF -> ON: the tables are invalidated first */
     if (pgxp_lite_on) pgxp_lite_invalidate();   /* launch: also clear a previous title's entries (ON -> ON has no transition; the extra clear on OFF -> ON is one launch-time memset) */
     pgxp_corr_set(cfg.pgxp_corr);   /* sets the effective track (setting AND lite mode); a change invalidates the shadows */
-    lightrec_pgxp_corr_gate(pgxp_corr_track);   /* re-point cop2_notify to the effective track + flush all blocks */
+    pgxp_cull_set(cfg.pgxp_culling);   /* sets the effective track; a change clears the register shadows */
+    lightrec_pgxp_corr_gate(pgxp_corr_track || pgxp_cull_track);   /* re-point cop2_notify to the effective track of EITHER corrector + flush all blocks */
     if (pgxp_corr_track) pgxp_corr_invalidate();   /* launch: also clear a previous title's shadows (ON -> ON has no transition) */
-    pgxp_cull_set(cfg.pgxp_culling);   /* sets the effective track; a change invalidates the cache */
-    if (pgxp_cull_track) pgxp_corr_cache_invalidate();   /* launch: also clear a previous title's cache (ON -> ON has no transition) */
+    if (pgxp_cull_track) pgxp_corr_invalidate_regs();   /* launch: also clear a previous title's register shadows (ON -> ON has no transition) */
     hooks_game_started();
     cheat_apply_saved(0);   /* gate on: re-feed this game's enabled codes (manual codes do not fire) */
     apply_spu_mdec();
