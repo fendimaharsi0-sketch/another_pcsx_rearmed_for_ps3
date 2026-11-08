@@ -59,12 +59,12 @@ static u8 *frames; static u32 frames_off;
 static u32 *ovl; static u32 ovl_off; static int ovl_full_flush = 1;
 
 static rsxVertexProgram *vp; static void *vp_ucode;
-static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad, *fp_color, *fp_colord;
+static rsxFragmentProgram *fp_blit, *fp_fxaa, *fp_blitd, *fp_fxaad, *fp_color, *fp_colord, *fp_grain, *fp_graind;
 static int fxaa_test(void);
 static void bind_texture(u32 unit, u8 location, u32 offset, unsigned w, unsigned h, u32 pitch, int linear, int swap_rb);
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog);
-static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, fp_color_off, fp_colord_off, blit_unit, fxaa_unit, color_unit;
+static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, fp_color_off, fp_colord_off, fp_grain_off, fp_graind_off, blit_unit, fxaa_unit, color_unit, grain_unit;
 /* colour correction (Salsa64/rsxkit mechanism, as the CRT filter used): the
    RSX has no fragment-program constant registers — a const's value lives
    inside the microcode, one copy per instruction that reads it. So the
@@ -79,6 +79,14 @@ static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, fp_color_off, f
 static void *color_buf, *colord_buf; static u32 *color_shadow, *colord_shadow;
 static u32 color_ucode_size, colord_ucode_size; static int color_ok;
 static int cc_applied[5], cc_have_applied;
+/* shader effects (Color & FX page): the grain program is the colour
+   program plus CineGrain Lite, so it carries the same colour consts plus
+   its own (cg_params float4 + cg_video float4). Same shadow-patch
+   mechanism as colour; grain_ok is 0 when the programs failed to load, and
+   the effect can never engage then (the picture stays today's). */
+static void *grain_buf, *graind_buf; static u32 *grain_shadow, *graind_shadow;
+static u32 grain_ucode_size, graind_ucode_size; static int grain_ok;
+static float gr_applied[13]; static int gr_have_applied;
 /* dithering of the RSX renderer's picture (video_set_dither): PS1 pixels per
    texture unit of the game texture; quick: menu redraws skip the smoothing */
 static int dith_on, quick; static float dith_nw, dith_nh;
@@ -183,6 +191,28 @@ int video_init(void)
             if (!color_ok) logf_("video: colour program shadow failed, colour correction off\n");
             if (uc2 != color_unit) logf_("video: colour dithering program uses another texture unit (%u)\n", uc2);
         } else logf_("video: colour program failed to load, colour correction off\n");
+    }
+    {   /* shader effects: the grain program (colour + CineGrain Lite).
+           Same sampler as the plain ones. Soft-fail like colour: the app
+           still runs with today's picture if it cannot load. */
+        u32 uc2;
+        fp_grain = (rsxFragmentProgram *)grain_fpo;
+        fp_graind = (rsxFragmentProgram *)graind_fpo;
+        if ((fp_grain_off = load_fp(fp_grain, &grain_unit, &grain_buf)) &&
+            (fp_graind_off = load_fp(fp_graind, &uc2, &graind_buf))) {
+            void *uc;
+            rsxFragmentProgramGetUCode(fp_grain, &uc, &sz);
+            grain_ucode_size = sz;
+            grain_shadow = malloc(sz);
+            if (grain_shadow) memcpy(grain_shadow, uc, sz);
+            rsxFragmentProgramGetUCode(fp_graind, &uc, &sz);
+            graind_ucode_size = sz;
+            graind_shadow = malloc(sz);
+            if (graind_shadow) memcpy(graind_shadow, uc, sz);
+            grain_ok = grain_shadow && graind_shadow;
+            if (!grain_ok) logf_("video: grain program shadow failed, shader effects off\n");
+            if (uc2 != grain_unit) logf_("video: grain dithering program uses another texture unit (%u)\n", uc2);
+        } else logf_("video: grain program failed to load, shader effects off\n");
     }
     {   /* dithering variants: same samplers as the plain ones */
         u32 ub, uf;
@@ -467,9 +497,11 @@ void video_redraw_quick(int on) { quick = on; }
 
 /* clip-space rectangle <- texture rectangle (normalised). prog: bit 0 FXAA, bit 1
    PS1 dithering (the texture is the game picture: dith_nw/nh give PS1 pixels),
-   bit 2 colour correction (final pass only: it replaces the Picture filter
-   while any slider is non-zero; the overlay and the intermediate passes
-   never set it) */
+   bit 2 colour correction, bit 3 shader effect (grain, which includes the
+   colour math). Bits 2 and 3 are final pass only: they replace the Picture
+   filter while a slider is non-zero / an effect is picked; the overlay and
+   the intermediate passes never set them. Grain wins over colour when both
+   are on (the grain program does the colour math too). */
 static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0, float u1, float v1,
                       float tx, float ty, int prog)
 {
@@ -496,7 +528,8 @@ static void quad_clip(float X0, float Y0, float X1, float Y1, float u0, float v0
     rsxBindVertexArrayAttrib(rsx_ctx, GCM_VERTEX_ATTRIB_TEX2, 0, off + 24, 32, 2, GCM_VERTEX_DATA_TYPE_F32, GCM_LOCATION_RSX);
     rsxLoadVertexProgram(rsx_ctx, vp, vp_ucode);
     video_vp_epoch++;          /* the hardware renderer reloads its own program */
-    if (prog & 4) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_colord : fp_color, dith ? fp_colord_off : fp_color_off, GCM_LOCATION_RSX);
+    if (prog & 8) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_graind : fp_grain, dith ? fp_graind_off : fp_grain_off, GCM_LOCATION_RSX);
+    else if (prog & 4) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_colord : fp_color, dith ? fp_colord_off : fp_color_off, GCM_LOCATION_RSX);
     else if (fxaa) rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_fxaad : fp_fxaa, dith ? fp_fxaad_off : fp_fxaa_off, GCM_LOCATION_RSX);
     else rsxLoadFragmentProgramLocation(rsx_ctx, dith ? fp_blitd : fp_blit, dith ? fp_blitd_off : fp_blit_off, GCM_LOCATION_RSX);
     rsxDrawVertexArray(rsx_ctx, GCM_TYPE_TRIANGLE_STRIP, 0, 4);
@@ -636,6 +669,65 @@ static void color_apply(void)
     cc_have_applied = 1;
 }
 
+/* A shader effect is on when the programs loaded and one is picked. None is
+   a hard kill-off, not a zero: grain_active() is 0, so the grain program is
+   never bound and grain_apply() returns before touching any const — the
+   effect costs nothing when off (no patch, no memcpy, no wait, no heat). */
+static int grain_active(void)
+{
+    return grain_ok && cfg.shader_fx != 0;
+}
+
+/* Push the grain consts into the grain programs: cg_params (intensity,
+   grain size, frame seed), cg_video (the sampled texture rect, for
+   pixel_pos) and the colour consts (the grain program does the colour math
+   too, so its cc consts must track the sliders). The frame seed is the one
+   value that moves every frame (fmod(frame_seq, 1024), the CineGrain rule),
+   so while the effect is on this patches once per frame — one small ucode
+   copy, with the same frame_label wait colour uses. Panel edits apply live,
+   no restart. */
+static void grain_apply(float u0, float v0, unsigned tw, unsigned th)
+{
+    float cg[4], cv[4], f[4], g[4], all[13];
+    int changed = 0, i;
+    if (!grain_active()) return;
+    cg[0] = (float)cfg.cg_intensity / 100.f; cg[1] = (float)cfg.cg_grainsize / 100.f;
+    cg[2] = (float)(frame_seq & 1023); cg[3] = 0.0f;
+    cv[0] = u0; cv[1] = v0; cv[2] = (float)tw; cv[3] = (float)th;
+    f[0] = (float)cfg.color_brightness; f[1] = (float)cfg.color_contrast;
+    f[2] = (float)cfg.color_saturation; f[3] = (float)cfg.color_temperature;
+    g[0] = (float)cfg.color_gamma; g[1] = 0.0f; g[2] = 0.0f; g[3] = 0.0f;
+    for (i = 0; i < 4; i++) { all[i] = cg[i]; all[4 + i] = cv[i]; all[8 + i] = f[i]; }
+    all[12] = g[0];
+    if (gr_have_applied) {
+        int same = 1;
+        for (i = 0; i < 13; i++) if (all[i] != gr_applied[i]) { same = 0; break; }
+        if (same) return;
+    }
+    changed |= color_patch_one(fp_grain, grain_shadow, grain_ucode_size, "cg_params", cg);
+    changed |= color_patch_one(fp_graind, graind_shadow, graind_ucode_size, "cg_params", cg);
+    changed |= color_patch_one(fp_grain, grain_shadow, grain_ucode_size, "cg_video", cv);
+    changed |= color_patch_one(fp_graind, graind_shadow, graind_ucode_size, "cg_video", cv);
+    changed |= color_patch_one(fp_grain, grain_shadow, grain_ucode_size, "cc_params", f);
+    changed |= color_patch_one(fp_graind, graind_shadow, graind_ucode_size, "cc_params", f);
+    changed |= color_patch_one(fp_grain, grain_shadow, grain_ucode_size, "cc_gamma", g);
+    changed |= color_patch_one(fp_graind, graind_shadow, graind_ucode_size, "cc_gamma", g);
+    if (changed) {
+        /* The shadow changed: wait until the RSX finished the previous
+           frame (CPU poll on the backend label, same pattern as wait_flip),
+           then copy the patched ucode into the RSX buffers. The next
+           rsxLoadFragmentProgramLocation in quad_clip re-reads it. */
+        if (frame_label) {
+            unsigned k = 0;
+            while ((s32)(*frame_label - frame_seq) < 0 && ++k < 20000) usleep(50);
+        }
+        memcpy(grain_buf, grain_shadow, grain_ucode_size);
+        memcpy(graind_buf, graind_shadow, graind_ucode_size);
+    }
+    for (i = 0; i < 13; i++) gr_applied[i] = all[i];
+    gr_have_applied = 1;
+}
+
 /* ---- edge smoothing on the SPUs ----
  * Each frame the RSX scales the game picture to its screen size into a buffer in
  * main memory (IN) and writes a label; the SPUs (spu_mdec.c, ps3/spu) wait for the
@@ -694,7 +786,7 @@ static void quad(float x0, float y0, float x1, float y1, float u0, float v0, flo
 
 /* 0: not possible this frame (the caller draws the picture another way) */
 static int draw_spu_aa(u8 loc, u32 off, unsigned tw, unsigned th, u32 pitch,
-                       float u0, float v0, float u1, float v1, int swap_rb, float x0, float y0, float x1, float y1, int d, int cc)
+                       float u0, float v0, float u1, float v1, int swap_rb, float x0, float y0, float x1, float y1, int d, int cc, int gr)
 {
     unsigned W = ((unsigned)(x1 - x0 + 0.5f)) & ~3u, H = (unsigned)(y1 - y0 + 0.5f);
     int shown_out = 0;
@@ -705,14 +797,17 @@ static int draw_spu_aa(u8 loc, u32 off, unsigned tw, unsigned th, u32 pitch,
         sa.pending = 0; sa.stall = 0;
         if (r < 0) logf_("video: SPU smoothing missed the RSX's label\n");
         if (r > 0 && sa.w == W && sa.h == H) {
-            bind_texture(cc ? color_unit : blit_unit, GCM_LOCATION_CELL, sa.off + sa.size, W, H, AA_PITCH, 0, swap_rb);
-            quad(x0, y0, x0 + W, y0 + H, 0.f, 0.f, 1.f, 1.f, 1.f / W, 1.f / H, cc ? 4 : 0);
+            /* The OUT blit samples the SPU buffer, not the game texture:
+               re-point the grain's pixel_pos at the buffer's rect. */
+            grain_apply(0.f, 0.f, W, H);
+            bind_texture(gr ? grain_unit : cc ? color_unit : blit_unit, GCM_LOCATION_CELL, sa.off + sa.size, W, H, AA_PITCH, 0, swap_rb);
+            quad(x0, y0, x0 + W, y0 + H, 0.f, 0.f, 1.f, 1.f, 1.f / W, 1.f / H, gr ? 8 : cc ? 4 : 0);
             shown_out = 1;
         }
     }
     if (!shown_out) {
-        bind_texture(cc ? color_unit : blit_unit, loc, off, tw, th, pitch, 1, swap_rb);
-        quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, cc ? (4 | d) : d);
+        bind_texture(gr ? grain_unit : cc ? color_unit : blit_unit, loc, off, tw, th, pitch, 1, swap_rb);
+        quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, gr ? (8 | d) : cc ? (4 | d) : d);
     }
     /* this frame, scaled to the screen, into IN for the SPUs (channels as they are) */
     sa_surface(W, H);
@@ -787,8 +882,10 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
        while any slider is non-zero (same precedence the CRT filter had):
        the FXAA-into-buffer and SPU-IN passes stay plain, so the correction
        is never applied twice. It also applies on quick redraws, so the
-       picture behind a menu matches the picture in the game. */
-    int cc = color_active();
+       picture behind a menu matches the picture in the game. The grain
+       program (shader effect) rides the same rule and wins over colour
+       when both are on: it does the colour math too. */
+    int cc = color_active(), gr = grain_active();
     color_apply();
     {
         float shown, c;
@@ -797,6 +894,9 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
         v0 += c; v1 -= c;
         clip_to_screen(&x0, &y0, &x1, &y1, &u0, &v0, &u1, &v1);
     }
+    /* After the crop/clip above, so cg_video is the displayed rect: the
+       grain's pixel_pos starts at 0 in the picture's top-left corner. */
+    grain_apply(u0, v0, tw, th);
     if (x0 != last_rect[0] || y0 != last_rect[1] || x1 != last_rect[2] || y1 != last_rect[3]) {
         last_rect[0] = x0; last_rect[1] = y0; last_rect[2] = x1; last_rect[3] = y1;
         border_dirty = nbuf;
@@ -805,7 +905,7 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
     if (border_dirty) video_clear(0xff000000);
     else video_reset_state();
     if (cfg.filter == FILTER_FXAA_SPU && !quick) {
-        if (draw_spu_aa(loc, off, tw, th, pitch, u0, v0, u1, v1, swap_rb, x0, y0, x1, y1, d, cc)) return;
+        if (draw_spu_aa(loc, off, tw, th, pitch, u0, v0, u1, v1, swap_rb, x0, y0, x1, y1, d, cc, gr)) return;
         fxaa = !spu_aa_available();    /* SPUs unavailable: FXAA on the RSX; busy: plain this frame */
     }
     if (fxaa) {
@@ -817,8 +917,8 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
                scaled picture, in one pass with offsets of one screen pixel. (FXAA at
                source resolution into a buffer costs that buffer's pixels plus a second
                full-screen pass: only worth it for a much smaller source.) */
-            bind_texture(cc ? color_unit : fxaa_unit, loc, off, tw, th, pitch, 1, swap_rb);
-            quad(x0, y0, x1, y1, u0, v0, u1, v1, (u1 - u0) / (x1 - x0), (v1 - v0) / (y1 - y0), cc ? (4 | d) : (1 | d));
+            bind_texture(gr ? grain_unit : cc ? color_unit : fxaa_unit, loc, off, tw, th, pitch, 1, swap_rb);
+            quad(x0, y0, x1, y1, u0, v0, u1, v1, (u1 - u0) / (x1 - x0), (v1 - v0) / (y1 - y0), gr ? (8 | d) : cc ? (4 | d) : (1 | d));
             return;
         }
         if (sw && sh && sw <= FX_W && sh <= FX_H && fx_alloc()) {
@@ -826,13 +926,17 @@ static void draw_game_texture(u8 loc, u32 off, unsigned tw, unsigned th, u32 pit
             bind_texture(fxaa_unit, loc, off, tw, th, pitch, 1, swap_rb);
             quad_clip(-1.f, 1.f, 1.f, -1.f, u0, v0, u1, v1, 1.f / tw, 1.f / th, 1 | d);
             video_reset_state();
-            bind_texture(cc ? color_unit : blit_unit, GCM_LOCATION_RSX, fx_off, FX_W, FX_H, FX_W * 4, 1, 0);
-            quad(x0, y0, x1, y1, 0.f, 0.f, (float)sw / FX_W, (float)sh / FX_H, 1.f / FX_W, 1.f / FX_H, cc ? 4 : 0);
+            /* The second blit samples the FX buffer, not the game texture:
+               re-point the grain's pixel_pos at the buffer's rect (the
+               first blit above stays plain, like colour). */
+            grain_apply(0.f, 0.f, FX_W, FX_H);
+            bind_texture(gr ? grain_unit : cc ? color_unit : blit_unit, GCM_LOCATION_RSX, fx_off, FX_W, FX_H, FX_W * 4, 1, 0);
+            quad(x0, y0, x1, y1, 0.f, 0.f, (float)sw / FX_W, (float)sh / FX_H, 1.f / FX_W, 1.f / FX_H, gr ? 8 : cc ? 4 : 0);
             return;
         }
     }
-    bind_texture(cc ? color_unit : (fxaa ? fxaa_unit : blit_unit), loc, off, tw, th, pitch, linear, swap_rb);
-    quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, cc ? (4 | d) : (fxaa | d));
+    bind_texture(gr ? grain_unit : cc ? color_unit : (fxaa ? fxaa_unit : blit_unit), loc, off, tw, th, pitch, linear, swap_rb);
+    quad(x0, y0, x1, y1, u0, v0, u1, v1, 1.f / tw, 1.f / th, gr ? (8 | d) : cc ? (4 | d) : (fxaa | d));
 }
 
 void video_draw_frame(const void *pix, unsigned w, unsigned h, size_t pitch)

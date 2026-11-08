@@ -1,0 +1,123 @@
+/* game picture + colour correction + CineGrain Lite film grain: the final
+   pass. This program is the colour program PLUS grain: when a shader effect
+   is picked (Color & FX page), it replaces the colour program on the final
+   pass; when None is picked it is never bound at all (the kill-off gate in
+   video.c: grain_active() is 0, grain_apply() returns before touching any
+   const), so the effect costs nothing when off — no patch, no memcpy, no
+   wait, no heat. The colour math is the same as color.fcg (same scales);
+   keep the two in sync. The grain core is CineGrain v1 LITE (mr-berndt,
+   MIT, via the standalone CineGrain-Lite.cg port): value-noise grain +
+   the asymmetric luma bell + coarser R/B chroma grain. Only intensity and
+   grainSize are exposed (the page's two config rows); the rest are baked
+   at the Lite defaults: peak 0.40, rolloff 0.40, chroma 0.2, demo off.
+   PIXELS: pixel_pos comes from cg_video (u0, v0, tw, th of the sampled
+   texture), so the grain scale is in sampled-picture pixels on both
+   renderers and does not depend on the dithering state. It scales with
+   the internal resolution (at RSX 3x the cells are 3x pixels, i.e. finer).
+   FRAME: cg_params.z is fmod(frame_seq, 1024) (the CineGrain seed rule),
+   patched per frame while the effect is on. Hash math stays float:
+   frac() needs fp32 precision. COST: ~185 ALU/pixel for the grain on top
+   of the colour math (~22G ops/s at 1080p60 with chroma, inside RSX
+   range); at 720p output everything is ~2.25x cheaper again. */
+#ifndef DITHER
+#define DITHER 0
+#endif
+#define CG_PEAK 0.40f
+#define CG_ROLLOFF 0.40f
+#define CG_CHROMA 0.2f
+uniform float4 cg_params;   /* x intensity (0..2), y grain size in pixels (0.5..6), z frame seed, w unused */
+uniform float4 cg_video;    /* x u0, y v0, z texture width, w texture height (for pixel_pos) */
+uniform float4 cc_params;
+uniform float cc_gamma;
+float4 cc_correct(float4 c)
+{
+    float ge, tw;
+    c.rgb += cc_params.x * 0.05f;
+    c.rgb = (c.rgb - 0.5f) * (1.0f + cc_params.y * 0.05f) + 0.5f;
+    float luma = dot(c.rgb, float3(0.299f, 0.587f, 0.114f));
+    c.rgb = lerp(float3(luma, luma, luma), c.rgb, 1.0f + cc_params.z * 0.1f);
+    /* TV colour temperature is a white-point gain, not a tint: D65 neutral
+       -> D93 cool Trinitron / warm arcade (CRT-Hybrid COLOR_TEMP, rescaled
+       -1..+1 to -10..+10). Multiplicative, so black stays black. */
+    tw = cc_params.w * 0.1f;
+    c.rgb *= float3(1.0f - 0.10f * tw, 1.0f - 0.02f * abs(tw), 1.0f + 0.14f * tw);
+    ge = 1.0f - cc_gamma * 0.05f;
+    c.rgb = pow(saturate(c.rgb), float3(ge, ge, ge));
+    return float4(saturate(c.rgb), c.a);
+}
+/* Hash a 2D grid cell + frame seed to [0,1] (IQ hash12: no mod() wrapping) */
+float grid_hash(float2 cell, float seed)
+{
+    float2 p = cell + float2(seed * 13.7f, seed * 31.1f);
+    float3 p3 = frac(float3(p.x, p.y, p.x) * float3(0.1031f, 0.1030f, 0.0973f));
+    p3 += dot(p3, p3.yzx + 33.33f);
+    return frac((p3.x + p3.y) * p3.z);
+}
+/* Per-pixel hash noise - spatially uncorrelated, returns [-1, 1] */
+float pixel_hash(float2 pixel_pos, float seed)
+{
+    float2 p = floor(pixel_pos) + float2(seed * 13.7f, seed * 31.1f);
+    float3 p3 = frac(float3(p.x, p.y, p.x) * float3(0.1031f, 0.1030f, 0.0973f));
+    p3 += dot(p3, p3.yzx + 33.33f);
+    return frac((p3.x + p3.y) * p3.z) * 2.0f - 1.0f;
+}
+/* Value noise with quintic smoothstep - returns [-1, 1] */
+float value_noise(float2 pixel_pos, float size, float seed)
+{
+    float2 p = pixel_pos / size;
+    float2 fl = floor(p);
+    float2 fr = frac(p);
+    /* Quintic smoothstep (C2 continuous, softer grid edges than cubic) */
+    fr = fr * fr * fr * (fr * (fr * 6.0f - 15.0f) + 10.0f);
+    float n00 = grid_hash(fl + float2(0.0f, 0.0f), seed);
+    float n10 = grid_hash(fl + float2(1.0f, 0.0f), seed);
+    float n01 = grid_hash(fl + float2(0.0f, 1.0f), seed);
+    float n11 = grid_hash(fl + float2(1.0f, 1.0f), seed);
+    return lerp(lerp(n00, n10, fr.x), lerp(n01, n11, fr.x), fr.y) * 2.0f - 1.0f;
+}
+/* Asymmetric bell curve: tight Gaussian highlight rolloff x power-law
+   shadow ramp. Highlight side uses rolloff * 0.35 - grain fades faster
+   above peak. Shadow side: (luma/peak)^0.18 with smoothstep cutoff below
+   3% luma. Power law gives film-like shadow grain; smoothstep kills it
+   cleanly near true black to prevent black-level lift. */
+float luma_weight(float luma)
+{
+    float r = (luma > CG_PEAK) ? CG_ROLLOFF * 0.35f : CG_ROLLOFF;
+    float d = (luma - CG_PEAK) / r;
+    float bell = exp(-0.5f * d * d);
+    float shadow = min(pow(luma / max(CG_PEAK, 0.001f), 0.18f), 1.0f) * smoothstep(0.0f, 0.03f, luma);
+    return bell * shadow;
+}
+/* Grain over a colour-corrected pixel: luma bell weights the grain, chroma
+   is the coarser R/B shift via cheap pixel_hash at 1.8x cells (2 hashes,
+   not 8). The luma is read off the corrected colour, so the grain follows
+   the graded picture (film grain over a graded image). */
+float4 cg_grain(float4 c, float2 uv)
+{
+    float2 pixel_pos = (uv - cg_video.xy) * cg_video.zw;
+    float seed = cg_params.z;
+    float grain = value_noise(pixel_pos, cg_params.y, seed);
+    float luma = dot(c.rgb, float3(0.2126f, 0.7152f, 0.0722f));
+    float weight = luma_weight(luma);
+    c.rgb += cg_params.x * weight * grain;
+    float2 chroma_pos = pixel_pos / 1.8f;
+    float cr = pixel_hash(chroma_pos, seed + 31.7f);
+    float cb = pixel_hash(chroma_pos, seed + 57.2f);
+    float cw = cg_params.x * CG_CHROMA * weight;
+    c.r += cw * cr;
+    c.b += cw * cb;
+    /* Clamp to prevent negative values (dark channel clipping -> black spots) */
+    return float4(max(c.rgb, float3(0.0f, 0.0f, 0.0f)), c.a);
+}
+#if DITHER
+#include "dither.h"
+half4 main(float2 uv : TEXCOORD0, float2 native : TEXCOORD4, uniform sampler2D tex) : COLOR
+{
+    return dither5((half4)cg_grain(cc_correct((float4)h4tex2D(tex, uv)), uv), native);
+}
+#else
+float4 main(float2 uv : TEXCOORD0, uniform sampler2D tex) : COLOR
+{
+    return cg_grain(cc_correct(tex2D(tex, uv)), uv);
+}
+#endif

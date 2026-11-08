@@ -429,20 +429,23 @@ static const item_t settings_items[] = {
     { "Menu shape", "Mixed: rounded panels and chips, square rows. Round: rows rounded too. Square: everything square." },
     { "Cover", "Glossy: spine case with shine. Matte: spine case, no shine. Corners: spine case with accent brackets. Framed: black frame around the art, with shine. Frame Matte: black frame, no shine. Shine: bare art with shine. Plain: bare art, no shine." },
     { "Color preset", "Menu colours: Yellow, Blue, Green, Red, Light, Gray, or LCD warm mono." },
+    { "Shader effect", "Film grain on the final pass. None is a full bypass: the grain program never runs, so it costs nothing." },
+    { "Intensity", "CineGrain Lite grain strength, 0.00-2.00. 0.09 is the film default." },
+    { "Grain size", "CineGrain Lite grain size in video pixels, 0.50-6.00. Bigger blobs, slower-looking grain." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 41 settings are grouped into 8 pages, flipped with L1/R1 (top row).
+   The 44 settings are grouped into 8 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
    up to NSET, and the host test checks uniqueness and the grouping itself. */
 #define NPAGES 8
 static const char *set_page_titles[NPAGES] = {
-    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color", "PGXP", "Theme UI"
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color & FX", "PGXP", "Theme UI"
 };
 static const int set_page_items[NPAGES][10] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
@@ -450,28 +453,45 @@ static const int set_page_items[NPAGES][10] = {
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29, 37 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap */
-    { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
+    { 30, 31, 32, 33, 34, 41, 42, 43 },      /* Color & FX: Brightness, Contrast, Saturation, Temperature, Gamma, Shader effect, Intensity, Grain size */
     { 35 },                                  /* PGXP: PGXP (steadier 3D) */
     { 38, 39, 40 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 1, 3 };
-typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 1 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 8, 1, 3 };
+typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 8 + 1 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
+/* The Color & FX page grows when a shader effect is picked: its two config
+   rows exist only while CineGrain Lite is selected. The static table above
+   holds the MAXIMUM list (8 items, config rows last), so the visible page
+   is a prefix of it: 6 rows with None, 8 with CineGrain Lite. Every reader
+   of the page tables goes through these two accessors, never the tables. */
+static int set_page_count_dyn(int pg)
+{
+    if (pg == 5 && !cfg.shader_fx) return 6;
+    return set_page_counts[pg];
+}
+static int set_page_item_dyn(int pg, int r)
+{
+    int n = set_page_count_dyn(pg);
+    if (r >= n) r = n - 1;
+    if (r < 0) r = 0;
+    return set_page_items[pg][r];
+}
 static int set_page_of(int g)
 {
     int p, r;
     for (p = 0; p < NPAGES; p++)
-        for (r = 0; r < set_page_counts[p]; r++)
-            if (set_page_items[p][r] == g) return p;
+        for (r = 0; r < set_page_count_dyn(p); r++)
+            if (set_page_item_dyn(p, r) == g) return p;
     return 0;
 }
 static int set_row_of(int g)
 {
     int p, r;
     for (p = 0; p < NPAGES; p++)
-        for (r = 0; r < set_page_counts[p]; r++)
-            if (set_page_items[p][r] == g) return r;
+        for (r = 0; r < set_page_count_dyn(p); r++)
+            if (set_page_item_dyn(p, r) == g) return r;
     return 0;
 }
 
@@ -566,6 +586,9 @@ static void setting_value(int i, char *b, size_t n)
     case 38: snprintf(b, n, "%s", theme_shape_names[cfg.theme_shape]); break;
     case 39: snprintf(b, n, "%s", theme_cover_names[cfg.theme_cover]); break;
     case 40: snprintf(b, n, "%s", theme_color_names[cfg.theme_color]); break;
+    case 41: snprintf(b, n, "%s", cfg.shader_fx ? "CineGrain Lite" : "None"); break;
+    case 42: snprintf(b, n, "%.2f", cfg.cg_intensity / 100.f); break;
+    case 43: snprintf(b, n, "%.2f", cfg.cg_grainsize / 100.f); break;
     }
 }
 
@@ -676,6 +699,21 @@ static void setting_change_(int i, int dir, int in_game)
     case 38: cfg.theme_shape = (cfg.theme_shape + (dir > 0 ? 1 : THEME_SHAPE_COUNT - 1)) % THEME_SHAPE_COUNT; break;
     case 39: cfg.theme_cover = (cfg.theme_cover + (dir > 0 ? 1 : THEME_COVER_COUNT - 1)) % THEME_COVER_COUNT; break;
     case 40: cfg.theme_color = (cfg.theme_color + (dir > 0 ? 1 : THEME_COLOR_COUNT - 1)) % THEME_COLOR_COUNT; break;
+    case 41: cfg.shader_fx = (cfg.shader_fx + (dir > 0 ? 1 : 1)) % 2; break;   /* None <-> CineGrain Lite; the config rows appear/vanish with it */
+    case 42: {   /* intensity 0.00-2.00, 0.05 per press (the 0.09 default stays on-grid) */
+        int v = cfg.cg_intensity + (dir > 0 ? 5 : -5);
+        if (v > 200) v = 200;
+        if (v < 0) v = 0;
+        cfg.cg_intensity = v;
+        break;
+    }
+    case 43: {   /* grain size 0.50-6.00, 0.10 per press (the 0.75 default stays on-grid) */
+        int v = cfg.cg_grainsize + (dir > 0 ? 10 : -10);
+        if (v > 600) v = 600;
+        if (v < 50) v = 50;
+        cfg.cg_grainsize = v;
+        break;
+    }
     }
 }
 
@@ -1098,7 +1136,7 @@ static void draw_settings(int sel, int y0, int in_game, int highlight, const cha
        page row the user came from must not look selected as well). help
        overrides the help line when non-NULL: the apply rows' explanations,
        shown only while the cursor sits on them, like the other rows' help. */
-    int pg = set_page_of(sel), rows = set_page_counts[pg], i;
+    int pg = set_page_of(sel), rows = set_page_count_dyn(pg), i;
     {   /* page navigation row, above the items: L1/R1 flank the page title.
            Text only: the overlay font is ASCII 32-126, so no triangle glyphs
            (the chat mockup's arrows do not exist on the PS3). One text row
@@ -1111,7 +1149,7 @@ static void draw_settings(int sel, int y0, int in_game, int highlight, const cha
         ovl_text(OVL_W - MARGIN - ovl_text_width("R1 >"), y, "R1 >", C_ACCENT);
     }
     for (i = 0; i < rows; i++) {
-        int g = set_page_items[pg][i];
+        int g = set_page_item_dyn(pg, i);
         char v[64];
         int y = y0 + i * SET_ROW;
         if (g == sel && highlight) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
@@ -1194,15 +1232,15 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
                to the first page row): returning to sel here would strand
                Up on the first row after a Down wrap reset sel to it. */
             if (p & PAD_UP) { if (apply == 0) { int pg = set_page_of(sel);
-                                  apply = -1; sel = set_page_items[pg][set_page_counts[pg] - 1]; set_page_row[pg] = set_page_counts[pg] - 1; }
+                                  apply = -1; sel = set_page_item_dyn(pg, set_page_count_dyn(pg) - 1); set_page_row[pg] = set_page_count_dyn(pg) - 1; }
                               else apply--; }
             if (p & PAD_DOWN) { if (apply == n_apply - 1) { int pg = set_page_of(sel);
-                                  apply = -1; sel = set_page_items[pg][0]; set_page_row[pg] = 0; }
+                                  apply = -1; sel = set_page_item_dyn(pg, 0); set_page_row[pg] = 0; }
                                 else apply++; }
             if (p & (PAD_L1 | PAD_R1)) { int pg = set_page_of(sel);
                                          apply = -1; set_page_row[pg] = set_row_of(sel);
                                          pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
-                                         sel = set_page_items[pg][set_page_row[pg]]; }
+                                         sel = set_page_item_dyn(pg, set_page_row[pg]); }
             if (p & PAD_CROSS) {
                 if (has_title && apply == 0) {
                     if (config_panel_apply_title(panel_key, &cfg, &baseline, in_game)) {
@@ -1221,16 +1259,21 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
                where the column continues onto the apply rows (and wraps). */
             if (p & PAD_UP) { int pg = set_page_of(sel), rw = set_row_of(sel);
                               if (rw == 0) apply = n_apply - 1;
-                              else { rw--; sel = set_page_items[pg][rw]; set_page_row[pg] = rw; } }
+                              else { rw--; sel = set_page_item_dyn(pg, rw); set_page_row[pg] = rw; } }
             if (p & PAD_DOWN) { int pg = set_page_of(sel), rw = set_row_of(sel);
-                                if (rw == set_page_counts[pg] - 1) apply = 0;
-                                else { rw++; sel = set_page_items[pg][rw]; set_page_row[pg] = rw; } }
+                                if (rw == set_page_count_dyn(pg) - 1) apply = 0;
+                                else { rw++; sel = set_page_item_dyn(pg, rw); set_page_row[pg] = rw; } }
             if (p & (PAD_L1 | PAD_R1)) { int pg = set_page_of(sel);
                                          set_page_row[pg] = set_row_of(sel);
                                          pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
-                                         sel = set_page_items[pg][set_page_row[pg]]; }
+                                         sel = set_page_item_dyn(pg, set_page_row[pg]); }
             if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) {
+                int pg = set_page_of(sel);
                 setting_change(sel, p & PAD_LEFT ? -1 : 1, in_game);
+                /* Shrinking the Color & FX page (effect -> None) can strand
+                   the cursor on a config row that no longer exists: park it
+                   on the effect row (row 5 of the page). */
+                if ((sel == 42 || sel == 43) && !cfg.shader_fx) { sel = 41; set_page_row[pg] = 5; }
                 if (in_game) game_settings_changed();
             }
         }
