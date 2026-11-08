@@ -393,13 +393,14 @@ static const item_t settings_items[] = {
     { "Gamma", "-10 darker midtones, +10 brighter midtones. Black stays black, white stays white. 0 is the picture as it is." },
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
     { "Auto resolution", "Target height the RSX renderer aims for, in 0.5x steps. Manual uses the Renderer scale." },
+    { "Live memory card swap", "Allow swapping the memory card while a game runs, from the quick menu. Experimental: off unless you need it." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 37 settings are grouped into 7 pages, flipped with L1/R1 (top row).
+   The 38 settings are grouped into 7 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -413,12 +414,12 @@ static const int set_page_items[NPAGES][10] = {
     { 1, 36, 2, 3, 4, 5, 6, 7, 9, 10 },      /* Picture: Renderer, Auto resolution, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
-    { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
+    { 19, 20, 22, 23, 24, 25, 26, 29, 37 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap */
     { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
     { 35 },                                  /* PGXP: PGXP (steadier 3D) */
 };
-static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 8, 5, 1 };
-typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 8 + 5 + 1 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 1 };
+typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 1 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -525,6 +526,7 @@ static void setting_value(int i, char *b, size_t n)
                  cfg.gpu_res_target == 1080 || cfg.gpu_res_target == 1200) snprintf(b, n, "%d", cfg.gpu_res_target);
         else snprintf(b, n, "Manual");
         break;
+    case 37: snprintf(b, n, "%s", cfg.mc_swap ? "On" : "Off"); break;
     }
 }
 
@@ -532,7 +534,9 @@ static void setting_value(int i, char *b, size_t n);
 static void setting_change_(int i, int dir, int in_game);
 static void screen_size_page(int in_game);
 static void vmc_import_page(void);
-static void vmc_slot_picker(int slot);
+static int vmc_slot_picker(int slot, int live);
+
+extern int SwapMcd(int slot, const char *path);   /* core, libpcsxcore/sio.c */
 static void setting_change(int i, int dir, int in_game)
 {
     char before[64], after[64];
@@ -598,8 +602,8 @@ static void setting_change_(int i, int dir, int in_game)
     case 21: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
     case 22: cfg.vram_check ^= 1; break;
     case 23: cfg.debug_log ^= 1; break;
-    case 24: vmc_slot_picker(1); break;   /* any key opens the picker; it only writes settings, so it is safe in a game too (launch-only, like the old mode toggle) */
-    case 25: vmc_slot_picker(2); break;
+    case 24: vmc_slot_picker(1, 0); break;   /* any key opens the picker; it only writes settings, so it is safe in a game too (launch-only, like the old mode toggle) */
+    case 25: vmc_slot_picker(2, 0); break;
     case 26: if (!in_game) vmc_import_page(); break;   /* import writes a card file: game list only, never in a game */
     case 27: cfg.analog ^= 1; break;
     case 28: cfg.cd_speed = (cfg.cd_speed + (dir > 0 ? 1 : 2)) % 3; cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; break;
@@ -629,6 +633,7 @@ static void setting_change_(int i, int dir, int in_game)
         cfg.gpu_res_target = order[k];
         break;
     }
+    case 37: cfg.mc_swap ^= 1; break;
     }
 }
 
@@ -883,7 +888,40 @@ static void vmc_import_page(void)
     }
 }
 
-static void vmc_slot_picker(int slot)
+/* the current choice of a slot, as the settings display shows it */
+static void vmc_slot_label(int slot, char *b, size_t n)
+{
+    int mode = slot == 1 ? cfg.mc1_mode : cfg.mc2_mode;
+    const char *shared = slot == 1 ? cfg.mc1_shared : cfg.mc2_shared;
+    if (mode == 1) snprintf(b, n, "%s", shared[0] ? shared : "Shared (default)");
+    else if (mode == 2) snprintf(b, n, "None");
+    else snprintf(b, n, "Auto (per-game)");
+}
+
+/* the game's serial card path (saves/SCUS-12345_1.mcd): the core dashes
+   the serial (SCUS94426 -> SCUS-94426) when it builds the same path at
+   load. Returns 0 when there is no serial (the BIOS menu). */
+static int vmc_serial_path(int slot, char *out, size_t n)
+{
+    const char *s = hooks_game_serial();
+    char serial[128];
+    size_t d = 0, i;
+    int dashed = 0;
+    if (!s || !s[0]) return 0;
+    for (i = 0; s[i] && d + 2 < sizeof serial; i++) {
+        if (!dashed && s[i] >= '0' && s[i] <= '9') { serial[d++] = '-'; dashed = 1; }
+        serial[d++] = s[i];
+    }
+    serial[d] = 0;
+    snprintf(out, n, APP_DIR "/saves/%s_%d.mcd", serial, slot);
+    return 1;
+}
+
+/* Card picker for a slot. Returns 1 when the choice was applied (set, or
+   live-swapped), 0 when nothing changed (back, refusal, busy, exit).
+   live: from the quick menu's Swap memory card, the choice is applied at
+   once through SwapMcd instead of waiting for the next launch. */
+static int vmc_slot_picker(int slot, int live)
 {
     /* Entries: 0 = Auto, 1..n = imported files, n+1 = None, and n+2 =
        the legacy default shared card, only when such a file exists and
@@ -894,6 +932,9 @@ static void vmc_slot_picker(int slot)
     int other_mode = slot == 1 ? cfg.mc2_mode : cfg.mc1_mode;
     int sel = 0, top = 0, rows = 17, i, n, total, has_default;
     char title[32], defpath[1300], deftext[64], path[1300];
+    const char *picked_title = NULL, *picked_desc = NULL;
+    char picked_path[1300];
+    int have_path = 0;
     snprintf(title, sizeof title, "Memory card %d", slot);
     snprintf(defpath, sizeof defpath, APP_DIR "/saves/pcsx-card%d.mcd", slot);
     snprintf(deftext, sizeof deftext, "Default shared card (pcsx-card%d.mcd)", slot);
@@ -918,7 +959,7 @@ static void vmc_slot_picker(int slot)
         if (p & PAD_DOWN) sel = (sel + 1) % total;
         if (p & PAD_L1) sel = sel > rows ? sel - rows : 0;
         if (p & PAD_R1) sel = sel + rows < total ? sel + rows : total - 1;
-        if (p & PAD_CIRCLE) return;
+        if (p & PAD_CIRCLE) return 0;
         if (p & PAD_CROSS) break;
         if (sel < top) top = sel;
         if (sel >= top + rows) top = sel - rows + 1;
@@ -941,46 +982,70 @@ static void vmc_slot_picker(int slot)
         footer("Up/Down select    L1 R1 page    X choose    Circle back");
         frame_end();
     }
-    if (app_exit_requested) return;
+    if (app_exit_requested) return 0;
     if (sel == 0) {
         *mode = 0; shared[0] = 0;
+        picked_title = "Memory card set to Auto";
+        picked_desc = "This game's own serial card.";
+        have_path = vmc_serial_path(slot, picked_path, sizeof picked_path);
         config_save();
         logf_("vmc: memory card %d set to Auto\n", slot);
-        vmc_message(title, "Memory card set to Auto", "This game's own serial card.", "Next launch only.");
-        return;
-    }
-    if (sel == n + 1) {
+    } else if (sel == n + 1) {
         *mode = 2; shared[0] = 0;
+        picked_title = "Memory card set to None";
+        picked_desc = "No card in this slot.";
+        snprintf(picked_path, sizeof picked_path, "none");
+        have_path = 1;
         config_save();
         logf_("vmc: memory card %d set to None\n", slot);
-        vmc_message(title, "Memory card set to None", "No card in this slot.", "Next launch only.");
-        return;
-    }
-    if (has_default && sel == n + 2) {
+    } else if (has_default && sel == n + 2) {
         *mode = 1; shared[0] = 0;
+        picked_title = "Memory card set to Default";
+        picked_desc = deftext;
+        snprintf(picked_path, sizeof picked_path, "%s", defpath);
+        have_path = 1;
         config_save();
         logf_("vmc: memory card %d set to default %s\n", slot, defpath);
-        vmc_message(title, "Memory card set to Default", deftext, "Next launch only.");
-        return;
+    } else {
+        /* An imported file: refuse it when the other slot already uses it. */
+        if (other_mode == 1 && other_shared[0] && !strcmp(vmc_names[sel - 1], other_shared)) {
+            char msg[300];
+            snprintf(msg, sizeof msg, "That card is already used by slot %d.", slot == 1 ? 2 : 1);
+            vmc_message(title, "Cannot pick that card", msg, "Pick a different card.");
+            return 0;
+        }
+        snprintf(path, sizeof path, "%s/%s", LIB_DIR, vmc_names[sel - 1]);
+        if (!vmc_valid(path)) {
+            logf_("vmc: slot %d choice refused, %s is not a 128 KB MC card\n", slot, path);
+            vmc_message(title, "Cannot use that card", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
+            return 0;
+        }
+        *mode = 1;
+        snprintf(shared, 256, "%s", vmc_names[sel - 1]);
+        picked_title = "Memory card set";
+        picked_desc = vmc_names[sel - 1];
+        snprintf(picked_path, sizeof picked_path, "%s", path);
+        have_path = 1;
+        config_save();
+        logf_("vmc: memory card %d set to %s\n", slot, path);
     }
-    /* An imported file: refuse it when the other slot already uses it. */
-    if (other_mode == 1 && other_shared[0] && !strcmp(vmc_names[sel - 1], other_shared)) {
-        char msg[300];
-        snprintf(msg, sizeof msg, "That card is already used by slot %d.", slot == 1 ? 2 : 1);
-        vmc_message(title, "Cannot pick that card", msg, "Pick a different card.");
-        return;
+    /* The choice is saved either way; live mode applies it now. */
+    if (!live) {
+        vmc_message(title, picked_title, picked_desc, "Next launch only.");
+        return 1;
     }
-    snprintf(path, sizeof path, "%s/%s", LIB_DIR, vmc_names[sel - 1]);
-    if (!vmc_valid(path)) {
-        logf_("vmc: slot %d choice refused, %s is not a 128 KB MC card\n", slot, path);
-        vmc_message(title, "Cannot use that card", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
-        return;
+    if (!have_path) {
+        vmc_message(title, "Cannot swap to Auto", "This game has no serial.", "Nothing was changed.");
+        return 0;
     }
-    *mode = 1;
-    snprintf(shared, 256, "%s", vmc_names[sel - 1]);
-    config_save();
-    logf_("vmc: memory card %d set to %s\n", slot, path);
-    vmc_message(title, "Memory card set", vmc_names[sel - 1], "Next launch only.");
+    if (SwapMcd(slot, picked_path)) {
+        char ok[300];
+        snprintf(ok, sizeof ok, "Slot %d now uses %s.", slot, picked_desc);
+        vmc_message(title, "Memory card swapped", ok, "The game sees the new card now.");
+        return 1;
+    }
+    vmc_message(title, "Card busy", "The card was in use. Nothing was changed.", "Try again from the quick menu.");
+    return 0;
 }
 
 static void draw_settings(int sel, int y0, int in_game, int highlight, const char *help)
@@ -2342,19 +2407,61 @@ static int disc_swap_screen(char *out_label, size_t out_len)
     return swapped;
 }
 
+/* Swap memory card (quick menu, only when the gate is on): pick a slot,
+   then the card picker in live mode swaps it through SwapMcd at once.
+   Returns 1 when a swap happened, filling out_label with
+   "slot N: <choice>"; 0 otherwise. */
+static int mc_swap_screen(char *out_label, size_t out_len)
+{
+    int sel = 0;
+    logf_("menu: swap memory card\n");
+    while (!app_exit_requested) {
+        uint32_t p;
+        char d1[256], d2[256], r1[272], r2[272];
+        int i;
+        frame_begin(0);
+        p = input_pressed();
+        if (p & (PAD_UP | PAD_DOWN)) sel = (sel + 1) % 2;
+        if (p & PAD_CIRCLE) return 0;
+        if (p & PAD_CROSS) break;
+        vmc_slot_label(1, d1, sizeof d1);
+        vmc_slot_label(2, d2, sizeof d2);
+        snprintf(r1, sizeof r1, "Slot 1 - %s", d1);
+        snprintf(r2, sizeof r2, "Slot 2 - %s", d2);
+        header("Swap memory card", "Pick a slot");
+        for (i = 0; i < 2; i++) {
+            int y = 110 + i * SET_ROW;
+            const char *row = i == 0 ? r1 : r2;
+            if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            text_fit(MARGIN, y, row, i == sel ? C_ACCENT : C_TEXT);
+        }
+        footer("Up/Down select    X choose    Circle back");
+        frame_end();
+    }
+    if (app_exit_requested) return 0;
+    if (vmc_slot_picker(sel + 1, 1)) {
+        char d[256];
+        vmc_slot_label(sel + 1, d, sizeof d);
+        snprintf(out_label, out_len, "slot %d: %s", sel + 1, d);
+        return 1;
+    }
+    return 0;
+}
+
 int menu_ingame(void)
 {
     static const char *items[] = { "Resume", "Save state", "Load state", "Swap disc", "Reset", "Joystick mode", "Settings", "Cheats",
-                                   "Quit to game list", "Dump VRAM (debug)" };
+                                   "Quit to game list", "Dump VRAM (debug)", "Swap memory card" };
     /* Action ids are the items[] indexes. Swap disc sits above Reset and
        is shown for any running disc (not the BIOS): it is NOT gated on
        the playlist size, so a GameShark-style boot disc (a single image)
-       can swap to any scanned image. The Cheats row only exists when
-       the global gate is on (and the running game has a serial); the Dump
-       row only when VRAM check is on. qitems maps display rows to action
-       ids, rebuilt every frame so a gate toggle in the shared settings
-       panel takes effect when returning here. */
-    int qitems[10], N = 0;
+       can swap to any scanned image. The Swap memory card row only exists
+       when the mc_swap gate is on (and not the BIOS). The Cheats row only
+       exists when the global gate is on (and the running game has a
+       serial); the Dump row only when VRAM check is on. qitems maps
+       display rows to action ids, rebuilt every frame so a gate toggle in
+       the shared settings panel takes effect when returning here. */
+    int qitems[11], N = 0;
     static int slot;             /* kept while the app runs */
     int sel = 0;
     const char *msg = NULL;
@@ -2369,6 +2476,7 @@ int menu_ingame(void)
         N = 0;
         qitems[N++] = 0; qitems[N++] = 1; qitems[N++] = 2;
         if (!app_game_is_bios()) qitems[N++] = 3;
+        if (cfg.mc_swap && !app_game_is_bios()) qitems[N++] = 10;
         qitems[N++] = 4; qitems[N++] = 5; qitems[N++] = 6;
         if (cfg.cheat_enable && !app_game_is_bios() && hooks_game_serial()[0]) qitems[N++] = 7;
         qitems[N++] = 8;
@@ -2398,6 +2506,15 @@ int menu_ingame(void)
                 if (disc_swap_screen(lbl, sizeof lbl)) {
                     snprintf(sm, sizeof sm, "Swapped to %s", lbl);
                     msg = sm;
+                } else msg = NULL;
+                break;
+            }
+            case 10: {
+                static char mm[280];
+                char lbl[256];
+                if (mc_swap_screen(lbl, sizeof lbl)) {
+                    snprintf(mm, sizeof mm, "Swapped to %s", lbl);
+                    msg = mm;
                 } else msg = NULL;
                 break;
             }

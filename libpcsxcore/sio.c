@@ -403,6 +403,40 @@ void LoadMcds(char *mcd1, char *mcd2) {
 	LoadMcd(2, mcd2);
 }
 
+/* Live memory-card swap (the PS3 front end, from the quick menu): replace
+ * the card in a slot while the game runs. The card buffers are not part
+ * of a savestate and game writes go straight to the file, so no flush is
+ * needed; the new file is loaded into the slot's buffer and the game is
+ * told the card changed (McdFlag bit 3, the same "new card" mark LoadMcd
+ * sets). Refuses when a card transaction is in flight (mcdst != 0): a
+ * half-read sector must never continue against the new buffer. The
+ * caller swaps only while the game is paused, so that is a retry case,
+ * not a deadlock. A pad poll in flight (padst != 0) is no reason to
+ * refuse: it never touches the card buffers, and SwapMcd leaves the
+ * shared buf/parp alone. Returns 1 on success, 0 on refusal. */
+int SwapMcd(int slot, const char *path)
+{
+	char *mcd;
+
+	if (slot != 1 && slot != 2)
+		return 0;
+	if (mcdst != 0)
+		return 0;
+
+	/* an empty path is no card, not the old one: LoadMcd leaves the
+	   buffer alone on "" */
+	if (path == NULL || *path == 0)
+		path = "none";
+
+	mcd = slot == 1 ? Config.Mcd1 : Config.Mcd2;
+	snprintf(mcd, sizeof(Config.Mcd1), "%s", path);
+
+	LoadMcd(slot, mcd);
+	mcdst = 0;
+	rdwr = 0;
+	return 1;
+}
+
 void SaveMcd(char *mcd, char *data, uint32_t adr, int size) {
 	FILE *f;
 

@@ -74,6 +74,7 @@ typedef struct {
     char last_dir[512];
     int cd_speed;       /* CD-ROM speed: 0 normal, 1 turbo (data reads and seeks twice as fast; audio keeps its speed), 2 max (the core's TurboCD: instant seeks + faster reads) */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
+    int mc_swap;        /* global-only master gate for live memory card swap (default off): the Swap memory card row in the pause menu only appears when this is on */
     /* colour correction (Color page, per game): -10..+10, 0 neutral, no enable
        toggle — all zero is the picture as it is, and the panel bypasses the
        colour program entirely then */
