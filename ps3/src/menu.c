@@ -154,12 +154,39 @@ static void rescan(void)
 }
 
 /* ---------------- drawing helpers ---------------- */
-#define C_TEXT   0xffe8e8e8
-#define C_DIM    0xff9098a8
-#define C_ACCENT 0xffffd24a
-#define C_PANEL  0xe0141a26
+/* Theme UI: every menu colour reads through theme_pal(), the active
+   preset in theme.h, so a preset change repaints the whole menu on the
+   next frame. Out-of-range values (a hand-edited file) fall back to
+   Yellow; the settings loader already clamps to the table's range. */
+#include "theme.h"
+static const theme_pal_t *theme_pal(void)
+{
+    int c = cfg.theme_color;
+    if (c < 0 || c >= THEME_COLOR_COUNT) c = THEME_COLOR_YELLOW;
+    return &theme_pals[c];
+}
+#define C_TEXT   (theme_pal()->text)
+#define C_DIM    (theme_pal()->dim)
+#define C_ACCENT (theme_pal()->accent)
+#define C_PANEL  (theme_pal()->panel)
 #define PANEL_R  16   /* rounded panel corner radius, px at 720p (cover + quick menu) */
-#define C_SEL    0xff2c3a58
+#define C_SEL    (theme_pal()->sel)
+#define C_HEADER (theme_pal()->header)
+#define C_CLEAR  (theme_pal()->clear)
+
+/* Selection-row fill: sharp in Mixed/Square, rounded (r 8) in Round. */
+static void sel_fill(int x, int y, int w, int h)
+{
+    if (cfg.theme_shape == THEME_SHAPE_ROUND) ovl_round_fill(x, y, w, h, 8, C_SEL);
+    else ovl_fill(x, y, w, h, C_SEL);
+}
+
+/* Panel fill: rounded in Mixed/Round, sharp in Square. */
+static void panel_fill(int x, int y, int w, int h, uint32_t argb)
+{
+    if (cfg.theme_shape == THEME_SHAPE_SQUARE) ovl_fill(x, y, w, h, argb);
+    else ovl_round_fill(x, y, w, h, PANEL_R, argb);
+}
 
 static const char *menu_name = "game list";
 
@@ -182,7 +209,7 @@ static void frame_begin(int over_game)
         hooks_redraw_last_frame();
         video_redraw_quick(0);
     }
-    else video_clear(0xff0c1018);
+    else video_clear(C_CLEAR);
     video_overlay_clear();
 }
 
@@ -197,7 +224,7 @@ static void frame_end(void)
 
 static void header(const char *title, const char *sub)
 {
-    ovl_fill(0, 0, OVL_W, 64, 0xff182238);
+    ovl_fill(0, 0, OVL_W, 64, C_HEADER);
     ovl_text(MARGIN, 17, title, C_ACCENT);
     if (sub) ovl_text(OVL_W - MARGIN - ovl_text_width(sub), 17, sub, C_DIM);
 }
@@ -210,7 +237,7 @@ static void header(const char *title, const char *sub)
    overscan treats it exactly like the old title. */
 static void header_app(const char *sub)
 {
-    ovl_fill(0, 0, OVL_W, 64, 0xff182238);
+    ovl_fill(0, 0, OVL_W, 64, C_HEADER);
     ovl_fill(MARGIN, 17, 4, 30, C_ACCENT);
     ovl_text(MARGIN + 16, 17, APP_TITLE, C_TEXT);
     if (sub) ovl_text(OVL_W - MARGIN - ovl_text_width(sub), 17, sub, C_DIM);
@@ -221,16 +248,16 @@ static int prompt_width(const char *s);
 
 static void footer(const char *s)
 {
-    ovl_fill(0, OVL_H - 52, OVL_W, 52, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 41, s, C_DIM, 0xff182238);
+    ovl_fill(0, OVL_H - 52, OVL_W, 52, C_HEADER);
+    draw_prompt(MARGIN, OVL_H - 41, s, C_DIM, C_HEADER);
 }
 
 /* two-line footer (the game list) */
 static void footer2(const char *a, const char *b)
 {
-    ovl_fill(0, OVL_H - 84, OVL_W, 84, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 76, a, C_DIM, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 44, b, C_DIM, 0xff182238);
+    ovl_fill(0, OVL_H - 84, OVL_W, 84, C_HEADER);
+    draw_prompt(MARGIN, OVL_H - 76, a, C_DIM, C_HEADER);
+    draw_prompt(MARGIN, OVL_H - 44, b, C_DIM, C_HEADER);
 }
 
 /* Footer prompts with PS button glyphs (monochrome: glyphs use the text
@@ -287,8 +314,13 @@ static int chip_adv(const char *label) { return ovl_text_width(label) + 16 + 6; 
 static int draw_chip(int x, int y, const char *label, uint32_t color, uint32_t bg)
 {
     int w = ovl_text_width(label) + 16;
-    ovl_round_fill(x, y, w, 30, 15, color);
-    ovl_round_fill(x + 2, y + 2, w - 4, 26, 13, bg);
+    if (cfg.theme_shape == THEME_SHAPE_SQUARE) {
+        ovl_fill(x, y, w, 30, color);
+        ovl_fill(x + 2, y + 2, w - 4, 26, bg);
+    } else {
+        ovl_round_fill(x, y, w, 30, 15, color);
+        ovl_round_fill(x + 2, y + 2, w - 4, 26, 13, bg);
+    }
     ovl_text(x + 8, y, label, color);
     return w + 6;
 }
@@ -394,20 +426,23 @@ static const item_t settings_items[] = {
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
     { "Auto resolution", "Target height the RSX renderer aims for, in 0.5x steps. Manual uses the Renderer scale." },
     { "Live memory card swap", "Allow swapping the memory card while a game runs, from the quick menu. Experimental: off unless you need it." },
+    { "Menu shape", "Mixed: rounded panels and chips, square rows. Round: rows rounded too. Square: everything square." },
+    { "Cover", "Glossy: plastic shine over the art. Matte: no shine. Corners: accent brackets on the case corners. Frame: a raised frame around the case." },
+    { "Color preset", "Menu colours: Yellow, Blue, Green, Red, Light, Gray, or LCD warm mono." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 38 settings are grouped into 7 pages, flipped with L1/R1 (top row).
+   The 41 settings are grouped into 8 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
    up to NSET, and the host test checks uniqueness and the grouping itself. */
-#define NPAGES 7
+#define NPAGES 8
 static const char *set_page_titles[NPAGES] = {
-    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color", "PGXP"
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color", "PGXP", "Theme UI"
 };
 static const int set_page_items[NPAGES][10] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
@@ -417,9 +452,10 @@ static const int set_page_items[NPAGES][10] = {
     { 19, 20, 22, 23, 24, 25, 26, 29, 37 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap */
     { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
     { 35 },                                  /* PGXP: PGXP (steadier 3D) */
+    { 38, 39, 40 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 1 };
-typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 1 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 1, 3 };
+typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 1 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -527,6 +563,9 @@ static void setting_value(int i, char *b, size_t n)
         else snprintf(b, n, "Manual");
         break;
     case 37: snprintf(b, n, "%s", cfg.mc_swap ? "On" : "Off"); break;
+    case 38: snprintf(b, n, "%s", theme_shape_names[cfg.theme_shape]); break;
+    case 39: snprintf(b, n, "%s", theme_cover_names[cfg.theme_cover]); break;
+    case 40: snprintf(b, n, "%s", theme_color_names[cfg.theme_color]); break;
     }
 }
 
@@ -634,6 +673,9 @@ static void setting_change_(int i, int dir, int in_game)
         break;
     }
     case 37: cfg.mc_swap ^= 1; break;
+    case 38: cfg.theme_shape = (cfg.theme_shape + (dir > 0 ? 1 : THEME_SHAPE_COUNT - 1)) % THEME_SHAPE_COUNT; break;
+    case 39: cfg.theme_cover = (cfg.theme_cover + (dir > 0 ? 1 : THEME_COVER_COUNT - 1)) % THEME_COVER_COUNT; break;
+    case 40: cfg.theme_color = (cfg.theme_color + (dir > 0 ? 1 : THEME_COLOR_COUNT - 1)) % THEME_COLOR_COUNT; break;
     }
 }
 
@@ -811,7 +853,7 @@ static void vmc_import_page(void)
         header("Import PS3 VMC", sub);
         for (i = top; i < nvmc && i < top + rows; i++) {
             int y = 90 + (i - top) * SET_ROW;
-            if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (i == sel) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
             text_fit(MARGIN, y, vmc_names[i], i == sel ? C_ACCENT : C_TEXT);
         }
         footer("Up/Down select    L1 R1 page    X import    Circle back");
@@ -969,7 +1011,7 @@ static int vmc_slot_picker(int slot, int live)
             int y = 90 + (i - top) * SET_ROW;
             const char *row = NULL;
             uint32_t col = C_TEXT;
-            if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (i == sel) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
             if (i == 0) row = "Auto (per-game)";
             else if (i <= n) {
                 row = vmc_names[i - 1];
@@ -1072,7 +1114,7 @@ static void draw_settings(int sel, int y0, int in_game, int highlight, const cha
         int g = set_page_items[pg][i];
         char v[64];
         int y = y0 + i * SET_ROW;
-        if (g == sel && highlight) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+        if (g == sel && highlight) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
         ovl_text(50, y, settings_items[g].label, g == sel && highlight ? C_ACCENT : C_TEXT);
         setting_value(g, v, sizeof v);
         ovl_text(520, y, "<", C_DIM);
@@ -1253,11 +1295,11 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
                 ovl_text(50, y, has_personal ? "This title has its own settings."
                                              : "This title has no personal settings yet.", C_DIM);
                 y += SET_ROW;
-                if (apply == 0) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+                if (apply == 0) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
                 ovl_text(50, y, "Apply to this title only", apply == 0 ? C_ACCENT : C_TEXT);
                 y += SET_ROW; k = 1;
             }
-            if (apply == k) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (apply == k) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
             ovl_text(50, y, "Apply to global setting", apply == k ? C_ACCENT : C_TEXT);
             y += SET_ROW;
             if (panel_msg) ovl_text(50, y, panel_msg, C_ACCENT);
@@ -1434,7 +1476,7 @@ static int copy_disc(const char *title, char *cue, size_t cue_n)
         header("Copy disc to HDD", NULL);
         text_fit(MARGIN, 110, title, C_ACCENT);
         text_fit(MARGIN, 170, dest, C_DIM);
-        {   /* the bar */
+        {   /* the bar: square in every shape (a level, not a selection row) */
             int w = OVL_W - 2 * MARGIN, f = total ? (int)((uint64_t)w * done / total) : 0;
             ovl_fill(MARGIN, 240, w, 36, C_SEL);
             ovl_fill(MARGIN, 240, f, 36, C_ACCENT);
@@ -1598,19 +1640,46 @@ static void cover_disc_shine(int cx, int cy, int r, int bx, int by, int bw)
     }
 }
 
+/* Case fill: sharp in Mixed/Square, rounded (r 6) in Round — the shadow
+   follows the case so the edge stays even. */
+static void case_fill(int x, int y, int w, int h, uint32_t argb)
+{
+    if (cfg.theme_shape == THEME_SHAPE_ROUND) ovl_round_fill(x, y, w, h, 6, argb);
+    else ovl_fill(x, y, w, h, argb);
+}
+
+/* Corner brackets on the case corners (Cover: Corners): two accent
+   strips per corner, 36 px long, 4 px thick, laid on the case's black
+   border so they never spill past the panel. */
+static void cover_corners(void)
+{
+    int bx = COVER_X, by = 110, bw = CASE_W, bh = CASE_H, L = 36, T = 4;
+    ovl_fill(bx, by, L, T, C_ACCENT);                 ovl_fill(bx, by, T, L, C_ACCENT);
+    ovl_fill(bx + bw - L, by, L, T, C_ACCENT);        ovl_fill(bx + bw - T, by, T, L, C_ACCENT);
+    ovl_fill(bx, by + bh - T, L, T, C_ACCENT);        ovl_fill(bx, by + bh - L, T, L, C_ACCENT);
+    ovl_fill(bx + bw - L, by + bh - T, L, T, C_ACCENT); ovl_fill(bx + bw - T, by + bh - L, T, L, C_ACCENT);
+}
+
 static void draw_cover_panel(const char *title, const char *line2)
 {
-    ovl_round_fill(PANEL_X, 90, PANEL_W, 530, PANEL_R, C_PANEL);
+    panel_fill(PANEL_X, 90, PANEL_W, 530, C_PANEL);
+    if (cfg.theme_cover == THEME_COVER_FRAME) {
+        /* Raised bezel: a mid-grey rounded frame with a light inner edge,
+           drawn behind the case so the case sits inside it. */
+        ovl_round_fill(COVER_X - 10, 110 - 10, CASE_W + 20, CASE_H + 20, 12, 0xff8a8a8au);
+        ovl_round_fill(COVER_X - 5, 110 - 5, CASE_W + 10, CASE_H + 10, 9, 0xffd8d8d8u);
+    }
     if (cover_img.px) {
         /* Spine case: drop shadow, black case base, spine grooves, art
            inset right of the spine, plastic shine over the art. */
-        ovl_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
-        ovl_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+        case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+        case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
         ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
         ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
         ovl_blit(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART,
                  cover_img.px, cover_img.w, cover_img.h);
-        cover_shine(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART);
+        if (cfg.theme_cover == THEME_COVER_GLOSSY)
+            cover_shine(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     } else {
@@ -1619,8 +1688,8 @@ static void draw_cover_panel(const char *title, const char *line2)
            deliberately duplicated so the tested with-cover branch stays
            untouched); the label is drawn AFTER the shine so it stays
            legible over the reflection. */
-        ovl_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
-        ovl_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+        case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+        case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
         ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
         ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
         ovl_round_fill(TRAY_X, TRAY_Y, TRAY_S, TRAY_S, 12, 0xff1a1a1au);
@@ -1630,13 +1699,15 @@ static void draw_cover_panel(const char *title, const char *line2)
         cover_disc_fill(DISC_CX, DISC_CY, 15, 0xff1a1a1au);
         ovl_circle(DISC_CX, DISC_CY, 15, 0xff888888u);
         cover_disc_fill(DISC_CX, DISC_CY, 5, 0xff000000u);
-        cover_disc_shine(DISC_CX, DISC_CY, DISC_R,
-                         COVER_X + SPINE_W + 2, 110 + 6, CASE_ART);
+        if (cfg.theme_cover == THEME_COVER_GLOSSY)
+            cover_disc_shine(DISC_CX, DISC_CY, DISC_R,
+                             COVER_X + SPINE_W + 2, 110 + 6, CASE_ART);
         ovl_text(DISC_CX - ovl_text_width("NO COVER") / 2, DISC_CY + 34,
                  "NO COVER", C_DIM);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     }
+    if (cfg.theme_cover == THEME_COVER_CORNERS) cover_corners();
 }
 
 /* Yes/No confirm for deleting a title's personal settings. Same layout and
@@ -1724,7 +1795,7 @@ static int bios_cards_page(void)
         ovl_text(MARGIN, 136, "Its memory card screen copies and deletes saves between the two slots.", C_DIM);
         for (i = 0; i < 2; i++) {
             int y = 210 + i * 54;
-            if (i == row) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            if (i == row) sel_fill(30, y - 6, OVL_W - 60, 42);
             snprintf(line, sizeof line, "Memory card %d   < %s >", i + 1, pick[i] ? cards[pick[i] - 1] : "none");
             text_fit(MARGIN, y, line, i == row ? C_ACCENT : C_TEXT);
         }
@@ -1869,7 +1940,7 @@ const char *menu_run(void)
         header_app(sub);
         for (i = top; i < n && i < top + rows; i++) {
             int y = y0 + (i - top) * 44;
-            if (i == sel) ovl_fill(30, y - 6, 870, 42, C_SEL);
+            if (i == sel) sel_fill(30, y - 6, 870, 42);
             if (i == 0) {               /* the disc in the drive: icon, its game, "from disc" */
                 char t[128], nm[160];
                 int r = disc_identify_result(t, sizeof t), max;
@@ -1940,11 +2011,11 @@ const char *menu_run(void)
         if (disc_msg_frames > 0) {
             disc_msg_frames--;
             if (disc_msg2[0]) {
-                ovl_fill(30, OVL_H - 176, OVL_W - 60, 80, C_SEL);
+                sel_fill(30, OVL_H - 176, OVL_W - 60, 80);
                 ovl_text(MARGIN, OVL_H - 170, disc_msg, C_ACCENT);
                 ovl_text(MARGIN, OVL_H - 134, disc_msg2, C_TEXT);
             } else {
-                ovl_fill(30, OVL_H - 140, OVL_W - 60, 44, C_SEL);
+                sel_fill(30, OVL_H - 140, OVL_W - 60, 44);
                 ovl_text(MARGIN, OVL_H - 134, disc_msg, C_ACCENT);
             }
         }
@@ -2132,7 +2203,7 @@ static int cheat_screen(void)
             int optw = 0;
             if (idx >= n) break;
             c = &db.codes[idx];
-            if (idx == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            if (idx == sel) sel_fill(30, y - 6, OVL_W - 60, 42);
             col = !c->supported ? C_DIM : idx == sel ? C_ACCENT : C_TEXT;
             ovl_text(MARGIN, y, enabled[idx] ? "[X]" : "[ ]", col);
             if (c->has_options && c->supported) {
@@ -2391,7 +2462,7 @@ static int disc_swap_screen(char *out_label, size_t out_len)
             uint32_t col;
             if (idx >= n) break;
             e = &list[idx];
-            if (idx == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            if (idx == sel) sel_fill(30, y - 6, OVL_W - 60, 42);
             col = (e->is_playlist && e->index == cur) ? C_DIM : idx == sel ? C_ACCENT : C_TEXT;
             if (e->is_playlist) {
                 if (e->index == cur) snprintf(line, sizeof line, "Disc %u: %s (current)", e->index + 1, e->label);
@@ -2432,7 +2503,7 @@ static int mc_swap_screen(char *out_label, size_t out_len)
         for (i = 0; i < 2; i++) {
             int y = 110 + i * SET_ROW;
             const char *row = i == 0 ? r1 : r2;
-            if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (i == sel) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
             text_fit(MARGIN, y, row, i == sel ? C_ACCENT : C_TEXT);
         }
         footer("Up/Down select    X choose    Circle back");
@@ -2558,7 +2629,7 @@ int menu_ingame(void)
             }
             }
         }
-        ovl_round_fill(290, 110, 700, 130 + N * 46 + (msg ? 50 : 0), PANEL_R, C_PANEL);
+        panel_fill(290, 110, 700, 130 + N * 46 + (msg ? 50 : 0), C_PANEL);
         ovl_text(320, 132, "Paused", C_ACCENT);
         for (i = 0; i < N; i++) {
             int y = 180 + i * 46;
@@ -2572,7 +2643,7 @@ int menu_ingame(void)
                 else snprintf(line, sizeof line, "%s", items[a]);
             }
             else snprintf(line, sizeof line, "%s", items[a]);   /* Quit, Dump: plain labels */
-            if (i == sel) ovl_fill(305, y - 7, 670, 42, C_SEL);
+            if (i == sel) sel_fill(305, y - 7, 670, 42);
             ovl_text(330, y, line, i == sel ? C_ACCENT : C_TEXT);
         }
         {
