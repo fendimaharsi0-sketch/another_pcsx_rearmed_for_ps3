@@ -557,8 +557,7 @@ static void setting_value(int i, char *b, size_t n)
     case 34: color_slider(cfg.color_gamma, b, n); break;
     case 35: snprintf(b, n, "%s", cfg.pgxp == 2 ? "On + textures" : cfg.pgxp ? "On" : "Off"); break;
     case 36:
-        if (cfg.gpu_res_target == 1) snprintf(b, n, "TV");
-        else if (cfg.gpu_res_target == 480 || cfg.gpu_res_target == 720 || cfg.gpu_res_target == 960 ||
+        if (cfg.gpu_res_target == 480 || cfg.gpu_res_target == 600 || cfg.gpu_res_target == 720 || cfg.gpu_res_target == 960 ||
                  cfg.gpu_res_target == 1080 || cfg.gpu_res_target == 1200) snprintf(b, n, "%d", cfg.gpu_res_target);
         else snprintf(b, n, "Manual");
         break;
@@ -666,8 +665,8 @@ static void setting_change_(int i, int dir, int in_game)
     case 34: color_step(&cfg.color_gamma, dir); break;
     case 35: cfg.pgxp = (cfg.pgxp + (dir > 0 ? 1 : 2)) % 3; break;
     case 36: {
-        /* Manual -> TV (the TV's height) -> 480 -> 720 -> 960 -> 1080 -> 1200 */
-        static const int order[] = { 0, 1, 480, 720, 960, 1080, 1200 };
+        /* Manual -> 480 -> 600 -> 720 -> 960 -> 1080 -> 1200 */
+        static const int order[] = { 0, 480, 600, 720, 960, 1080, 1200 };
         int k = 0;
         while (k < 6 && order[k] != cfg.gpu_res_target) k++;
         k = (k + (dir > 0 ? 1 : 6)) % 7;

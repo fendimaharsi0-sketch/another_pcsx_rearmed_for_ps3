@@ -89,7 +89,7 @@ typedef struct {
     int pgxp;               /* PGXP-lite: 1 GTE vertices at sub-pixel positions (RSX renderer), 2 also perspective-correct textures */
 } settings_t;
 extern settings_t cfg;
-int cfg_auto_target_h(void);  /* resolved auto resolution target height, 0 = Manual/off (TV resolves via video_height(); unknown video -> 0) */
+int cfg_auto_target_h(void);  /* resolved auto resolution target height, 0 = Manual/off */
 int cfg_rsx_on(void);         /* the RSX renderer should be on: a manual scale, or a resolvable auto target */
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
 extern int cdr_speed_up;     /* core, libpcsxcore/cdrom.c: 2 = data reads and seeks twice as fast, mirrored from cfg.cd_speed */

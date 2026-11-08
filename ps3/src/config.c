@@ -69,13 +69,13 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
 /* bumped when defaults change in a way that should reach existing settings files */
 #define CFG_VERSION 3
 
-/* auto resolution target (gpu_res_target): 0 = Manual, 1 = the TV's height,
-   else a target height. Anything else (a hand-edited file) is Manual. */
+/* auto resolution target (gpu_res_target): 0 = Manual,
+   else a target height. Anything else (a hand-edited file, or a stored
+   TV value 1 from before the TV preset was removed) is Manual. */
 int cfg_auto_target_h(void)
 {
     int t = cfg.gpu_res_target;
-    if (t == 1) { int vh = (int)video_height(); return vh > 0 ? vh : 0; }
-    if (t == 480 || t == 720 || t == 960 || t == 1080 || t == 1200) return t;
+    if (t == 480 || t == 600 || t == 720 || t == 960 || t == 1080 || t == 1200) return t;
     return 0;
 }
 
