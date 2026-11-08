@@ -14,7 +14,7 @@
 
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 4, .gpu_res_target = 0, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .mc_swap = 0, .theme_shape = 0, .theme_cover = 0, .theme_color = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .shader_fx = 0, .cg_intensity = 9, .cg_grainsize = 75, .pgxp = 0,
+    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .mc_swap = 0, .theme_shape = 0, .theme_cover = 0, .theme_color = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .pgxp = 0,
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -61,9 +61,6 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "color_saturation", F(color_saturation), -10, 10, 1 },
     { "color_temperature", F(color_temperature), -10, 10, 1 },
     { "color_gamma", F(color_gamma), -10, 10, 1 },
-    { "shader_fx", F(shader_fx), 0, 1, 1 },
-    { "cg_intensity", F(cg_intensity), 0, 200, 1 },
-    { "cg_grainsize", F(cg_grainsize), 50, 600, 1 },
     { "pgxp", F(pgxp), 0, 2, 1 },
 };
 #define NINTS (sizeof ints / sizeof ints[0])

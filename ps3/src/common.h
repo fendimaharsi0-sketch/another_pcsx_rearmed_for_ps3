@@ -86,9 +86,6 @@ typedef struct {
     int color_saturation;
     int color_temperature;
     int color_gamma;        /* gamma curve: + brightens midtones, - darkens them; 0 and 1 never move */
-    int shader_fx;          /* shader effect on the Color & FX page, per-game: 0 None (full bypass: the grain program never runs), 1 CineGrain Lite */
-    int cg_intensity;       /* CineGrain Lite intensity, hundredths: 0..200, default 9 (0.09) */
-    int cg_grainsize;       /* CineGrain Lite grain size, hundredths of a pixel: 50..600, default 75 (0.75) */
     int pgxp;               /* PGXP-lite: 1 GTE vertices at sub-pixel positions (RSX renderer), 2 also perspective-correct textures */
 } settings_t;
 extern settings_t cfg;
