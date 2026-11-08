@@ -48,12 +48,8 @@ struct pgxp_cand { float dx, dy, z; uint32_t seq; };   /* as in libpcsxcore/pgxp
 int pgxp_lite_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c) __attribute__((weak));
 int pgxp_lite_cands(uint32_t sxy, struct pgxp_cand *c) __attribute__((weak));
 void pgxp_lite_prefetch(const uint32_t *const *ptr, const uint32_t *words, int n) __attribute__((weak));
-/* PGXP RAM-shadow corrector (core: libpcsxcore/pgxp_lite.c), weak for the same reason */
-extern int pgxp_corr_track __attribute__((weak));
-int pgxp_corr_cand_at(const void *ptr, uint32_t word, struct pgxp_cand *c) __attribute__((weak));
 static int pg_poly;                    /* the primitive being emitted has PGXP-lite offsets */
 unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;   /* polygons drawn with / without them (log) */
-unsigned int hwr_pgxp_corr_persp;   /* of the perspective polygons, those with at least one corrector-supplied corner (log) */
 int hwr_pgxp_first;                    /* host tests: the first vertex of a word, as before build 86 */
 /* where PGXP's time goes in the renderer (timebase ticks, PowerPC; for the log) */
 unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth;
@@ -726,8 +722,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
     if (&pgxp_lite_on && pgxp_lite_on && pgxp_lite_cands) {
         float z[4][2];
         struct pgxp_cand cd[4][2];
-        int found = 0, nz = 0, exact = 0, nc[4], amb = 0, corr = 0, pick[4] = { 0, 0, 0, 0 };
-        struct pgxp_cand ca[4]; int has_ca[4] = { 0, 0, 0, 0 };
+        int found = 0, nz = 0, exact = 0, nc[4], amb = 0, pick[4] = { 0, 0, 0, 0 };
         float zalt[4] = { 0.f, 0.f, 0.f, 0.f };
         unsigned long long t0, t1;
         /* (also works out the projections still queued: timed on its own) */
@@ -752,26 +747,6 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
                     if (d1 < d0) cd[i][0] = cd[i][1];
                     nc[i] = 1;
                 }
-            }
-            /* PGXP RAM-shadow corrector (pgxp_lite.h): on a lite miss only,
-               ask the RAM shadow (keyed by the packet's RAM address, the
-               same key lite's address table uses). A lite hit always wins;
-               the corrector never overrides one. The shadow answer is
-               exact-word-validated and guarded (>1.5px from the integer is
-               skipped) inside pgxp_corr_cand_at; a hit supplies position
-               AND depth (z = 1/invw, lite's scale). */
-            if (!nc[i] && &pgxp_corr_track && pgxp_corr_track && pgxp_corr_cand_at && pgxp_corr_cand_at(xyp[i], xys[i], &a) > 0) {
-                cd[i][0] = a; nc[i] = 1; exact++; corr |= 1 << i;
-            }
-            /* mode2w: on a lite HIT, ask the RAM shadow for the depth only.
-               The shadow's z is address-keyed (the packet's own RAM address)
-               and comes from the same GTE op as the corner's position, so it
-               cannot be another vertex's depth the way lite's word-keyed z
-               can. The position stays lite's; mode 1 never reaches this (it
-               does not use z). One consult per vertex: the else-if runs only
-               when the supplement above did not. */
-            else if (nc[i] && pgxp_lite_on >= 2 && &pgxp_corr_track && pgxp_corr_track && pgxp_corr_cand_at && pgxp_corr_cand_at(xyp[i], xys[i], &ca[i]) > 0) {
-                has_ca[i] = 1;
             }
             if (nc[i]) found++;
             if (nc[i] > 1) amb |= 1 << i;
@@ -836,11 +811,9 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
             if (nc[i]) {
                 const struct pgxp_cand *c = &cd[i][pick[i]];
                 p[i].ox = c->dx; p[i].oy = c->dy;
-                /* mode2w: the shadow's depth wins wherever the shadow has
-                   the vertex (lite's word-keyed depth is proven wrong on
-                   hardware); lite's depth is used only where the shadow
-                   misses. Positions stay lite's. */
-                z[i][0] = pgxp_pick_z(c->z, ca[i].z, has_ca[i]);
+                /* depth is lite's word-keyed depth (the corrector's
+                   address-keyed depth went with it). */
+                z[i][0] = c->z;
             } else { p[i].ox = p[i].oy = 0.f; z[i][0] = 0.f; }
             z[i][1] = zalt[i];
             if (z[i][0] > 0.f) nz++;
@@ -894,7 +867,7 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
                 iz = 1.f / zmax;
                 for (i = 0; i < n; i++) p[i].ow = zz[i] * iz;
             }
-            if (p[0].ow > 0.f) { hwr_pgxp_persp++; if (corr) hwr_pgxp_corr_persp++; }
+            if (p[0].ow > 0.f) hwr_pgxp_persp++;
             else hwr_pgxp_flat++;
         }
         hwr_pgxp_t_depth += PG_TB() - t0;

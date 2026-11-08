@@ -19,8 +19,6 @@
 #include "optimizer.h"
 #include "tlsf/tlsf.h"
 
-#include "../../libpcsxcore/pgxp_lite.h"   /* PGXP RAM-shadow corrector (see lightrec_pgxp_cb below) */
-
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -39,8 +37,6 @@ static bool lightrec_block_is_fully_tagged(const struct block *block);
 
 static void lightrec_mtc2(struct lightrec_state *state, u8 reg, u32 data);
 static u32 lightrec_mfc2(struct lightrec_state *state, u8 reg);
-
-static void lightrec_pgxp_cb(struct lightrec_state *state, u32 opcode, u32 *psxRegs);
 
 static void lightrec_reap_block(struct lightrec_state *state, void *data);
 
@@ -498,14 +494,6 @@ static void lightrec_rw_helper(struct lightrec_state *state,
 		break;
 	}
 
-	/* PGXP RAM-shadow corrector: the C-fallback path for a load/store
-	 * (rec_io early return, or an unmapped address). Call after the access
-	 * above, when the memory is already in its final state, so a read sees
-	 * the just-written value and a write has already happened. SWC2 is
-	 * diverted here by the lite block in rec_store (it returns before
-	 * rec_pgxp_mem runs), so the SWC2 mirror is covered by this call. */
-	if (pgxp_corr_track)
-		lightrec_pgxp_cb(state, op.i.op, state->regs.gpr);
 }
 
 static void lightrec_rw_cb(struct lightrec_state *state, u32 arg)
@@ -791,71 +779,6 @@ static void lightrec_mtc_cb(struct lightrec_state *state, u32 arg)
 	LR_DBG_LEAVE();
 }
 
-/* PGXP RAM-shadow corrector: mirror a load/store from the Lightrec JIT
- * into the RAM shadow (see pgxp_lite.h). Called by the emitter's wrapper
- * after each load/store, and by lightrec_rw_helper for C-fallback
- * accesses. This is the corrector's JIT hook. The interpreter mirror is
- * psxinterpreter.c; the two agree op-for-op, so the shadow does not care
- * which CPU runs the game. */
-static u32 lightrec_pgxp_ram_word(struct lightrec_state *state, u32 addr)
-{
-	addr &= ~3u;
-	/* a RAM word is what the shadow tracks: re-read it from the map.
-	 * Anything else (BIOS, I/O, unmapped) is out of the shadow's range;
-	 * pgxp_corr_ram_shadow_at returns NULL and the hook is a no-op. */
-	return pgxp_corr_ram_shadow_at(addr)
-		? *(u32 *)(state->maps[PSX_MAP_KERNEL_USER_RAM].address + addr)
-		: 0;
-}
-
-static void lightrec_pgxp_cb(struct lightrec_state *state, u32 opcode, u32 *psxRegs)
-{
-	u32 addr = state->regs.gpr[opcode >> 16 & 0x1f] + (s16)(opcode & 0xffff);
-	u32 rt = opcode >> 21 & 0x1f;
-
-	/* A load-delay or a blocked load: ret below is the value actually
-	 * read/written; the destination register is not trusted. */
-	switch (opcode >> 26) {
-	case OP_SB:
-		pgxp_corr_on_sb_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
-		break;
-	case OP_SH:
-		pgxp_corr_on_sh_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
-		break;
-	case OP_SW:
-		pgxp_corr_on_sw_ram(addr, state->regs.gpr[rt], rt, 0);
-		break;
-	case OP_SWL:
-		pgxp_corr_on_swl_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
-		break;
-	case OP_SWR:
-		pgxp_corr_on_swr_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
-		break;
-	case OP_LB:
-	case OP_LBU:
-		pgxp_corr_on_lb_ram(rt);
-		break;
-	case OP_LH:
-	case OP_LHU:
-		pgxp_corr_on_lh_ram(rt);
-		break;
-	case OP_LWL:
-		pgxp_corr_on_lwl_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
-		break;
-	case OP_LWR:
-		pgxp_corr_on_lwr_ram(addr, lightrec_pgxp_ram_word(state, addr), rt);
-		break;
-	case OP_LW:
-		pgxp_corr_on_lw_ram(addr, lightrec_pgxp_ram_word(state, addr), rt, 0);
-		break;
-	case OP_LWC2:
-		pgxp_corr_on_lw_ram(addr, lightrec_pgxp_ram_word(state, addr), rt, 1);
-		break;
-	case OP_SWC2:
-		pgxp_corr_on_sw_ram(addr, state->regs.gpr[rt], rt, 1);
-		break;
-	}
-}
 
 void lightrec_rfe(struct lightrec_state *state)
 {
@@ -2388,7 +2311,6 @@ struct lightrec_state * lightrec_init(char *argv0,
 	state->c_wrappers[C_WRAPPER_MFC] = lightrec_mfc_cb;
 	state->c_wrappers[C_WRAPPER_MTC] = lightrec_mtc_cb;
 	state->c_wrappers[C_WRAPPER_CP] = lightrec_cp_cb;
-	state->c_wrappers[C_WRAPPER_PGXP] = lightrec_pgxp_cb;
 
 	map = &maps[PSX_MAP_BIOS];
 	state->offset_bios = (uintptr_t)map->address - map->pc;

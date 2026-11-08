@@ -12,8 +12,6 @@
 #include "optimizer.h"
 #include "regcache.h"
 
-#include "../../libpcsxcore/pgxp_lite.h"   /* PGXP RAM-shadow corrector: pgxp_corr_track (emitter gate) */
-
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -1222,39 +1220,6 @@ static void call_to_c_wrapper(struct lightrec_cstate *state,
 	lightrec_regcache_mark_live(reg_cache, _jit);
 }
 
-/* PGXP RAM-shadow corrector (pgxp_lite.h): emit a C wrapper call that mirrors
- * the access into the RAM shadow (see lightrec_pgxp_cb in lightrec.c). The
- * opcode filter mirrors the interpreter hooks exactly (psxinterpreter.c):
- * all twelve load/store opcodes the shadow tracks. The call is emitted only
- * when the corrector is ON at compile time; blocks compiled while it is OFF
- * contain no call at all, and the gate (lightrec_pgxp_corr_gate) flushes
- * every block on a toggle, so no compiled block can disagree with the
- * current setting. This is the corrector's kill-gate on the JIT side.
- * Load mode is not the opcode (direct stores need no wrapper); SWC2 is
- * emitted as a store. */
-static void rec_pgxp_mem(struct lightrec_cstate *cstate,
-			 const struct block *block, u16 offset, u32 mode)
-{
-	union code c = block->opcode_list[offset].c;
-
-	if (!pgxp_corr_track)
-		return;
-	/* mode is the decoded value (LIGHTREC_FLAGS_GET_IO_MODE), so it is
-	 * compared against the LIGHTREC_IO_* constants directly. */
-	if (mode != LIGHTREC_IO_RAM &&
-	    mode != LIGHTREC_IO_SCRATCH &&
-	    mode != LIGHTREC_IO_DIRECT)
-		return;
-
-	switch (c.opcode) {
-	case OP_LB: case OP_LBU: case OP_LH: case OP_LHU: case OP_LW:
-	case OP_LWL: case OP_LWR:
-	case OP_SB: case OP_SH: case OP_SW:
-	case OP_SWL: case OP_SWR:
-		call_to_c_wrapper(cstate, block, c.opcode, C_WRAPPER_PGXP);
-		return;
-	}
-}
 
 static void rec_io(struct lightrec_cstate *state,
 		   const struct block *block, u16 offset,
@@ -1780,10 +1745,6 @@ static void rec_store(struct lightrec_cstate *state,
 	if (is_swc2)
 		lightrec_discard_reg_if_loaded(state->reg_cache, REG_TEMP);
 
-	/* PGXP RAM-shadow corrector: mirror the store into the RAM shadow.
-	 * SWC2 diverted by the lite block above is covered by lightrec_pgxp_cb
-	 * in the rw_helper path instead (rec_io). */
-	rec_pgxp_mem(state, block, offset, mode);
 }
 
 static void rec_SB(struct lightrec_cstate *state,
@@ -2113,11 +2074,6 @@ static void rec_load(struct lightrec_cstate *state, const struct block *block,
 		lightrec_discard_reg_if_loaded(state->reg_cache, REG_TEMP);
 	}
 
-	/* PGXP RAM-shadow corrector: mirror the load into the RAM shadow.
-	 * After the LWC2 epilogue above (whose cop2_notify would otherwise
-	 * clear the just-loaded GTE shadow: notify sets it unproven, this
-	 * sets the real RAM shadow, so this must run last). */
-	rec_pgxp_mem(state, block, offset, mode);
 }
 
 static void rec_LB(struct lightrec_cstate *state, const struct block *block, u16 offset)

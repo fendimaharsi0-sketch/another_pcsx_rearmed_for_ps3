@@ -651,16 +651,6 @@ static inline force_inline void gteRTPS(psxCP2Regs *regs, int shift, int lm)
 	gteSY2 = limG2(&flags, mac0flags(&flags, gteOFY + (s64)gteIR2 * quotient) >> 16);
 	if (unlikely(pgxp_lite_on) && shift)
 		pgxp_lite_rtp(regs, vx, vy, vz, gteH, sz3, gteSX2, gteSY2);
-	/* PGXP correctors (pgxp_lite.h): the RAM-shadow register shadow,
-	   filled for either corrector (Design A reads it at NCLIP time, so
-	   culling alone needs it too). The float expressions mirror the
-	   integer ones exactly (same widescreen scaling), so each float
-	   claims to describe precisely the integer vertex the game got. */
-	if (unlikely(pgxp_corr_track || pgxp_cull_track))
-		pgxp_corr_on_rtps(gteSXY2,
-			(float)((gteOFX + gte_wide_x((s64)gteIR1 * quotient)) / 65536.0),
-			(float)((gteOFY + (s64)gteIR2 * quotient) / 65536.0),
-			sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
 
 	gteMAC0 = mac0 = mac0flags(&flags, gteDQB + (s64)gteDQA * quotient);
 	gteIR0 = limH(&flags, mac0 >> 12);
@@ -699,12 +689,6 @@ static inline force_inline void gteRTPT(psxCP2Regs *regs, int shift, int lm)
 		fSY(v) = limG2(&flags, mac0flags(&flags, gteOFY + (s64)ir2 * quotient) >> 16);
 		if (unlikely(pgxp_lite_on) && shift)
 			pgxp_lite_rtp(regs, vx, vy, vz, h, sz3, fSX(v), fSY(v));
-		/* PGXP correctors (pgxp_lite.h): same register shadow as in gteRTPS above. */
-		if (unlikely(pgxp_corr_track || pgxp_cull_track))
-			pgxp_corr_on_rtpt(v, regs->CP2D.r[12 + v],
-				(float)((gteOFX + gte_wide_x((s64)ir1 * quotient)) / 65536.0),
-				(float)((gteOFY + (s64)ir2 * quotient) / 65536.0),
-				sz3 > 0 ? 1.0f / (float)sz3 : 0.0f, sz3 > 0);
 	}
 
 	gteMAC1 = mac1;
@@ -828,13 +812,16 @@ static inline void gteNCLIP_(psxCP2Regs *regs)
 	gteMAC0 = mac0flags(&flags, (s64)(gteSX0 * (gteSY1 - gteSY2)) +
 				gteSX1 * (gteSY2 - gteSY0) +
 				gteSX2 * (gteSY0 - gteSY1));
-	/* PGXP culling corrector (pgxp_lite.h, Design A): recompute the
-	   winding from the precise GTE positions when all three FIFO vertices
-	   validate in the GTE register shadow. Any miss, or a precise winding
-	   of zero, keeps the integer result above. */
+	/* PGXP culling corrector (pgxp_lite.h, Option 1): recompute the
+	   winding from the precise positions in the lite word table — the
+	   same table the renderer draws from, so culling and drawing can
+	   no longer disagree. Any miss, an ambiguous word the seq rule
+	   cannot settle, or a precise winding of zero, keeps the integer
+	   result above. (Design A's corr-shadow NCLIP was deleted: its
+	   coordinates were never verified against the picture.) */
 	if (pgxp_cull_track) {
 		int64_t det;
-		if (pgxp_corr_nclip(gteSX0, gteSY0, gteSX1, gteSY1, gteSX2, gteSY2, &det)) {
+		if (pgxp_lite_nclip(gteSX0, gteSY0, gteSX1, gteSY1, gteSX2, gteSY2, &det)) {
 			flags = 0;   /* mac0flags only sets bits: drop the integer result's flags */
 			gteMAC0 = mac0flags(&flags, det);
 		}

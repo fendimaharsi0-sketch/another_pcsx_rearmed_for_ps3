@@ -750,8 +750,7 @@ static void rsxr_submit(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx *
  * positions, so a batch never overwrites a copy quad the RSX is still reading
  * (or the other way round). */
 extern int pgxp_lite_on;
-extern int pgxp_corr_track;   /* core, libpcsxcore/pgxp_lite.c: the RAM-shadow corrector's effective track */
-extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling corrector's effective track */
+extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling correction's effective track */
 static int pgxp_on(void) { return pgxp_lite_on; }
 static int ring_lite = -1;   /* the layout the ring is in now; -1: not started */
 static int ring_sync(int lite)   /* 1: the ring is in this layout (drained first if it changed) */
@@ -1664,24 +1663,18 @@ static void log_stats(void)
     {   /* PGXP-lite (hwr_core.c), counted since the last line */
         extern unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;
         extern unsigned int pgxp_lite_addr_hits, pgxp_lite_hits, pgxp_lite_welds;
-        extern unsigned int pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards;
-        extern unsigned int pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte;
-        extern unsigned int hwr_pgxp_corr_persp;
+        extern unsigned int pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte;
         if (pgxp_lite_on)
             logf_("hwr: PGXP: %u polygons at sub-pixel positions, %u at whole pixels (not from the GTE; of those %u with one corner found alone); corners found by address %u, by value %u; %u polygons with a corner standing for two vertices; %u vertices welded to a neighbour\n",
                   hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_alone, pgxp_lite_addr_hits, pgxp_lite_hits, hwr_pgxp_amb, pgxp_lite_welds);
         pgxp_lite_addr_hits = pgxp_lite_hits = pgxp_lite_welds = 0;
-        if (pgxp_corr_track)
-            logf_("hwr: PGXP corrector: %u lookups (lite misses), %u hits (position + depth supplied), %u guard skips (>1.5px)\n",
-                  pgxp_corr_lookups, pgxp_corr_hits, pgxp_corr_guards);
-        pgxp_corr_lookups = pgxp_corr_hits = pgxp_corr_guards = 0;
         if (pgxp_cull_track)
-            logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero), %u fell back (no GTE shadow)\n",
-                  pgxp_corr_nclip_total, pgxp_corr_nclip_flip, pgxp_corr_nclip_restore, pgxp_corr_nclip_nogte);
-        pgxp_corr_nclip_total = pgxp_corr_nclip_flip = pgxp_corr_nclip_restore = pgxp_corr_nclip_nogte = 0;
+            logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero), %u fell back (not in the lite table)\n",
+                  pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte);
+        pgxp_nclip_total = pgxp_nclip_flip = pgxp_nclip_restore = pgxp_nclip_nogte = 0;
         if (pgxp_lite_on >= 2)
-            logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired, %u with a corrector corner), %u flat\n",
-                  hwr_pgxp_persp, hwr_pgxp_misfit, hwr_pgxp_corr_persp, hwr_pgxp_flat);
+            logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired), %u flat\n",
+                  hwr_pgxp_persp, hwr_pgxp_misfit, hwr_pgxp_flat);
         {   /* PGXP's share of the polygon time below (the polygon line itself is in the debug block) */
             extern unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth, pgxp_lite_ticks;
             static unsigned pg_last;
@@ -1696,7 +1689,7 @@ static void log_stats(void)
             hwr_pgxp_t_find = hwr_pgxp_t_pick = hwr_pgxp_t_depth = 0;
             pgxp_lite_ticks = 0;
         }
-        hwr_pgxp_polys = hwr_pgxp_misses = hwr_pgxp_persp = hwr_pgxp_flat = hwr_pgxp_misfit = hwr_pgxp_alone = hwr_pgxp_amb = hwr_pgxp_corr_persp = 0;
+        hwr_pgxp_polys = hwr_pgxp_misses = hwr_pgxp_persp = hwr_pgxp_flat = hwr_pgxp_misfit = hwr_pgxp_alone = hwr_pgxp_amb = 0;
     }
     if (R.base.full)
         logf_("hwr: VRAM syncs: %u CPU->RSX, %u RSX->CPU, %.1f ms total; %u VRAM copies done by the RSX\n", R.syncs_in, R.syncs_out,
