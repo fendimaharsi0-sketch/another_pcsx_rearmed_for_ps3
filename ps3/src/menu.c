@@ -576,6 +576,8 @@ static void vmc_import_page(void);
 static int vmc_slot_picker(int slot, int live);
 
 extern int SwapMcd(int slot, const char *path);   /* core, libpcsxcore/sio.c */
+extern void game_bios_card_set(int slot, const char *name);   /* main.c: one slot of the BIOS boot cards */
+extern const char *game_bios_card_get(int slot);              /* main.c: the same, read back */
 static void setting_change(int i, int dir, int in_game)
 {
     char before[64], after[64];
@@ -976,6 +978,7 @@ static int vmc_slot_picker(int slot, int live)
     char title[32], defpath[1300], deftext[64], path[1300];
     const char *picked_title = NULL, *picked_desc = NULL;
     char picked_path[1300];
+    const char *bname = "";   /* BIOS boot name of the picked card (live branch) */
     int have_path = 0;
     snprintf(title, sizeof title, "Memory card %d", slot);
     snprintf(defpath, sizeof defpath, APP_DIR "/saves/pcsx-card%d.mcd", slot);
@@ -1080,9 +1083,30 @@ static int vmc_slot_picker(int slot, int live)
         vmc_message(title, "Cannot swap to Auto", "This game has no serial.", "Nothing was changed.");
         return 0;
     }
+    /* In the BIOS the boot reads bios_card[], not cfg.mc*_mode, so a live
+       swap must move that choice too or the next Boot BIOS reverts to the
+       home picker's card. The name is the picked file's base name, exactly
+       as the Boot BIOS page lists it; None is "" (no card). Refuse when the
+       other slot already boots from that file, as the Boot BIOS page does. */
+    if (app_game_is_bios()) {
+        if (*mode != 2) {
+            const char *slash = strrchr(picked_path, '/');
+            bname = slash ? slash + 1 : picked_path;
+        }
+        if (bname[0]) {
+            const char *other = game_bios_card_get(slot == 1 ? 2 : 1);
+            if (other && other[0] && !strcmp(bname, other)) {
+                char msg[300];
+                snprintf(msg, sizeof msg, "That card is already used by slot %d.", slot == 1 ? 2 : 1);
+                vmc_message(title, "Cannot pick that card", msg, "Pick a different card.");
+                return 0;
+            }
+        }
+    }
     if (SwapMcd(slot, picked_path)) {
         char ok[300];
         snprintf(ok, sizeof ok, "Slot %d now uses %s.", slot, picked_desc);
+        if (app_game_is_bios()) game_bios_card_set(slot, bname);
         vmc_message(title, "Memory card swapped", ok, "The game sees the new card now.");
         return 1;
     }
@@ -1776,14 +1800,22 @@ static void bios_scan_dir(char **cards, int *ncards, const char *dir)
 static int bios_cards_page(void)
 {
     static char *cards[MAX_CARDS];
-    static int ncards, pick[2] = { 1, 0 };   /* index + 1 into cards, 0 none */
-    int i, row = 0, ret = 0;
+    static int ncards, pick[2] = { 0, 0 };   /* index + 1 into cards, 0 none; set from bios_card[] below */
+    int i, j, row = 0, ret = 0;
     for (i = 0; i < ncards; i++) free(cards[i]);
     ncards = 0;
     bios_scan_dir(cards, &ncards, APP_DIR "/saves");
     bios_scan_dir(cards, &ncards, APP_DIR "/saves/imported");
     qsort(cards, ncards, sizeof *cards, cmp_games);
     for (i = 0; i < 2; i++) if (pick[i] > ncards) pick[i] = 0;
+    /* Start on the cards the BIOS actually uses now (a live swap in the BIOS
+       moved bios_card[]; the page must show that card, not the pick from the
+       last Boot BIOS). No match (file gone, or never picked) leaves 0. */
+    for (i = 0; i < 2; i++) {
+        const char *b = game_bios_card_get(i + 1);
+        pick[i] = 0;
+        if (b && b[0]) for (j = 0; j < ncards; j++) if (!strcmp(cards[j], b)) { pick[i] = j + 1; break; }
+    }
     if (ncards && !pick[0] && !pick[1]) pick[0] = 1;
     logf_("menu: Boot BIOS, %d memory card files\n", ncards);
     menu_name = "Boot BIOS";

@@ -45,6 +45,21 @@ void game_bios_cards(const char *c1, const char *c2)
     snprintf(bios_card[0], sizeof bios_card[0], "%s", c1 ? c1 : "");
     snprintf(bios_card[1], sizeof bios_card[1], "%s", c2 ? c2 : "");
 }
+/* One slot of the same choice, for the live swap in the BIOS: the BIOS boots
+   from bios_card[], not from cfg.mc*_mode, so a live swap that only changed
+   cfg would revert on the next Boot BIOS. The Boot BIOS page reads the
+   choice back through game_bios_card_get, so the swap sticks for the next
+   boot in this session. */
+void game_bios_card_set(int slot, const char *name)
+{
+    if (slot < 1 || slot > 2) return;
+    snprintf(bios_card[slot - 1], sizeof bios_card[slot - 1], "%s", name ? name : "");
+}
+const char *game_bios_card_get(int slot)
+{
+    if (slot < 1 || slot > 2) return "";
+    return bios_card[slot - 1];
+}
 int app_game_is_bios(void) { return game_is_bios; }
 
 /* ---------------- system events (PS button menu, quit from the XMB) ---------------- */
