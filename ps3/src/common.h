@@ -76,7 +76,7 @@ typedef struct {
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
     int mc_swap;        /* global-only master gate for live memory card swap (default off): the Swap memory card row in the pause menu only appears when this is on */
     int theme_shape;    /* menu shape, global-only: 0 Mixed (rounded panels/chips, square rows), 1 Round (rows rounded too), 2 Square (everything square) */
-    int theme_cover;    /* cover style, global-only: 0 Glossy (plastic shine), 1 Matte, 2 Corners (accent brackets), 3 Frame (raised bezel) */
+    int theme_cover;    /* cover style, global-only: 0 Glossy (spine case + shine), 1 Matte (spine case), 2 Corners (accent brackets), 3 Framed (black frame + shine), 4 Frame Matte (black frame), 5 Shine (bare art + shine), 6 Plain (bare art) */
     int theme_color;    /* menu colours, global-only: 0 Yellow, 1 Blue, 2 Green, 3 Red, 4 Light, 5 Gray, 6 LCD (warm mono) */
     /* colour correction (Color page, per game): -10..+10, 0 neutral, no enable
        toggle — all zero is the picture as it is, and the panel bypasses the

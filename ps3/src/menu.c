@@ -425,9 +425,9 @@ static const item_t settings_items[] = {
     { "Gamma", "-10 darker midtones, +10 brighter midtones. Black stays black, white stays white. 0 is the picture as it is." },
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
     { "Auto resolution", "Target height the RSX renderer aims for, in 0.5x steps. Manual uses the Renderer scale." },
-    { "Live memory card swap", "Allow swapping the memory card while a game runs, from the quick menu. Experimental: off unless you need it." },
+    { "Live memory card swap", "Allow swapping the memory card while a game runs or in the BIOS, from the quick menu. Experimental: off unless you need it." },
     { "Menu shape", "Mixed: rounded panels and chips, square rows. Round: rows rounded too. Square: everything square." },
-    { "Cover", "Glossy: plastic shine over the art. Matte: no shine. Corners: accent brackets on the case corners. Frame: a raised frame around the case." },
+    { "Cover", "Glossy: spine case with shine. Matte: spine case, no shine. Corners: spine case with accent brackets. Framed: black frame around the art, with shine. Frame Matte: black frame, no shine. Shine: bare art with shine. Plain: bare art, no shine." },
     { "Color preset", "Menu colours: Yellow, Blue, Green, Red, Light, Gray, or LCD warm mono." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
@@ -1663,23 +1663,34 @@ static void cover_corners(void)
 static void draw_cover_panel(const char *title, const char *line2)
 {
     panel_fill(PANEL_X, 90, PANEL_W, 530, C_PANEL);
-    if (cfg.theme_cover == THEME_COVER_FRAME) {
-        /* Raised bezel: a mid-grey rounded frame with a light inner edge,
-           drawn behind the case so the case sits inside it. */
-        ovl_round_fill(COVER_X - 10, 110 - 10, CASE_W + 20, CASE_H + 20, 12, 0xff8a8a8au);
-        ovl_round_fill(COVER_X - 5, 110 - 5, CASE_W + 10, CASE_H + 10, 9, 0xffd8d8d8u);
-    }
     if (cover_img.px) {
-        /* Spine case: drop shadow, black case base, spine grooves, art
-           inset right of the spine, plastic shine over the art. */
-        case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
-        case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
-        ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
-        ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
-        ovl_blit(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART,
+        /* The case treatment depends on the Cover style. Spine styles keep
+           the picked jewel case (shadow, black base, spine grooves, art
+           inset right of the spine). Framed styles use a black frame
+           around the art (shadow + black base, art inset). Bare styles
+           draw no case at all: the art fills the case rect. */
+        int ax, ay, as;  /* art rect */
+        if (cfg.theme_cover == THEME_COVER_FRAMED ||
+            cfg.theme_cover == THEME_COVER_FRAME_MATTE) {
+            case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+            case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+            ax = COVER_X + 20; ay = 122; as = 252;
+        } else if (cfg.theme_cover == THEME_COVER_SHINE ||
+                   cfg.theme_cover == THEME_COVER_PLAIN) {
+            ax = COVER_X; ay = 110; as = 276;
+        } else {
+            case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+            case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+            ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
+            ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
+            ax = COVER_X + SPINE_W + 2; ay = 110 + 6; as = CASE_ART;
+        }
+        ovl_blit(ax, ay, as, as,
                  cover_img.px, cover_img.w, cover_img.h);
-        if (cfg.theme_cover == THEME_COVER_GLOSSY)
-            cover_shine(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART);
+        if (cfg.theme_cover == THEME_COVER_GLOSSY ||
+            cfg.theme_cover == THEME_COVER_FRAMED ||
+            cfg.theme_cover == THEME_COVER_SHINE)
+            cover_shine(ax, ay, as, as);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     } else {
@@ -2527,7 +2538,8 @@ int menu_ingame(void)
        is shown for any running disc (not the BIOS): it is NOT gated on
        the playlist size, so a GameShark-style boot disc (a single image)
        can swap to any scanned image. The Swap memory card row only exists
-       when the mc_swap gate is on (and not the BIOS). The Cheats row only
+       when the mc_swap gate is on, in a game and in the BIOS (the BIOS
+       memory card screen is where it is most useful). The Cheats row only
        exists when the global gate is on (and the running game has a
        serial); the Dump row only when VRAM check is on. qitems maps
        display rows to action ids, rebuilt every frame so a gate toggle in
@@ -2547,7 +2559,7 @@ int menu_ingame(void)
         N = 0;
         qitems[N++] = 0; qitems[N++] = 1; qitems[N++] = 2;
         if (!app_game_is_bios()) qitems[N++] = 3;
-        if (cfg.mc_swap && !app_game_is_bios()) qitems[N++] = 10;
+        if (cfg.mc_swap) qitems[N++] = 10;
         qitems[N++] = 4; qitems[N++] = 5; qitems[N++] = 6;
         if (cfg.cheat_enable && !app_game_is_bios() && hooks_game_serial()[0]) qitems[N++] = 7;
         qitems[N++] = 8;

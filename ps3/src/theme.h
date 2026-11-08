@@ -21,7 +21,10 @@ enum {
     THEME_COVER_GLOSSY = 0, /* plastic shine over the art (the old look) */
     THEME_COVER_MATTE,      /* no shine */
     THEME_COVER_CORNERS,    /* accent corner brackets around the case */
-    THEME_COVER_FRAME,      /* raised two-tone frame around the case */
+    THEME_COVER_FRAMED,     /* black frame around the art, with shine */
+    THEME_COVER_FRAME_MATTE,/* black frame around the art, no shine */
+    THEME_COVER_SHINE,      /* bare art with shine, no case at all */
+    THEME_COVER_PLAIN,      /* bare art, no case, no shine */
     THEME_COVER_COUNT
 };
 
@@ -55,7 +58,7 @@ static const char *theme_shape_names[THEME_SHAPE_COUNT] = {
     "Mixed", "Round", "Square"
 };
 static const char *theme_cover_names[THEME_COVER_COUNT] = {
-    "Glossy", "Matte", "Corners", "Frame"
+    "Glossy", "Matte", "Corners", "Framed", "Frame Matte", "Shine", "Plain"
 };
 static const char *theme_color_names[THEME_COLOR_COUNT] = {
     "Yellow", "Blue", "Green", "Red", "Light", "Gray", "LCD"

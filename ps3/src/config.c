@@ -54,7 +54,7 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "cheat_enable", F(cheat_enable), 0, 1, 0 },
     { "mc_swap", F(mc_swap), 0, 1, 0 },
     { "theme_shape", F(theme_shape), 0, 2, 0 },
-    { "theme_cover", F(theme_cover), 0, 3, 0 },
+    { "theme_cover", F(theme_cover), 0, 6, 0 },
     { "theme_color", F(theme_color), 0, 6, 0 },
     { "color_brightness", F(color_brightness), -10, 10, 1 },
     { "color_contrast", F(color_contrast), -10, 10, 1 },
