@@ -2,7 +2,9 @@
  * The palette table is the single source of truth: menu.c reads every
  * menu colour through theme_pal(), so a preset change repaints the whole
  * menu on the next frame with no call-site edits. Values are the v2
- * mockup's: 4 dark presets, then Light, retro Grey and warm-LCD mono.
+ * mockup's: 4 dark presets, then Light, retro Grey, warm-LCD mono,
+ * Game Boy green LCD, and light Pink/Purple. Light presets carry dark
+ * text and a dark accent on a pale panel; dark presets the reverse.
  * panel keeps the old 0xe0 alpha (translucent over the game/clear colour);
  * everything else is opaque. */
 #ifndef THEME_H
@@ -36,6 +38,9 @@ enum {
     THEME_COLOR_LIGHT,
     THEME_COLOR_GRAY,
     THEME_COLOR_LCD,        /* warm monochrome, like an old LCD */
+    THEME_COLOR_LCD_GREEN,  /* Game Boy yellow-green monochrome */
+    THEME_COLOR_PINK,       /* light pink */
+    THEME_COLOR_PURPLE,     /* light purple */
     THEME_COLOR_COUNT
 };
 
@@ -52,6 +57,9 @@ static const theme_pal_t theme_pals[THEME_COLOR_COUNT] = {
     { 0xff20242au, 0xff6a7078u, 0xff9a6b00u, 0xe0ffffffu, 0xffc2d2e2u, 0xffc9d1d8u, 0xffdfe3e6u }, /* Light */
     { 0xff1c1c1cu, 0xff55595eu, 0xff2f4d7du, 0xe0cfd3d8u, 0xffa8adb2u, 0xff9aa0a6u, 0xffb8bcc0u }, /* Gray */
     { 0xff2e2410u, 0xff6b5a30u, 0xff7a5c14u, 0xe0e6d9acu, 0xffc2ab72u, 0xffc9b478u, 0xffd8c690u }, /* LCD */
+    { 0xff16280eu, 0xff5a6b2eu, 0xff306230u, 0xe0ccd88eu, 0xffaebf62u, 0xffb8c76eu, 0xffc2cf7au }, /* LCD Green */
+    { 0xff2a1a20u, 0xff7a5a68u, 0xffa31e63u, 0xe0f2dfe8u, 0xffd9b8c8u, 0xffe0c8d4u, 0xffe8d8e0u }, /* Pink */
+    { 0xff221a2au, 0xff6a5a7au, 0xff6a2fb0u, 0xe0e6dcf2u, 0xffc2b8d9u, 0xffcec2ddu, 0xffdcd8e8u }, /* Purple */
 };
 
 static const char *theme_shape_names[THEME_SHAPE_COUNT] = {
@@ -61,7 +69,7 @@ static const char *theme_cover_names[THEME_COVER_COUNT] = {
     "Glossy", "Matte", "Corners", "Framed", "Frame Matte", "Shine", "Plain"
 };
 static const char *theme_color_names[THEME_COLOR_COUNT] = {
-    "Yellow", "Blue", "Green", "Red", "Light", "Gray", "LCD"
+    "Yellow", "Blue", "Green", "Red", "Light", "Gray", "LCD", "LCD Green", "Pink", "Purple"
 };
 
 #endif /* THEME_H */
