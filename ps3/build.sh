@@ -134,6 +134,11 @@ spu-gcc -O3 -Wall -Wno-unused-function -I"$CORE/libpcsxcore" -Ispu -I"$PSL1GHT/s
     -L"$PSL1GHT/spu/lib" -lsputhread -o "$GEN/mdec_spu.elf"
 spu-strip "$GEN/mdec_spu.elf"
 c_array "$GEN/mdec_spu.elf" mdec_spu_elf >"$GEN/spu_bins.h"
+# PS1 SPU (sound) mixing on a Cell SPU (candidate B: voice mixing only)
+spu-gcc -O3 -Wall -Wno-unused-function -Ispu -I"$PSL1GHT/spu/include" spu/audio_spu.c \
+    -L"$PSL1GHT/spu/lib" -lsputhread -o "$GEN/audio_spu.elf"
+spu-strip "$GEN/audio_spu.elf"
+c_array "$GEN/audio_spu.elf" audio_spu_elf >>"$GEN/spu_bins.h"
 
 echo "== front-end"
 CF="-O2 -Wall -Wno-unused-function -mcpu=cell -I$PSL1GHT/ppu/include -I$GEN -Isrc -Isrc/hwr \
@@ -142,6 +147,7 @@ OBJS=""
 for f in src/*.c src/hwr/*.c; do
     o=$B/obj/$(basename "$f" .c).o
     X=""; [ "$(basename "$f")" = spu_mdec.c ] && X="-Ispu -I$CORE/libpcsxcore"
+    [ "$(basename "$f")" = spu_audio.c ] && X="-Ispu"
     ppu-gcc $CF $X -c "$f" -o "$o"
     OBJS="$OBJS $o"
 done

@@ -329,6 +329,11 @@ else ifeq ($(platform), psl1ght)
 	# pcsxr-threads.c has its own lv2 thread code
 	NO_FEATURES_CPU = 1
 	USE_ASYNC_SPU = 0
+	# PS1 SPU (sound) mixing on a Cell SPU (ps3/spu/audio_spu.c): the core's
+	# dfsound worker backend is the SPU, not a pthread (USE_ASYNC_SPU stays
+	# 0). The feature itself is off by default (cfg.spu_audio) and only
+	# engages when the front end answers pcsx_rearmed_spu_thread=enabled.
+	CFLAGS += -DUSE_SPU_AUDIO -Ips3/spu
 	USE_LIBRETRO_VFS = 0
 
 # PSP

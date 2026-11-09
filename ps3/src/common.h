@@ -56,6 +56,7 @@ typedef struct {
     int analog;         /* DualShock analog sticks on (else a digital pad) */
     int vram_check;     /* debug: software renderer draws too, for VRAM dumps */
     int spu_mdec;       /* FMV (MDEC) decoding on the SPUs */
+    int spu_audio;      /* PS1 SPU (sound) mixing on a Cell SPU */
     int audio_stretch;  /* sound slows down with the game instead of crackling */
     int cpu_clock;      /* PS1 CPU speed: 0 normal, 1 +50%, 2 +75% */
     int debug_log;      /* extra logging: core debug messages, emulator state in hang and 10 s reports */
@@ -243,5 +244,17 @@ int  spu_aa_start(uint64_t in_ea, uint64_t out_ea, uint64_t label_ea, uint32_t l
                   unsigned w, unsigned h, unsigned pitch);
 int  spu_aa_wait(unsigned max_us);         /* 1 done, 0 not yet, -1 an SPU gave up */
 void spu_aa_stats(unsigned *frames, unsigned *late, double *wait_ms);   /* and resets */
+
+/* spu_audio.c: PS1 SPU (sound) mixing on a Cell SPU.
+ * audio_work is defined in ps3/spu/audio_mix.h; forward-declared here so
+ * this header does not have to include the whole mixer. */
+struct audio_work;
+int  spu_audio_init(void);                 /* starts the audio SPU thread; 1 = usable */
+void spu_audio_shutdown(void);
+int  spu_audio_available(void);            /* the audio SPU thread is up */
+int  spu_audio_start(const struct audio_work *work, const unsigned char *blocks,
+                     uint32_t nblocks);   /* job slot, or -1 */
+int  spu_audio_wait(int slot, unsigned max_us); /* 1 done, 0 not yet, -1 the SPU gave up */
+void spu_audio_fetch(int slot, struct audio_work *out); /* outputs, after wait == 1 */
 
 #endif

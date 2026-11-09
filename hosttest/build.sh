@@ -44,6 +44,8 @@ if [ -d $R/.core-le ]; then
 fi
 # SPU FMV decoder (dispatcher + SPU program run directly, DMA rules checked): spumdec/spumdec_test [iterations]
 gcc -O2 -g -DHOST_TEST -I$C/libpcsxcore -I$R/ps3/spu spumdec/test.c $R/ps3/src/spu_mdec.c $R/ps3/spu/mdec_spu.c -o spumdec/spumdec_test
+# SPU audio mixing (SPU mixer vs PPU mixer, bit-exact): spuaudio/spuaudio_test
+gcc -O2 -g -DHOST_TEST -DUSE_ASYNC_SPU -I$R/plugins/dfsound -I$R/ps3/spu -I$R/frontend spuaudio/test.c -o spuaudio/spuaudio_test
 echo built
 # SPU edge smoothing kernel: vector code vs scalar reference (writes aa_in/aa_out.ppm)
 gcc -O2 -ffp-contract=off -I$R/ps3/spu spuaa/test.c -lm -o spuaa/aa_test

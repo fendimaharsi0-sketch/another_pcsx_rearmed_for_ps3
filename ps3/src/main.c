@@ -149,6 +149,7 @@ static const char *option_value(const char *key)
     if (!strcmp(key, "pcsx_rearmed_display_fps_v2")) return "disabled";
     if (!strcmp(key, "pcsx_rearmed_spu_interpolation")) return "simple";
     if (!strcmp(key, "pcsx_rearmed_spu_reverb")) return "enabled";
+    if (!strcmp(key, "pcsx_rearmed_spu_thread")) return cfg.spu_audio ? "enabled" : "disabled";   /* PS1 SPU mixing on a Cell SPU (default off) */
     /* the GPU renderer's hooks run wherever the software renderer runs: keep it
        on this thread while the RSX renderer is on */
     if (!strcmp(key, "pcsx_rearmed_gpu_thread_rendering"))

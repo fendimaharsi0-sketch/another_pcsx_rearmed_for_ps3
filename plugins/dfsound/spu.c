@@ -59,6 +59,36 @@ static int iFMod[NSSIZE];
 static int RVB[NSSIZE * 2];
 int ChanBuf[NSSIZE];
 
+#ifdef USE_SPU_AUDIO
+/* SPU audio gather (PS3 only): while queue_channel_work builds a job, the
+ * block walk (skip_block / decode_block) records every ADPCM block the job
+ * will consume, in order, per channel. The SPU program reads the blocks in
+ * exactly that order (start += 1 per block, start = loop on flags&1), so
+ * the recorded sequence IS the gathered-buffer layout: no dedup, revisits
+ * (loops) kept, each entry used once. The PPU copies the recorded blocks
+ * out of SPU RAM into one contiguous DMA buffer when the job is submitted.
+ * RAM offsets are byte offsets into spu RAM (0..512*1024); the block index
+ * is the offset / 16. 8192 entries is far above the real max (24 channels
+ * x ~130 blocks at the highest pitch). */
+#define SPU_AUDIO_GATHER_MAX 8192
+static unsigned int spu_audio_gather_off[SPU_AUDIO_GATHER_MAX]; /* RAM byte offset */
+static unsigned char spu_audio_gather_ch[SPU_AUDIO_GATHER_MAX];
+static unsigned char spu_audio_gather_has[24]; /* a block was recorded for this channel */
+static int spu_audio_gather_n;
+static int spu_audio_gather_on;
+static void spu_audio_gather_record(int ch, unsigned int ram_off)
+{
+ if (ch < 0 || ch >= 24)
+  return;
+ if (spu_audio_gather_n < SPU_AUDIO_GATHER_MAX) {
+  spu_audio_gather_off[spu_audio_gather_n] = ram_off;
+  spu_audio_gather_ch[spu_audio_gather_n] = (unsigned char)ch;
+  spu_audio_gather_has[ch] = 1;
+  spu_audio_gather_n++;
+ }
+}
+#endif
+
 #define CDDA_BUFFER_SIZE (16384 * sizeof(uint32_t)) // must be power of 2
 
 ////////////////////////////////////////////////////////////////////////
@@ -260,6 +290,14 @@ static int decode_block(void *unused, int ch, sample_buf *sb)
 
  check_irq(ch, start);
 
+#ifdef USE_SPU_AUDIO
+ /* the FMOD frequency channel is mixed on the PPU (double work) and its
+  * blocks are walked here, not by skip_block: record the block being
+  * decoded, in order. Same rule as skip_block (record start). */
+ if (spu_audio_gather_on)
+  spu_audio_gather_record(ch, (unsigned int)(start - spu.spuMemC));
+#endif
+
  predict_nr = start[0];
  shift_factor = predict_nr & 0xf;
  predict_nr >>= 4;
@@ -300,6 +338,19 @@ static int skip_block(int ch)
  flags = start[1];
  if (flags & 4 && !s_chan->bIgnoreLoop)
   s_chan->pLoop = start;
+
+#ifdef USE_SPU_AUDIO
+ /* record the block being processed (start), NOT the block pCurr advances
+  * to: after a loop-end block, the next block the consumer reads is the
+  * loop target (start = pLoop here), not pCurr + 16. The worker/SPU
+  * follows the same sequence (flags&4 sets loop, flags&1 jumps to it),
+  * so recording start keeps the gathered order identical. The first
+  * block of the job is recorded by queue_channel_work; a block is
+  * recorded here when it is exhausted, which is also when its successor
+  * is decided, so the sequence stays in consumption order. */
+ if (spu_audio_gather_on)
+  spu_audio_gather_record(ch, (unsigned int)(start - spu.spuMemC));
+#endif
 
  start += 16;
 
@@ -695,7 +746,7 @@ static void do_samples_finish(int *SSumLR, int ns_to,
 
 // optional worker thread handling
 
-#if defined(USE_ASYNC_SPU) || defined(WANT_THREAD_CODE)
+#if defined(USE_ASYNC_SPU) || defined(WANT_THREAD_CODE) || defined(USE_SPU_AUDIO)
 
 // worker thread state
 static struct spu_worker {
@@ -794,6 +845,14 @@ static void queue_channel_work(int ns_to, unsigned int silentch)
  unsigned int mask;
  int ch, d;
 
+#ifdef USE_SPU_AUDIO
+ /* the block walk below (do_samples_skip / do_samples_gauss) records
+  * every ADPCM block this job will consume, in order, per channel */
+ spu_audio_gather_on = 1;
+ spu_audio_gather_n = 0;
+ memset(spu_audio_gather_has, 0, sizeof(spu_audio_gather_has));
+#endif
+
  work = &worker->i[worker->i_ready & WORK_I_MASK];
  work->ns_to = ns_to;
  work->ctrl = spu.spuCtrl;
@@ -886,6 +945,44 @@ static void queue_channel_work(int ns_to, unsigned int silentch)
   while (spu.rvb->CurrAddr >= 0x40000)
    spu.rvb->CurrAddr -= 0x40000 - spu.rvb->StartAddr;
  }
+
+#ifdef USE_SPU_AUDIO
+ /* a channel that never exhausted its first block has no recorded block
+  * yet (skip_block only records on exhaustion), but the SPU still decodes
+  * that first block: record it now, once, at the end of its section.
+  * (FMOD frequency channels are already covered: decode_block recorded
+  * their first block, so gather_has is set and nothing is added here.) */
+ spu_audio_gather_on = 0;
+ mask = work->channels_on;
+ for (ch = 0; mask != 0; ch++, mask >>= 1) {
+  if (!(mask & 1))
+   continue;
+  if (!spu_audio_gather_has[ch])
+   spu_audio_gather_record(ch, (unsigned int)work->ch[ch].start);
+ }
+ /* trailing partial block: skip_block only records a block when it is
+  * exhausted, so the block the channel is mid-way through at the end
+  * of the job (s_chan->pCurr, iSBPos/spos > 0) was never recorded, yet
+  * the SPU needs it to produce the last samples. It is a new occurrence
+  * in the sequence (even if the same RAM block was recorded earlier via
+  * a loop), so it is appended as its own entry. At a block boundary
+  * (iSBPos == 0 and spos == 0) there is no partial block: pCurr is the
+  * next block, which the SPU never reads. Noise channels decode no
+  * blocks, so they are skipped. */
+ mask = work->channels_on;
+ for (ch = 0; mask != 0; ch++, mask >>= 1) {
+  SPUCHAN *s_chan;
+  if (!(mask & 1))
+   continue;
+  s_chan = &spu.s_chan[ch];
+  if (s_chan->bNoise)
+   continue;
+  if (s_chan->iSBPos == 0 && s_chan->spos == 0)
+   continue;
+  spu_audio_gather_record(ch,
+   (unsigned int)(s_chan->pCurr - spu.spuMemC));
+ }
+#endif
 
  worker->i_ready++;
  thread_work_start();
@@ -1408,7 +1505,283 @@ static void exit_spu_thread(void)
  worker = NULL;
 }
 
-#else // if !defined(USE_ASYNC_SPU)
+#elif defined(USE_SPU_AUDIO)
+
+/* PS1 SPU mixing on a Cell SPU (PS3). This replaces the pthread worker:
+ * the "worker thread" is the audio SPU program (ps3/spu/audio_spu.c) on
+ * the 6th usable SPU. queue_channel_work builds the work_item as usual
+ * (and the gather records the ADPCM blocks); thread_work_start translates
+ * it to an audio_work and submits it to the SPU; thread_work_wait_sync
+ * reaps it (fetch + REVERBDo on the PPU, candidate B). If the SPU cannot
+ * start, or a job fails, mixing falls back to do_channel_work on the PPU
+ * (the same worker mixer, run inline) and stays there for the session. */
+
+#include "audio_work.h"   /* audio_work; needs -Ips3/spu on the PS3 build */
+
+/* PPU-side SPU thread API (ps3/src/spu_audio.c) */
+extern int  spu_audio_init(void);
+extern void spu_audio_shutdown(void);
+extern int  spu_audio_available(void);
+extern int  spu_audio_start(const struct audio_work *work,
+ const unsigned char *blocks, uint32_t nblocks);
+extern int  spu_audio_wait(int slot, unsigned max_us);
+extern void spu_audio_fetch(int slot, struct audio_work *out);
+
+/* staging for one job (thread_work_start runs on the emulation thread,
+ * so a single static job + block buffer is enough) */
+static audio_work spu_ajob;
+static unsigned char spu_ablocks[AUDIO_MAXBLOCKS * 16];
+static audio_work spu_afetch;
+static int spu_slot_for_work[WORK_MAXCNT];
+static unsigned char spu_done_flag[WORK_MAXCNT];
+static int spu_dead;   /* the SPU gave up; mix on the PPU from now on */
+
+/* Build an audio_work + gathered-block buffer from the just-queued
+ * work_item and the recorded block list. Returns the block count. */
+static unsigned int spu_audio_build_job(struct work_item *work,
+ audio_work *ajob, unsigned char *ablocks)
+{
+ unsigned int sec_base[24], sec_count[24], sec_pos[24];
+ unsigned int nblocks = 0, total = 0;
+ unsigned int mask;
+ int ch, i;
+
+ memset(ajob, 0, sizeof(*ajob));
+ ajob->ns_to = work->ns_to;
+ ajob->ctrl = work->ctrl;
+ ajob->decode_pos = work->decode_pos;
+ ajob->rvb_addr = work->rvb_addr;
+ ajob->interp = spu.interpolation;
+ ajob->noise_count = spu.dwNoiseCount;
+ ajob->noise_val = spu.dwNoiseVal;
+ ajob->channels_new = work->channels_new;
+ ajob->channels_on = work->channels_on;
+ ajob->channels_silent = work->channels_silent;
+
+ /* section bases: the recorded list is already grouped by channel
+  * (queue_channel_work walks one channel at a time) */
+ memset(sec_count, 0, sizeof(sec_count));
+ for (i = 0; i < spu_audio_gather_n; i++)
+  sec_count[spu_audio_gather_ch[i]]++;
+ for (ch = 0; ch < 24; ch++) {
+  sec_base[ch] = total;
+  total += sec_count[ch];
+ }
+ if (total > AUDIO_MAXBLOCKS)
+  total = AUDIO_MAXBLOCKS;   /* cannot happen (8192 recorded, 4096 cap) */
+ nblocks = total;
+
+ /* copy the recorded blocks out of SPU RAM, per channel, in order */
+ memcpy(sec_pos, sec_base, sizeof(sec_pos));
+ for (i = 0; i < spu_audio_gather_n; i++) {
+  unsigned int off, idx;
+  ch = spu_audio_gather_ch[i];
+  off = spu_audio_gather_off[i];
+  idx = sec_pos[ch]++;
+  if (idx >= AUDIO_MAXBLOCKS)
+   continue;
+  memcpy(ablocks + idx * 16, spu.spuMemC + off, 16);
+ }
+
+ /* per-channel state: start = first recorded block (section base);
+  * loop = first recorded occurrence of the loop RAM offset */
+ mask = work->channels_on;
+ for (ch = 0; mask != 0; ch++, mask >>= 1) {
+  unsigned int loop_off, loop_idx;
+  if (!(mask & 1))
+   continue;
+  ajob->ch[ch].spos = work->ch[ch].spos;
+  ajob->ch[ch].sbpos = work->ch[ch].sbpos;
+  ajob->ch[ch].sinc = work->ch[ch].sinc;
+  ajob->ch[ch].vol_l = work->ch[ch].vol_l;
+  ajob->ch[ch].vol_r = work->ch[ch].vol_r;
+  ajob->ch[ch].ns_to = work->ch[ch].ns_to;
+  ajob->ch[ch].bNoise = work->ch[ch].bNoise;
+  ajob->ch[ch].bFMod = work->ch[ch].bFMod;
+  ajob->ch[ch].bRVBActive = work->ch[ch].bRVBActive;
+  ajob->ch[ch].bStarting = work->ch[ch].bStarting;
+  ajob->ch[ch].iRawPitch = spu.s_chan[ch].iRawPitch;
+  memcpy(&ajob->ch[ch].adsr, &work->ch[ch].adsr, sizeof(ajob->ch[ch].adsr));
+  ajob->ch[ch].start = (int)sec_base[ch];
+  loop_off = (unsigned int)work->ch[ch].loop;
+  loop_idx = sec_base[ch];   /* default: the loop target was not reached */
+  for (i = 0; i < spu_audio_gather_n; i++) {
+   if (spu_audio_gather_ch[i] != ch)
+    continue;
+   if (spu_audio_gather_off[i] != loop_off)
+    continue;
+   /* position of this entry within the channel's section */
+   {
+    unsigned int pos = 0;
+    int j;
+    for (j = 0; j < i; j++)
+     if (spu_audio_gather_ch[j] == ch)
+      pos++;
+    loop_idx = sec_base[ch] + pos;
+   }
+   break;
+  }
+  ajob->ch[ch].loop = (int)loop_idx;
+ }
+
+ memcpy(ajob->sb_thread, spu.sb_thread, sizeof(ajob->sb_thread));
+ return nblocks;
+}
+
+static void init_spu_thread(void)
+{
+ spu.sb_thread = spu.sb_thread_;
+ if (!spu_config.iUseThread)
+  return;
+ if (worker)
+  return;
+ worker = calloc(1, sizeof(*worker));
+ if (worker == NULL)
+  return;
+ if (!spu_audio_init() || !spu_audio_available()) {
+  /* no SPU thread: stay synchronous (worker == NULL) */
+  free(worker);
+  worker = NULL;
+  return;
+ }
+ spu_dead = 0;
+ memset(spu_slot_for_work, -1, sizeof(spu_slot_for_work));
+ memset(spu_done_flag, 0, sizeof(spu_done_flag));
+}
+
+static void exit_spu_thread(void)
+{
+ if (worker == NULL)
+  return;
+ spu_audio_shutdown();
+ free(worker);
+ worker = NULL;
+}
+
+static void thread_work_start(void)
+{
+ struct work_item *work;
+ int idx, slot;
+ unsigned int nblocks;
+
+ work = &worker->i[(worker->i_ready - 1) & WORK_I_MASK];
+ idx = (worker->i_ready - 1) & WORK_I_MASK;
+
+ if (spu_dead || !spu_audio_available()) {
+  /* PPU fallback: run the worker mixer inline, mark done */
+  do_channel_work(work);
+  spu_done_flag[idx] = 1;
+  spu_slot_for_work[idx] = -1;
+  return;
+ }
+
+ nblocks = spu_audio_build_job(work, &spu_ajob, spu_ablocks);
+ slot = spu_audio_start(&spu_ajob, spu_ablocks, nblocks);
+ if (slot < 0) {
+  /* the SPU is gone: PPU fallback from now on */
+  spu_dead = 1;
+  do_channel_work(work);
+  spu_done_flag[idx] = 1;
+  spu_slot_for_work[idx] = -1;
+  return;
+ }
+ spu_slot_for_work[idx] = slot;
+ spu_done_flag[idx] = 0;
+}
+
+static void thread_work_wait_sync(struct work_item *work, int force)
+{
+ int idx = (int)(work - worker->i);
+ int slot, ch;
+ unsigned int mask;
+ (void)force;
+
+ if (idx < 0 || idx >= WORK_MAXCNT)
+  return;
+ if (spu_done_flag[idx])
+  return;   /* PPU fallback already mixed this job inline */
+ slot = spu_slot_for_work[idx];
+ if (slot < 0)
+  return;
+ if (spu_audio_wait(slot, 50000) != 1) {
+  /* the SPU did not finish: mix this job on the PPU, stay there */
+  spu_dead = 1;
+  do_channel_work(work);
+  spu_done_flag[idx] = 1;
+  return;
+ }
+ spu_audio_fetch(slot, &spu_afetch);
+ spu_done_flag[idx] = 1;
+
+ /* outputs back into the work_item / globals, as the pthread worker
+  * would have left them (do_channel_work writes the same places) */
+ memcpy(work->SSumLR, spu_afetch.SSumLR, sizeof(work->SSumLR));
+ /* NOTE: sizeof(spu.sb_thread) is the POINTER size (8), not the array:
+  * copy the full sb_thread array (25 x 64 B) or only old[0..3] of ch0
+  * comes back and every decode buffer stays zero. */
+ memcpy(spu.sb_thread, spu_afetch.sb_thread, sizeof(spu_afetch.sb_thread));
+ spu.dwNoiseCount = spu_afetch.noise_count;
+ spu.dwNoiseVal = spu_afetch.noise_val;
+ if (work->rvb_addr)
+  memcpy(RVB, spu_afetch.RVB, sizeof(RVB));
+
+ /* ch1/ch3 capture: the SPU emitted linear samples; the PPU places
+  * them into the SPU-RAM 0x800/0xC00 ring (cursor = decode_pos),
+  * exactly as do_decode_bufs does in do_channel_work */
+ mask = work->channels_on;
+ for (ch = 0; mask != 0; ch++, mask >>= 1) {
+  unsigned short *dst;
+  const unsigned short *src;
+  int cursor, n;
+  if (!(mask & 1))
+   continue;
+  if (ch != 1 && ch != 3)
+   continue;
+  dst = (unsigned short *)(spu.spuMemC + 0x800 + (ch / 2) * 0x400);
+  src = spu_afetch.decode_bufs[ch == 3 ? 1 : 0];
+  cursor = work->decode_pos;
+  for (n = 0; n < work->ns_to; n++) {
+   cursor &= 0x1ff;
+   dst[cursor] = src[n];
+   cursor++;
+  }
+ }
+
+ if (work->rvb_addr)
+  REVERBDo(work->SSumLR, RVB, work->ns_to, work->rvb_addr);
+}
+
+static int thread_get_i_done(void)
+{
+ /* advance i_done past every job finished so far, in order */
+ while (worker->i_done < worker->i_ready) {
+  int idx = worker->i_done & WORK_I_MASK;
+  int slot;
+  if (spu_done_flag[idx]) {
+   worker->i_done++;
+   continue;
+  }
+  slot = spu_slot_for_work[idx];
+  if (slot < 0) {
+   worker->i_done++;
+   continue;
+  }
+  if (spu_audio_wait(slot, 0) == 1) {
+   worker->i_done++;
+   continue;
+  }
+  break;
+ }
+ return worker->i_done;
+}
+
+static void thread_sync_caches(void)
+{
+ /* the SPU job's done word + lwsync order the staging reads; nothing
+  * else to flush */
+}
+
+#else // if !defined(USE_ASYNC_SPU) && !defined(USE_SPU_AUDIO)
 
 static void init_spu_thread(void)
 {

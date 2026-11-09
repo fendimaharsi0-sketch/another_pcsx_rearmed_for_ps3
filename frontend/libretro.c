@@ -2740,7 +2740,7 @@ static void update_variables(bool in_flight)
          spu_config.iUseInterpolation = 0;
    }
 
-#ifdef USE_ASYNC_SPU
+#if defined(USE_ASYNC_SPU) || defined(USE_SPU_AUDIO)
    var.value = NULL;
    var.key = "pcsx_rearmed_spu_thread";
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)

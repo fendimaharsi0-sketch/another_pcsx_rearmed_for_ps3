@@ -485,6 +485,7 @@ static const item_t settings_items[] = {
     { "Menu shape", "Mixed: rounded panels and chips, square rows. Round: rows rounded too. Square: everything square." },
     { "Cover", "Glossy: spine case with shine. Matte: spine case, no shine. Corners: spine case with accent brackets. Framed: black frame around the art, with shine. Frame Matte: black frame, no shine. Shine: bare art with shine. Plain: bare art, no shine." },
     { "Color preset", "Menu colours: Yellow, Blue, Green, Red, Light, Gray, or LCD warm mono." },
+    { "SPU audio mixing", "Mix the PS1 sound on a Cell SPU while the PPU keeps emulating. Experimental: off unless you need it." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
@@ -503,15 +504,15 @@ static const char *set_page_titles[NPAGES] = {
 static const int set_page_items[NPAGES][10] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
     { 1, 38, 2, 3, 4, 5, 6, 7, 9, 10 },      /* Picture: Renderer, Auto resolution, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
-    { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
+    { 15, 18, 17, 43 },                      /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow, SPU audio mixing */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29, 39 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap */
     { 30, 31, 32, 33, 34 },                  /* Color Correct: Brightness, Contrast, Saturation, Temperature, Gamma */
     { 35, 36, 37 },                        /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
     { 40, 41, 42 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 3, 3 };
-typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 3 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 10, 4, 4, 9, 5, 3, 3 };
+typedef char set_pages_cover_all[(6 + 10 + 4 + 4 + 9 + 5 + 3 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -623,6 +624,7 @@ static void setting_value(int i, char *b, size_t n)
     case 40: snprintf(b, n, "%s", theme_shape_names[cfg.theme_shape]); break;
     case 41: snprintf(b, n, "%s", theme_cover_names[cfg.theme_cover]); break;
     case 42: snprintf(b, n, "%s", theme_color_names[cfg.theme_color]); break;
+    case 43: snprintf(b, n, "%s", cfg.spu_audio ? "SPU" : "PPU"); break;
     }
 }
 
@@ -737,6 +739,7 @@ static void setting_change_(int i, int dir, int in_game)
     case 40: cfg.theme_shape = (cfg.theme_shape + (dir > 0 ? 1 : THEME_SHAPE_COUNT - 1)) % THEME_SHAPE_COUNT; break;
     case 41: cfg.theme_cover = (cfg.theme_cover + (dir > 0 ? 1 : THEME_COVER_COUNT - 1)) % THEME_COVER_COUNT; break;
     case 42: cfg.theme_color = (cfg.theme_color + (dir > 0 ? 1 : THEME_COLOR_COUNT - 1)) % THEME_COLOR_COUNT; break;
+    case 43: cfg.spu_audio ^= 1; break;
     }
 }
 
