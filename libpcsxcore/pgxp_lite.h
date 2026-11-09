@@ -89,6 +89,7 @@ int pgxp_lite_find(uint32_t sxy, float *dx, float *dy, float *z);
  * is on. The statistics below feed the culling log lines. */
 extern int pgxp_cull_track;
 extern unsigned int pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte;
+extern unsigned int pgxp_nclip_guess, pgxp_nclip_dzero;
 
 /* Set the culling correction: the effective track is the setting AND
  * lite mode. The front end calls this wherever it calls
@@ -105,7 +106,16 @@ void pgxp_cull_set(int on);
  * triangle rasterizes to zero pixels on real hardware, so a sliver must
  * not flip a face away). Returns 1 with *det set when the precise
  * winding is used, 0 when the integer result is kept. The counters
- * feed the culling log lines; they are reset by the log print. */
+ * feed the culling log lines; they are reset by the log print.
+ * Two more, for the residual-crack diagnosis: pgxp_nclip_guess counts a
+ * triangle whose precise winding rests on an ambiguous corner settled by
+ * default (the seq test could not tell the two candidates apart, so the
+ * first one was taken - a guess, not a decision); pgxp_nclip_dzero
+ * counts a triangle whose precise determinant was exactly zero (integer
+ * kept, the other fallback). Both are per triangle, counted only when
+ * the precise winding is actually used (guess) or fell back on zero
+ * (dzero); a triangle that fell back on a missing word (nogte) counts
+ * in neither. */
 int pgxp_lite_nclip(int sx0, int sy0, int sx1, int sy1, int sx2, int sy2, int64_t *det);
 
 #ifdef __cplusplus

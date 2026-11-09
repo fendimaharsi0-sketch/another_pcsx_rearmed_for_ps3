@@ -471,6 +471,7 @@ void pgxp_lite_set(int on)
 
 int pgxp_cull_track;
 unsigned int pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte;
+unsigned int pgxp_nclip_guess, pgxp_nclip_dzero;
 
 void pgxp_cull_set(int on)
 {
@@ -520,7 +521,7 @@ int pgxp_lite_nclip(int sx0, int sy0, int sx1, int sy1, int sx2, int sy2, int64_
 	int nc[3], pick[3] = { 0, 0, 0 };
 	float x[3], y[3], d;
 	int64_t idet;
-	int i;
+	int i, guessed = 0;
 	if (!pgxp_cull_track) return 0;
 	for (i = 0; i < 3; i++)
 		nc[i] = pgxp_lite_cands(pgxp_pack_sxy(sx[i], sy[i]), cd[i]);
@@ -545,6 +546,7 @@ int pgxp_lite_nclip(int sx0, int sy0, int sx1, int sy1, int sx2, int sy2, int64_
 				if ((int32_t)d1 < 0) d1 = -d1;
 				lo = d0 < d1 ? d0 : d1; hi = d0 < d1 ? d1 : d0;
 				if (k && hi / 4 > lo + (smax - smin) + 16) pick[i] = d1 < d0;
+				else guessed = 1;   /* no clear winner: the first candidate, a guess */
 			} else if (nc[i] == 0) {
 				pgxp_nclip_nogte++;
 				return 0;
@@ -556,12 +558,13 @@ int pgxp_lite_nclip(int sx0, int sy0, int sx1, int sy1, int sx2, int sy2, int64_
 		y[i] = (float)sy[i] + cd[i][pick[i]].dy;
 	}
 	d = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);
-	if (d == 0.0f) return 0;   /* precise winding zero: integer result kept */
+	if (d == 0.0f) { pgxp_nclip_dzero++; return 0; }   /* precise winding zero: integer result kept */
 	/* The integer winding, same formula as gteNCLIP_'s (per-term s64 casts;
 	 * the two agree for every reachable coordinate: the GTE clamps SX/SY
 	 * to [-1024, 1023], so no product can overflow a 32-bit int). */
 	idet = (int64_t)sx0 * (sy1 - sy2) + (int64_t)sx1 * (sy2 - sy0) + (int64_t)sx2 * (sy0 - sy1);
 	pgxp_nclip_total++;
+	if (guessed) pgxp_nclip_guess++;
 	if ((idet > 0 && d < 0.0f) || (idet < 0 && d > 0.0f))
 		pgxp_nclip_flip++;
 	else if (idet == 0)
