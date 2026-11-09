@@ -69,15 +69,67 @@ static int is_listed(const char *name)
     return 0;
 }
 
+/* track files described by a sheet in the same directory: those named on a
+   .cue's FILE lines and a .ccd's .img (same name). Only those are hidden:
+   before build 102 one .cue or .ccd anywhere in a folder hid every .bin and .img
+   in it, so a lone .img (no sheet) next to other games never showed. */
+static char **tracks;
+static int ntracks, cap_tracks;
+
+static void add_track(const char *name)
+{
+    if (ntracks == cap_tracks) {
+        char **t = realloc(tracks, (cap_tracks ? cap_tracks * 2 : 64) * sizeof *t);
+        if (!t) return;
+        tracks = t; cap_tracks = cap_tracks ? cap_tracks * 2 : 64;
+    }
+    if ((tracks[ntracks] = strdup(name))) ntracks++;
+}
+
+static void read_sheet(const char *dir, const char *name)
+{
+    char path[1300], line[600];
+    const char *dot = strrchr(name, '.');
+    int stem = dot ? (int)(dot - name) : (int)strlen(name);
+    FILE *f;
+    if (is_ext(name, "ccd")) {           /* CloneCD: game.ccd + game.img (+ .sub) */
+        snprintf(line, sizeof line, "%.*s.img", stem, name); add_track(line);
+        return;
+    }
+    snprintf(path, sizeof path, "%s/%s", dir, name);
+    if (!(f = fopen(path, "r"))) return;
+    while (fgets(line, sizeof line, f)) {   /* FILE "name" BINARY, or FILE name BINARY */
+        char *p = line, *b, *e;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncasecmp(p, "FILE", 4) || (p[4] != ' ' && p[4] != '\t')) continue;
+        p += 5;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '"') { p++; e = strchr(p, '"'); }
+        else e = strpbrk(p, " \t\r\n");
+        if (e) *e = 0;
+        b = strrchr(p, '/'); if (!b) b = strrchr(p, '\\');
+        if (*p) add_track(b ? b + 1 : p);
+    }
+    fclose(f);
+}
+
+static int is_track(const char *name)
+{
+    int i;
+    for (i = 0; i < ntracks; i++) if (!strcasecmp(tracks[i], name)) return 1;
+    return 0;
+}
+
 #define MAX_DIR_ENTRIES 4096
 
 /* one directory: read it once, then decide what to show */
 static void scan(const char *dir, int depth)
 {
-    static const char *exts[] = { "cue", "chd", "pbp", "m3u", "ccd", "iso", "img", "bin", "exe", NULL };
+    /* .mdf: Alcohol 120% (the core reads the .mds next to it) */
+    static const char *exts[] = { "cue", "chd", "pbp", "m3u", "ccd", "iso", "img", "bin", "mdf", "exe", NULL };
     char **names = NULL;
     unsigned char *isdir = NULL;
-    int n = 0, i, has_sheet = 0;
+    int n = 0, i;
     DIR *d;
     struct dirent *de;
 
@@ -102,9 +154,11 @@ static void scan(const char *dir, int depth)
     closedir(d);
 
     nlisted = 0;
+    for (i = 0; i < ntracks; i++) free(tracks[i]);
+    ntracks = 0;
     for (i = 0; i < n; i++) {
         if (isdir[i]) continue;
-        if (is_ext(names[i], "cue") || is_ext(names[i], "ccd")) has_sheet = 1;
+        if (is_ext(names[i], "cue") || is_ext(names[i], "ccd")) read_sheet(dir, names[i]);
         if (is_ext(names[i], "m3u")) read_m3u(dir, names[i]);
     }
     for (i = 0; i < n && ngames < MAX_GAMES; i++) {
@@ -112,8 +166,8 @@ static void scan(const char *dir, int depth)
         if (isdir[i]) continue;
         for (k = 0; exts[k]; k++) if (is_ext(names[i], exts[k])) break;
         if (!exts[k]) continue;
-        /* track files described by a .cue/.ccd next to them */
-        if ((is_ext(names[i], "bin") || is_ext(names[i], "img")) && has_sheet) continue;
+        /* track files described by a sheet next to them (read_sheet) */
+        if ((is_ext(names[i], "bin") || is_ext(names[i], "img")) && is_track(names[i])) continue;
         if (is_listed(names[i])) continue;
         {
             char path[1300];

@@ -374,13 +374,15 @@ static void audio_cb(int16_t l, int16_t r) { int16_t s[2] = { l, r }; if (!audio
    fast-forwarded, for the videos a game does not let you skip. The taps stop as soon
    as no frame came for 6 emulated frames, so they do not reach the screen after the
    video. A still picture decoded with the MDEC (a menu background) is a single
-   burst: no taps. */
+   burst: no taps.
+   Only the videos before the player's own first button press outside a video (the
+   title screen, a menu): a story video after New Game is the game itself. */
 extern unsigned int mdec_dma1_count;
 static uint32_t skip_buttons;         /* pad 1 buttons pressed to skip an intro video */
 void psx_debug_state(char *b, int n);     /* core, libpcsxcore/misc.c (debug log) */
 #define INTRO_FRAMES (3 * 60 * 60)
 static struct {
-    unsigned last_count, quiet, runs; int active, skipping;
+    unsigned last_count, quiet, runs; int active, skipping, played;
     unsigned tap, busy;           /* skipping: tap phase; frames with MDEC output in this video */
     /* the video being played, for its log line */
     unsigned v_runs, v_slow, v_mdec0, v_dry0; u64 v_us, v_max;
@@ -396,6 +398,16 @@ static void fmv_track(u64 us)        /* after each retro_run (us: its time, 0 = 
     }
     if (mdec_dma1_count != fmv.last_count) { fmv.last_count = mdec_dma1_count; fmv.quiet = 0; fmv.busy++; }
     else if (fmv.quiet < 1000) fmv.quiet++;
+    {   /* the player pressed a button outside a video: the intro is over (after the
+           first second: X may still be held from starting the game) */
+        static uint32_t prev;
+        uint32_t b = input_pad(0)->buttons | input_pad(1)->buttons;
+        if ((b & ~prev) && !fmv.active && fmv.runs > 60 && !fmv.played) {
+            fmv.played = 1;
+            if (cfg.skip_intro) logf_("intro video: player pressed a button (emulated time %.1f s), no more videos skipped\n", fmv.runs / 60.0);
+        }
+        prev = b;
+    }
     /* the buttons pressed for the next frame (see above) */
     skip_buttons = 0;
     if (fmv.skipping && fmv.v_runs >= 40 && fmv.busy >= 10 && fmv.quiet < 6 && fmv.tap < 48) {
@@ -405,7 +417,7 @@ static void fmv_track(u64 us)        /* after each retro_run (us: its time, 0 = 
     /* still playing while frames keep coming within half a second (15 fps videos,
        loading pauses between parts) */
     if (fmv.quiet < 30) {
-        if (!fmv.active && fmv.runs < INTRO_FRAMES && cfg.skip_intro) {
+        if (!fmv.active && fmv.runs < INTRO_FRAMES && cfg.skip_intro && !fmv.played) {
             fmv.skipping = 1;
             fmv.tap = 0;
             logf_("intro video: skipping (emulated time %.1f s)\n", fmv.runs / 60.0);

@@ -1246,8 +1246,16 @@ static int lightrec_transform_ops(struct lightrec_state *state, struct block *bl
 					op->flags |= LIGHTREC_EARLY_EXIT;
 				}
 
+				/* Same segment, not just the same address: the J
+				 * keeps the block's top bits, so a JR to the
+				 * uncached alias (0xa0...) from cached code (0x80...)
+				 * turned into a jump to the cached copy. Code meant to
+				 * run uncached (flushing the I-cache with the cache
+				 * isolated) then ran recompiled, its stores went to
+				 * RAM, and zeroed the BIOS kernel at 0x0-0xfff:
+				 * 007 The World Is Not Enough hung while loading. */
 				if (is_known(v, op->i.rs)
-				    && kunseg(v[op->i.rs].value) >> 28 == kunseg(block->pc) >> 28) {
+				    && v[op->i.rs].value >> 28 == block->pc >> 28) {
 					pr_debug("Convert JR to J\n");
 					op->j.imm = kunseg(v[op->i.rs].value) >> 2;
 					op->j.op = OP_J;
@@ -1262,7 +1270,7 @@ static int lightrec_transform_ops(struct lightrec_state *state, struct block *bl
 
 				if (is_known(v, op->r.rs)
 				    && op->r.rd == 31
-				    && kunseg(v[op->r.rs].value) >> 28 == kunseg(block->pc) >> 28) {
+				    && v[op->r.rs].value >> 28 == block->pc >> 28) {   /* (see JR) */
 					pr_debug("Convert JALR to JAL\n");
 					op->j.imm = kunseg(v[op->i.rs].value) >> 2;
 					op->j.op = OP_JAL;

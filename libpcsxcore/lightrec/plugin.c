@@ -225,11 +225,18 @@ static u32 poll_limit(u32 mem)
 
 static u32 poll_skip(u32 mem, u32 val, int size)
 {
-	static int last_size;
+	static int last_size, streak;
 	u32 diff = psxRegs.cycle - c1;
+	int same = mem == last_mem && size == last_size && val == last_val && diff > 0 && diff == c1 - c2;
 
-	if (mem == last_mem && size == last_size && val == last_val
-	    && diff > 0 && diff == c1 - c2 && diff <= poll_limit(mem)) {
+	/* a loop only after the same read came twice in a row at the same interval
+	   (4 reads): the BIOS's interrupt dispatch calls each handler of a chain, and
+	   each reads the interrupt mask once, a regular interval apart (1 repeat).
+	   Taken for a loop, every interrupt waited for the next event inside the
+	   handler: Mortal Kombat Trilogy's movie stream fell behind and the game
+	   froze after the intro. Real waits (the BIOS logo's) repeat 8 times or more. */
+	streak = same ? streak + 1 : 0;
+	if (same && streak >= 2 && diff <= poll_limit(mem)) {
 		u32 n = 0;
 		while ((s32)(psxRegs.next_interupt - psxRegs.cycle) > (s32)diff && val == last_val) {
 			psxRegs.cycle += diff;
@@ -242,8 +249,7 @@ static u32 poll_skip(u32 mem, u32 val, int size)
 			lightrec_poll_skips += n;
 			lightrec_poll_addr = mem;
 		}
-	} else if (psx_debug_trace && mem == last_mem && size == last_size && val == last_val
-	           && diff > 0 && diff == c1 - c2 && diff <= 1024) {
+	} else if (psx_debug_trace && same && streak >= 2 && diff <= 1024) {
 		lightrec_poll_missed++;
 		lightrec_poll_missed_addr = mem;
 		lightrec_poll_missed_gap = diff;

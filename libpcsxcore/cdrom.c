@@ -530,6 +530,32 @@ static u32 cdrDataReadTime(void)
 	return t;
 }
 
+/*
+ * A new command cancels a seek's pending second response ("cmd spam", see
+ * cdrWrite1), but the drive still gets there: upstream dropped the seek with its
+ * response, the drive stayed "seeking" for good, and Pause, refused while it
+ * seeks, was refused forever. Resident Evil 3 sends Pause during a seek when an
+ * item is picked up and retries until it works: the screen stayed black. Here the
+ * seek still ends when it would have (silently: the cancelled response is not
+ * given), checked when the next command runs. Not in save states: a state saved
+ * with the drive "seeking" and nothing to end it ends the seek at the next command.
+ */
+static u32 seek_end_cycle;
+static int seek_orphaned;
+
+static void cdrSeekDone(void)
+{
+	const void *buf;
+	SetPlaySeekRead(cdr.StatP, 0);
+	Find_CurTrack(cdr.SetSectorPlay);
+	if (ReadTrack(cdr.SetSectorPlay) && (buf = cdra_getBuffer()))
+		memcpy(cdr.LocL, buf, 8);
+	UpdateSubq(cdr.SetSectorPlay);
+	cdr.DriveState = DRIVESTATE_STANDBY;
+	cdr.TrackChanged = FALSE;
+	cdr.LastReadSeekCycles = psxRegs.cycle;
+}
+
 static boolean canDoTurbo(void)
 {
 	u32 c = psxRegs.cycle;
@@ -741,6 +767,12 @@ void cdrInterrupt(void) {
 		cdr.Irq1Pending = 0;
 		setIrq((cdr.Irq1Pending & STATUS_ERROR) ? DiskError : DataReady, 0x1003);
 		return;
+	}
+
+	if (seek_orphaned && (s32)(psxRegs.cycle - seek_end_cycle) >= 0) {
+		seek_orphaned = 0;
+		if (cdr.DriveState == DRIVESTATE_SEEK)
+			cdrSeekDone();
 	}
 
 	// default response
@@ -1085,6 +1117,7 @@ void cdrInterrupt(void) {
 				seekTime = cdrSeekTime(cdr.SetSector);
 			memcpy(cdr.SetSectorPlay, cdr.SetSector, 4);
 			cdr.DriveState = DRIVESTATE_SEEK;
+			seek_orphaned = 0;
 			cdra_prefetch(cdr.SetSectorPlay[0], cdr.SetSectorPlay[1],
 					cdr.SetSectorPlay[2], 0);
 			/*
@@ -1263,6 +1296,7 @@ void cdrInterrupt(void) {
 			cdr.SubqForwardSectors = 1;
 			cdr.sectorsRead = 0;
 			cdr.DriveState = DRIVESTATE_SEEK;
+			seek_orphaned = 0;
 			cdr.PhysCdPropagations = 0;
 			cdra_prefetch(cdr.SetSectorPlay[0], cdr.SetSectorPlay[1],
 					cdr.SetSectorPlay[2], 0);
@@ -1537,6 +1571,10 @@ void cdrWrite1(unsigned char rt) {
 			// cancel 2nd response
 			CDR_LOG_I("cancel cmd %02x 2nd response\n",
 				  cdr.CmdInProgress & 0xff);
+			if ((cdr.CmdInProgress & 0xff) == CdlSeekL || (cdr.CmdInProgress & 0xff) == CdlSeekP) {
+				seek_orphaned = 1;   // the drive still gets there (cdrSeekDone)
+				seek_end_cycle = psxRegs.event_cycles[PSXINT_CDR];
+			}
 			cdr.CmdInProgress = rt;
 			set_event(PSXINT_CDR, 20000);
 		}
@@ -1767,6 +1805,7 @@ int cdrDebugState(char *b, int n)
 
 void cdrReset() {
 	memset(&cdr, 0, sizeof(cdr));
+	seek_orphaned = 0;
 	cdr.CurTrack = 1;
 	cdr.FilterFile = 0;
 	cdr.FilterChannel = 0;
@@ -1803,6 +1842,10 @@ int cdrFreeze(void *f, int Mode) {
 		getCdInfo();
 
 		cdr.FifoOffset = tmp < DATA_SIZE ? tmp : DATA_SIZE;
+		// "seeking" with no response and no read to end it: a cancelled seek
+		// (cdrSeekDone), or a state saved after the drive got stuck that way
+		seek_orphaned = cdr.DriveState == DRIVESTATE_SEEK && !(cdr.CmdInProgress & 0x100) && !cdr.Reading;
+		seek_end_cycle = psxRegs.cycle;
 		cdr.FifoSize = (cdr.Mode & MODE_SIZE_2340) ? 2340 : 2048 + 12;
 		if (cdr.SubqForwardSectors > SUBQ_FORWARD_SECTORS)
 			cdr.SubqForwardSectors = SUBQ_FORWARD_SECTORS;
