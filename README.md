@@ -14,7 +14,7 @@ The greatest credit belongs to **Calyps0man**, whose work made this fork possibl
 
 ## What this snapshot adds
 
-At this time, the changes in this fork are limited to cosmetic improvements and quality-of-life features. No core emulation work has been undertaken. The additions are:
+The additions include quality-of-life features, renderer work, and fixes synced from upstream:
 
 - **Separate install (version 1.01 and newer)** — installs as "Another PCSX-ReARMed for PS3" (PCSR00002), coexisting with the upstream build instead of replacing it. Settings, memory cards, and cheat settings from the upstream install do not carry over.
 - **Cheat support** — a fullscreen cheat menu with per-game cheat settings. Cheats must first be enabled via the global “Enable cheats” setting in System & Saves (off by default); only then will the cheat menu appear in the quick menu and any cheat apply.
@@ -28,6 +28,15 @@ At this time, the changes in this fork are limited to cosmetic improvements and 
 - **Digital pad / analog toggle** — switching between digital and analog pad modes from the quick menu.
 - **Widescreen rendering** — a GTE-based 16:9 widescreen hack.
 - **Texture filtering** — bilinear texture filtering, including a performance variant, and sprite texture filtering.
+- **PGXP culling correction** — a per-game setting (PGXP page, off by default) that recomputes triangle culling (NCLIP) from the precise vertex positions, closing holes and cracks in 3D games that seam fill alone cannot fix.
+- **PGXP seam fill** — a per-game setting (PGXP page, 1/2 pixel by default) that grows polygons slightly to close thin cracks between drawn neighbours. Synced from upstream build 105.
+- **Auto resolution** — a target-height setting (Manual, 480, 600, 720, 960, 1080, 1200; ceiling 1200) with 0.5x renderer steps, so the renderer scales to the chosen height.
+- **Live memory card swap** — swapping memory cards mid-game from the quick menu (global gate, off by default); works in the BIOS screen too, and sticks to the next Boot BIOS in the same session.
+- **Theme UI** — a settings page to change the menu shape (Mixed/Round/Square), cover style (7 styles), and colour preset (10 presets). Defaults match the old look.
+- **Color Correct** — a settings page (Brightness, Contrast, Saturation, Temperature, Gamma; −10 to +10, 0 neutral, per-game) applied in the final pass when any slider is non-zero.
+- **Crash fixes (synced from upstream build 105)** — fixes for MK Trilogy, 007, and RE3.
+- **Game list** — track-sheet files (.cue/.ccd) are hidden, and .mdf files are shown.
+- **Skip intro** — the intro is skipped only before the first button press.
 
 ## Limitations
 
