@@ -483,6 +483,8 @@ static const item_t settings_items[] = {
     { "Menu shape", "Mixed: rounded panels and chips, square rows. Round: rows rounded too. Square: everything square." },
     { "Cover", "Glossy: spine case with shine. Matte: spine case, no shine. Corners: spine case with accent brackets. Framed: black frame around the art, with shine. Frame Matte: black frame, no shine. Shine: bare art with shine. Plain: bare art, no shine." },
     { "Color preset", "Menu colours: Yellow, Blue, Green, Red, Light, Gray, or LCD warm mono." },
+    { "PGXP culling correction", "Experimental. Recomputes triangle culling (NCLIP) from precise vertex positions, so faces that only wobble into view stop flickering. Only works while PGXP is on." },
+    { "PGXP seam fill", "Experimental. Solid polygons drawn slightly larger (1/2 or 1/4 pixel) so neighbouring parts overlap instead of leaving thin cracks. A supplement to culling: it covers the sub-pixel gaps left between parts the culling kept; it does not bring back a wrongly culled triangle. Off turns it off (some games glitch with it on)." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
@@ -505,11 +507,11 @@ static const int set_page_items[NPAGES][10] = {
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29, 37 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap */
     { 30, 31, 32, 33, 34 },                  /* Color Correct: Brightness, Contrast, Saturation, Temperature, Gamma */
-    { 35 },                                  /* PGXP: PGXP (steadier 3D) */
+    { 35, 41, 42 },                           /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
     { 38, 39, 40 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 1, 3 };
-typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 1 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 3, 3 };
+typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 3 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -619,6 +621,8 @@ static void setting_value(int i, char *b, size_t n)
     case 38: snprintf(b, n, "%s", theme_shape_names[cfg.theme_shape]); break;
     case 39: snprintf(b, n, "%s", theme_cover_names[cfg.theme_cover]); break;
     case 40: snprintf(b, n, "%s", theme_color_names[cfg.theme_color]); break;
+    case 41: snprintf(b, n, "%s", cfg.pgxp_culling ? "On" : "Off"); break;
+    case 42: { static const char *const w[3] = { "1/2 pixel", "1/4 pixel", "Off" }; snprintf(b, n, "%s", w[cfg.pgxp_seam % 3]); } break;
     }
 }
 
@@ -731,6 +735,8 @@ static void setting_change_(int i, int dir, int in_game)
     case 38: cfg.theme_shape = (cfg.theme_shape + (dir > 0 ? 1 : THEME_SHAPE_COUNT - 1)) % THEME_SHAPE_COUNT; break;
     case 39: cfg.theme_cover = (cfg.theme_cover + (dir > 0 ? 1 : THEME_COVER_COUNT - 1)) % THEME_COVER_COUNT; break;
     case 40: cfg.theme_color = (cfg.theme_color + (dir > 0 ? 1 : THEME_COLOR_COUNT - 1)) % THEME_COLOR_COUNT; break;
+    case 41: cfg.pgxp_culling ^= 1; break;
+    case 42: cfg.pgxp_seam = (cfg.pgxp_seam + (dir > 0 ? 1 : 2)) % 3; break;
     }
 }
 

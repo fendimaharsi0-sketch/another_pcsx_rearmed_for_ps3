@@ -461,3 +461,116 @@ void pgxp_lite_set(int on)
 	if (!pgxp_lite_on && on) pgxp_lite_invalidate();
 	pgxp_lite_on = on;
 }
+
+/* ---- Culling correction (NCLIP, see pgxp_lite.h) ----
+ * NCLIP reads the same lite word table the renderer draws from (see
+ * pgxp_lite_nclip below), so culling and drawing cannot disagree per
+ * triangle: a vertex that the draw placed precisely is culled from
+ * that same place, and a vertex the table never saw keeps the integer
+ * on both sides. The gate is pgxp_cull_track (setting AND lite mode). */
+
+int pgxp_cull_track;
+unsigned int pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte;
+unsigned int pgxp_nclip_guess, pgxp_nclip_dzero;
+
+void pgxp_cull_set(int on)
+{
+	/* Effective only while lite is on. NCLIP reads the lite table
+	 * directly, so there is nothing to wipe on a toggle: the table is
+	 * the draw's own data, and pgxp_lite_set invalidates it on OFF ->
+	 * ON. Toggling culling while lite stays on just starts or stops
+	 * consulting it. */
+	pgxp_cull_track = on && pgxp_lite_on;
+}
+
+/* The packed SXY word for an integer vertex: SX in the low half, SY in
+ * the high half — the same packing the GTE register holds (gteSX0 is
+ * CP2D.p[12].sw.l, gteSY0 is .sw.h). Reconstructed here from the halves
+ * NCLIP already passes, so the signature is unchanged. */
+static inline unsigned pgxp_pack_sxy(int sx, int sy)
+{
+	return (unsigned)(uint16_t)sx | ((unsigned)(uint16_t)sy << 16);
+}
+
+/* ---- NCLIP from the lite word table (Option 1) ----
+ * The earlier attempt (Design A) read a separate GTE register shadow
+ * for NCLIP while the renderer drew from the lite word table: two
+ * independent sources that could disagree per triangle — and the
+ * shadow's coordinates were never verified against the picture the way
+ * lite's are (the draw proves them every frame), so a 97-99.8% hook
+ * rate meant nothing if the values were wrong. Design A is deleted;
+ * NCLIP reads the SAME table the draw reads, with the SAME lookup
+ * (pgxp_lite_cands) and the SAME ambiguity rule (do_poly's first pass:
+ * a word standing for two vertices takes the one projected much closer
+ * in time to its sibling corners, else the first one).
+ * The two things the draw has that NCLIP does not are NOT replicated:
+ * the address-table disambiguation (NCLIP has no packet address) and
+ * the combination search over the polygon's depths (a draw-layer rule,
+ * libpcsxcore must not call into hwr). Where the draw settled a word by
+ * address, NCLIP's seq rule can still pick the other candidate — the
+ * residual mismatch, bounded to ambiguous words.
+ * A word with no candidate keeps the integer result (counted in
+ * pgxp_nclip_nogte): the draw uses the integer for that corner too, so
+ * the two agree. Determinant, sliver bump and flip/restore counting
+ * are the same as the draw's precise winding would give. */
+int pgxp_lite_nclip(int sx0, int sy0, int sx1, int sy1, int sx2, int sy2, int64_t *det)
+{
+	const int sx[3] = { sx0, sx1, sx2 };
+	const int sy[3] = { sy0, sy1, sy2 };
+	struct pgxp_cand cd[3][2];
+	int nc[3], pick[3] = { 0, 0, 0 };
+	float x[3], y[3], d;
+	int64_t idet;
+	int i, guessed = 0;
+	if (!pgxp_cull_track) return 0;
+	for (i = 0; i < 3; i++)
+		nc[i] = pgxp_lite_cands(pgxp_pack_sxy(sx[i], sy[i]), cd[i]);
+	/* Ambiguity, do_poly's first pass (same formula): the unambiguous
+	   corners set the seq window (smin/smax) and the reference (ref =
+	   the last one's seq); a two-candidate corner takes the candidate
+	   projected clearly closer to it, else the first one. A corner with
+	   no candidate at all keeps the integer result for the triangle. */
+	{
+		uint32_t smin = 0, smax = 0, ref = 0;
+		int k = 0;
+		for (i = 0; i < 3; i++) if (nc[i] == 1) {
+			uint32_t q = cd[i][0].seq;
+			if (!k || (int32_t)(q - smin) < 0) smin = q;
+			if (!k || (int32_t)(q - smax) > 0) smax = q;
+			ref = q; k++;
+		}
+		for (i = 0; i < 3; i++) {
+			if (nc[i] == 2) {
+				uint32_t d0 = cd[i][0].seq - ref, d1 = cd[i][1].seq - ref, lo, hi;
+				if ((int32_t)d0 < 0) d0 = -d0;
+				if ((int32_t)d1 < 0) d1 = -d1;
+				lo = d0 < d1 ? d0 : d1; hi = d0 < d1 ? d1 : d0;
+				if (k && hi / 4 > lo + (smax - smin) + 16) pick[i] = d1 < d0;
+				else guessed = 1;   /* no clear winner: the first candidate, a guess */
+			} else if (nc[i] == 0) {
+				pgxp_nclip_nogte++;
+				return 0;
+			}
+		}
+	}
+	for (i = 0; i < 3; i++) {
+		x[i] = (float)sx[i] + cd[i][pick[i]].dx;
+		y[i] = (float)sy[i] + cd[i][pick[i]].dy;
+	}
+	d = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);
+	if (d == 0.0f) { pgxp_nclip_dzero++; return 0; }   /* precise winding zero: integer result kept */
+	/* The integer winding, same formula as gteNCLIP_'s (per-term s64 casts;
+	 * the two agree for every reachable coordinate: the GTE clamps SX/SY
+	 * to [-1024, 1023], so no product can overflow a 32-bit int). */
+	idet = (int64_t)sx0 * (sy1 - sy2) + (int64_t)sx1 * (sy2 - sy0) + (int64_t)sx2 * (sy0 - sy1);
+	pgxp_nclip_total++;
+	if (guessed) pgxp_nclip_guess++;
+	if ((idet > 0 && d < 0.0f) || (idet < 0 && d > 0.0f))
+		pgxp_nclip_flip++;
+	else if (idet == 0)
+		pgxp_nclip_restore++;
+	if (d > 0.0f && d < 1.0f) d = 1.0f;
+	else if (d < 0.0f && d > -1.0f) d = -1.0f;
+	*det = (int64_t)d;
+	return 1;
+}

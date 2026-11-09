@@ -87,6 +87,8 @@ typedef struct {
     int color_temperature;
     int color_gamma;        /* gamma curve: + brightens midtones, - darkens them; 0 and 1 never move */
     int pgxp;               /* PGXP-lite: 1 GTE vertices at sub-pixel positions (RSX renderer), 2 also perspective-correct textures */
+    int pgxp_culling;       /* PGXP culling correction: recompute triangle culling (NCLIP) from the lite table (per game, default off; only effective while pgxp != 0) */
+    int pgxp_seam;          /* PGXP seam fill: 0 1/2 pixel, 1 1/4 pixel, 2 off (hwr_pgxp_grow); a supplement to culling, not a replacement */
 } settings_t;
 extern settings_t cfg;
 int cfg_auto_target_h(void);  /* resolved auto resolution target height, 0 = Manual/off */

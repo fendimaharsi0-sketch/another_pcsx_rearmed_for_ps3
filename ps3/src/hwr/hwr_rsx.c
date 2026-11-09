@@ -750,6 +750,7 @@ static void rsxr_submit(hwr_dev *d, const hwr_op *ops, int nops, const hwr_vtx *
  * positions, so a batch never overwrites a copy quad the RSX is still reading
  * (or the other way round). */
 extern int pgxp_lite_on;
+extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling correction's effective track */
 static int pgxp_on(void) { return pgxp_lite_on; }
 static int ring_lite = -1;   /* the layout the ring is in now; -1: not started */
 static int ring_sync(int lite)   /* 1: the ring is in this layout (drained first if it changed) */
@@ -1698,10 +1699,22 @@ static void log_stats(void)
     {   /* PGXP-lite (hwr_core.c), counted since the last line */
         extern unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;
         extern unsigned int pgxp_lite_addr_hits, pgxp_lite_hits, pgxp_lite_welds;
+        extern unsigned int pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte;
+        extern unsigned int pgxp_nclip_guess, pgxp_nclip_dzero;
         if (pgxp_lite_on)
             logf_("hwr: PGXP: %u polygons at sub-pixel positions, %u at whole pixels (not from the GTE; of those %u with one corner found alone); corners found by address %u, by value %u; %u polygons with a corner standing for two vertices; %u vertices welded to a neighbour\n",
                   hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_alone, pgxp_lite_addr_hits, pgxp_lite_hits, hwr_pgxp_amb, pgxp_lite_welds);
+        {
+            extern unsigned int hwr_pgxp_grown; extern float hwr_pgxp_grow;
+            if (pgxp_lite_on) logf_("hwr: PGXP seam fill %.2f pixel: %u polygons drawn larger\n", hwr_pgxp_grow, hwr_pgxp_grown);
+            hwr_pgxp_grown = 0;
+        }
         pgxp_lite_addr_hits = pgxp_lite_hits = pgxp_lite_welds = 0;
+        if (pgxp_cull_track)
+            logf_("hwr: PGXP culling correction: %u triangles recomputed, %u flipped, %u restored (integer winding was zero), %u fell back (not in the lite table), %u with a guessed corner, %u with zero precise winding\n",
+                  pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte, pgxp_nclip_guess, pgxp_nclip_dzero);
+        pgxp_nclip_total = pgxp_nclip_flip = pgxp_nclip_restore = pgxp_nclip_nogte = 0;
+        pgxp_nclip_guess = pgxp_nclip_dzero = 0;
         if (pgxp_lite_on >= 2)
             logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired), %u flat\n",
                   hwr_pgxp_persp, hwr_pgxp_misfit, hwr_pgxp_flat);

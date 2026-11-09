@@ -812,6 +812,20 @@ static inline void gteNCLIP_(psxCP2Regs *regs)
 	gteMAC0 = mac0flags(&flags, (s64)(gteSX0 * (gteSY1 - gteSY2)) +
 				gteSX1 * (gteSY2 - gteSY0) +
 				gteSX2 * (gteSY0 - gteSY1));
+	/* PGXP culling corrector (pgxp_lite.h, Option 1): recompute the
+	   winding from the precise positions in the lite word table — the
+	   same table the renderer draws from, so culling and drawing can
+	   no longer disagree. Any miss, an ambiguous word the seq rule
+	   cannot settle, or a precise winding of zero, keeps the integer
+	   result above. (Design A's corr-shadow NCLIP was deleted: its
+	   coordinates were never verified against the picture.) */
+	if (pgxp_cull_track) {
+		int64_t det;
+		if (pgxp_lite_nclip(gteSX0, gteSY0, gteSX1, gteSY1, gteSX2, gteSY2, &det)) {
+			flags = 0;   /* mac0flags only sets bits: drop the integer result's flags */
+			gteMAC0 = mac0flags(&flags, det);
+		}
+	}
 	gteFLAG = getFinalFlag(flags);
 }
 

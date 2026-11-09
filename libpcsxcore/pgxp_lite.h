@@ -74,6 +74,49 @@ void pgxp_lite_prefetch(const uint32_t *const *ptr, const uint32_t *words, int n
 
 /* the first of them, with z[1] the second one's depth (0 none) */
 int pgxp_lite_find(uint32_t sxy, float *dx, float *dy, float *z);
+/* ---- Culling correction (NCLIP): reads the lite word table ----
+ * History: the RAM-shadow corrector (and Design A, its NCLIP consumer)
+ * were parked 2026-11-09 and removed from the tree — the shadow's
+ * coordinates were never verified against the picture the way lite's
+ * are, and the hardware verdict on the shadow itself was no visible
+ * help for real perf cost. The code and the mode2w design doc are kept
+ * in the local archive (ps3-corrector-archive/), not in the repo.
+ * NCLIP now reads the SAME table the renderer draws from, so culling
+ * and drawing cannot disagree per triangle; see pgxp_lite_nclip below.
+ * Gate: pgxp_cull_track is the setting AND lite mode (derived in
+ * pgxp_cull_set, which the front end calls wherever it calls
+ * pgxp_lite_set), so culling correction is effective only while lite
+ * is on. The statistics below feed the culling log lines. */
+extern int pgxp_cull_track;
+extern unsigned int pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte;
+extern unsigned int pgxp_nclip_guess, pgxp_nclip_dzero;
+
+/* Set the culling correction: the effective track is the setting AND
+ * lite mode. The front end calls this wherever it calls
+ * pgxp_lite_set. */
+void pgxp_cull_set(int on);
+
+/* NCLIP decision (gte.c, gteNCLIP_): for each of the three SXY vertices,
+ * look up the packed word in the lite table (pgxp_lite_cands). A word
+ * with no candidate keeps the integer result (counted in
+ * pgxp_nclip_nogte); a word with two candidates is settled by do_poly's
+ * first seq-proximity pass (see pgxp_lite.c). The precise determinant
+ * (cross-product form) decides the winding; a sliver (0,1) is nudged to
+ * +-1, the same rule the draw's precise winding would give (a zero-area
+ * triangle rasterizes to zero pixels on real hardware, so a sliver must
+ * not flip a face away). Returns 1 with *det set when the precise
+ * winding is used, 0 when the integer result is kept. The counters
+ * feed the culling log lines; they are reset by the log print.
+ * Two more, for the residual-crack diagnosis: pgxp_nclip_guess counts a
+ * triangle whose precise winding rests on an ambiguous corner settled by
+ * default (the seq test could not tell the two candidates apart, so the
+ * first one was taken - a guess, not a decision); pgxp_nclip_dzero
+ * counts a triangle whose precise determinant was exactly zero (integer
+ * kept, the other fallback). Both are per triangle, counted only when
+ * the precise winding is actually used (guess) or fell back on zero
+ * (dzero); a triangle that fell back on a missing word (nogte) counts
+ * in neither. */
+int pgxp_lite_nclip(int sx0, int sy0, int sx1, int sy1, int sx2, int sy2, int64_t *det);
 
 #ifdef __cplusplus
 }

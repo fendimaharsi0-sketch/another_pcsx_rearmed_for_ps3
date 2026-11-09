@@ -742,7 +742,11 @@ static void apply_controller_type(void)
     retro_set_controller_port_device(1, dev);
 }
 
-void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; pgxp_lite_set(cfg.pgxp); cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
+extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling correction's effective track (setting AND lite mode) */
+extern void pgxp_cull_set(int on);   /* core, libpcsxcore/pgxp_lite.c: sets the culling correction's effective track (setting AND lite mode) */
+extern float hwr_pgxp_grow;
+static void seam_apply(void) { static const float g[3] = { 0.5f, 0.25f, 0.f }; hwr_pgxp_grow = cfg.pgxp ? g[cfg.pgxp_seam % 3] : 0.f; }
+void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; pgxp_lite_set(cfg.pgxp); pgxp_cull_set(cfg.pgxp_culling); seam_apply(); cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
 
 /* ---- cheats: feeding the core's dormant engine ----
  * The engine (libpcsxcore/cheat.c) applies fed codes at VBlank and knows
@@ -905,6 +909,8 @@ static void run_game(const char *path)
     if (hwr_boot_hold) logf_("BIOS logo: software renderer until the game starts\n");
     pgxp_lite_set(cfg.pgxp);   /* OFF -> ON: the tables are invalidated first */
     if (pgxp_lite_on) pgxp_lite_invalidate();   /* launch: also clear a previous title's entries (ON -> ON has no transition; the extra clear on OFF -> ON is one launch-time memset) */
+    pgxp_cull_set(cfg.pgxp_culling);   /* sets the effective track */
+    seam_apply();
     hooks_game_started();
     cheat_apply_saved(0);   /* gate on: re-feed this game's enabled codes (manual codes do not fire) */
     apply_spu_mdec();
