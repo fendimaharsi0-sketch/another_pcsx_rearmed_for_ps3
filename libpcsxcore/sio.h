@@ -51,6 +51,7 @@ int sioFreeze(void *f, int Mode);
 
 void LoadMcd(int mcd, char *str);
 void LoadMcds(char *mcd1, char *mcd2);
+int SwapMcd(int slot, const char *path);
 void SaveMcd(char *mcd, char *data, uint32_t adr, int size);
 void CreateMcd(char *mcd);
 void ConvertMcd(char *mcd, char *data);

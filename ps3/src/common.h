@@ -40,7 +40,8 @@ enum { ASPECT_4_3 = 0, ASPECT_FULL, ASPECT_14_9, ASPECT_ZOOM_14_9, ASPECT_ZOOM, 
 typedef struct {
     int dynarec;        /* 1 = Lightrec, 0 = interpreter */
     int dynarec_thread; /* Lightrec compiles new code on the PPU's second thread */
-    int gpu_scale;      /* 0 = software renderer, 2..4 = RSX renderer at that scale, 5 = 4x wide, 4.5x tall */
+    int gpu_scale;      /* half-steps: 0 = software renderer, 2 = RSX 1x, 3 = 1.5x, 4 = 2x, 5 = 2.5x, 6 = 3x, 7 = 3.5x, 8 = 4x, 9 = 4x wide, 4.5x tall, 10 = 4x wide, 5x tall */
+    int gpu_res_target; /* auto resolution target height: 0 = Manual (the Renderer scale rules), 1 = the TV's height, else 480/720/960/1080/1200 */
     int filter;         /* FILTER_* */
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
     int sprite_texfilter; /* RSX sprite filter: same 0/1/2 values as texfilter, default nearest; applies to textured GP0 sprites (do_rect) and to textured polygons whose UV mapping is axis-aligned (U only with X, V only with Y, like DuckStation); other polygons keep texfilter */
@@ -73,6 +74,10 @@ typedef struct {
     char last_dir[512];
     int cd_speed;       /* CD-ROM speed: 0 normal, 1 turbo (data reads and seeks twice as fast; audio keeps its speed), 2 max (the core's TurboCD: instant seeks + faster reads) */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
+    int mc_swap;        /* global-only master gate for live memory card swap (default off): the Swap memory card row in the pause menu only appears when this is on */
+    int theme_shape;    /* menu shape, global-only: 0 Mixed (rounded panels/chips, square rows), 1 Round (rows rounded too), 2 Square (everything square) */
+    int theme_cover;    /* cover style, global-only: 0 Glossy (spine case + shine), 1 Matte (spine case), 2 Corners (accent brackets), 3 Framed (black frame + shine), 4 Frame Matte (black frame), 5 Shine (bare art + shine), 6 Plain (bare art) */
+    int theme_color;    /* menu colours, global-only: 0 Yellow, 1 Blue, 2 Green, 3 Red, 4 Light, 5 Gray, 6 LCD (warm mono), 7 LCD Green (Game Boy), 8 Pink, 9 Purple */
     /* colour correction (Color page, per game): -10..+10, 0 neutral, no enable
        toggle — all zero is the picture as it is, and the panel bypasses the
        colour program entirely then */
@@ -86,6 +91,8 @@ typedef struct {
     int pgxp_seam;          /* PGXP seam fill: 0 1/2 pixel, 1 1/4 pixel, 2 off (hwr_pgxp_grow); a supplement to culling, not a replacement */
 } settings_t;
 extern settings_t cfg;
+int cfg_auto_target_h(void);  /* resolved auto resolution target height, 0 = Manual/off */
+int cfg_rsx_on(void);         /* the RSX renderer should be on: a manual scale, or a resolvable auto target */
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
 extern int cdr_speed_up;     /* core, libpcsxcore/cdrom.c: 2 = data reads and seeks twice as fast, mirrored from cfg.cd_speed */
 void config_load(void);
@@ -222,6 +229,8 @@ int disk_iface_label(unsigned i, char *buf, size_t len);  /* 0 ok, -1 unavailabl
 int disk_iface_path(unsigned i, char *buf, size_t len);   /* 0 ok, -1 unavailable */
 int disk_iface_swap_to_index(unsigned i);    /* swap to a playlist disc; 0 ok */
 int disk_iface_swap_to_file(const char *path);  /* replace the drive's disc with an image file; 0 ok */
+void disk_iface_close_lid(void);               /* close a lid a swap left open (on resume); no-op otherwise */
+void disk_iface_drop_lid(void);                /* drop a pending lid close (on quit); no eject call */
 
 /* spu_mdec.c: FMV decoding on the SPUs */
 int  spu_mdec_init(int nspu);              /* starts the SPU threads + self-test; 1 = usable */

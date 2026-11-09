@@ -4,7 +4,7 @@
 
 This is a personal fork of PCSX-ReARMed for PlayStation 3, maintained for my own daily use. It is not an official release, and it is not affiliated with, or endorsed by, the original project.
 
-This snapshot was built from the `ps3` branch. It is provided as-is, as a point-in-time snapshot, without any guarantee of further updates or long-term maintenance.
+This snapshot was built from the `pgxp-research` branch. It is provided as-is, as a point-in-time snapshot, without any guarantee of further updates or long-term maintenance.
 
 ## A note on authorship
 
@@ -14,19 +14,26 @@ The greatest credit belongs to **Calyps0man**, whose work made this fork possibl
 
 ## What this snapshot adds
 
-At this time, the changes in this fork are limited to cosmetic improvements and quality-of-life features. No core emulation work has been undertaken. The additions are:
+The additions include quality-of-life features and renderer work:
 
+- **Separate install (version 1.01 and newer)** — installs as "Another PCSX-ReARMed for PS3 (PGXP)" (PCSR00003), coexisting with the upstream build instead of replacing it. Settings, memory cards, and cheat settings from the upstream install do not carry over.
 - **Cheat support** — a fullscreen cheat menu with per-game cheat settings. Cheats must first be enabled via the global “Enable cheats” setting in System & Saves (off by default); only then will the cheat menu appear in the quick menu and any cheat apply.
 - **Game cover support** — display of game cover artwork in the game list. Covers are looked up next to the game file, in the `USRDIR/covers/` folder (by game file name or serial), then in the webMAN MOD cover pack by serial; the serial is taken from the file name, or read out of the disc image itself when the name carries none.
 - **CD speed-up** — CD-ROM reading at Normal, Turbo, or Max (TurboCD) speed.
 - **Real-time CPU switching** — switching between the dynamic recompiler (Dynarec) and the interpreter from the quick menu, as a workaround for certain titles that hang under one CPU mode. Live switching can be unstable in some cases; it is provided as a workaround, not as a fix.
-- **Disc swapping** — changing discs from the quick menu, for multi-disc titles and boot-disc scenarios.
+- **Disc swapping** — changing discs from the quick menu, for multi-disc titles and boot-disc scenarios. Discs swap both ways between images and the physical disc in the drive.
 - **Virtual memory card import** — importing standard PS1 virtual memory cards from the PS3's Memory Card Utility (savedata/vmc/*.VM1) into the imported library, for use via the per-slot memory card picker. One-way: saves made here never return to the XMB card. Memory cards from PSN PSOne Classics are currently not supported.
 - **Per-slot memory card picker** — choosing a memory card per slot (Auto first, then imported cards, then None, plus the legacy Default where present), with protection against two slots pointing to the same file. Slot 1 defaults to Auto, slot 2 to None.
 - **Boot BIOS entry** — booting into a real BIOS (a `scph5501.bin` file in the system folder) from the game list, for those who need the BIOS menu or memory card manager. Before booting, a memory card can be chosen for each slot (from the `.mcd` files in `USRDIR/saves/`). A real BIOS remains optional; the HLE BIOS is still the default when no BIOS file is present.
 - **Digital pad / analog toggle** — switching between digital and analog pad modes from the quick menu.
 - **Widescreen rendering** — a GTE-based 16:9 widescreen hack.
 - **Texture filtering** — bilinear texture filtering, including a performance variant, and sprite texture filtering.
+- **PGXP culling correction** — a per-game setting (PGXP page, off by default) that recomputes NCLIP from the same precise positions the renderer draws from, keeping the whole-pixel result when no precise position is recorded. There is no CPU mode, so positions changed by the CPU after the GTE are not covered. It only changes the culling decision, not the drawing, and some gaps may remain.
+- **Auto resolution** — a target-height setting (Manual, 480, 600, 720, 960, 1080, 1200; ceiling 1200) with 0.5x renderer steps, so the renderer scales to the chosen height.
+- **Live memory card swap** — swapping memory cards mid-game from the quick menu (global gate, off by default); works in the BIOS screen too, and sticks to the next Boot BIOS in the same session.
+- **Theme UI** — a settings page to change the menu shape (Mixed/Round/Square), cover style (7 styles), and colour preset (10 presets). Defaults match the old look.
+- **Color Correct** — a settings page (Brightness, Contrast, Saturation, Temperature, Gamma; −10 to +10, 0 neutral, per-game) applied in the final pass when any slider is non-zero.
+- **In-game screenshot** — saving the displayed frame as a PNG from the pause menu (research branch only).
 
 ## Limitations
 

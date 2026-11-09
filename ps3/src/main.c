@@ -45,6 +45,21 @@ void game_bios_cards(const char *c1, const char *c2)
     snprintf(bios_card[0], sizeof bios_card[0], "%s", c1 ? c1 : "");
     snprintf(bios_card[1], sizeof bios_card[1], "%s", c2 ? c2 : "");
 }
+/* One slot of the same choice, for the live swap in the BIOS: the BIOS boots
+   from bios_card[], not from cfg.mc*_mode, so a live swap that only changed
+   cfg would revert on the next Boot BIOS. The Boot BIOS page reads the
+   choice back through game_bios_card_get, so the swap sticks for the next
+   boot in this session. */
+void game_bios_card_set(int slot, const char *name)
+{
+    if (slot < 1 || slot > 2) return;
+    snprintf(bios_card[slot - 1], sizeof bios_card[slot - 1], "%s", name ? name : "");
+}
+const char *game_bios_card_get(int slot)
+{
+    if (slot < 1 || slot > 2) return "";
+    return bios_card[slot - 1];
+}
 int app_game_is_bios(void) { return game_is_bios; }
 
 /* ---------------- system events (PS button menu, quit from the XMB) ---------------- */
@@ -84,8 +99,7 @@ extern int pgxp_lite_on;         /* core, libpcsxcore/pgxp_lite.c */
 extern void pgxp_lite_vsync(void);
 extern void pgxp_lite_set(int on);   /* core, libpcsxcore/pgxp_lite.c: OFF -> ON invalidates the tables */
 extern void pgxp_lite_invalidate(void);   /* core, libpcsxcore/pgxp_lite.c: clears the lookup tables */
-extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling correction's effective track (setting AND lite mode) */
-extern void pgxp_cull_set(int on);   /* core, libpcsxcore/pgxp_lite.c: sets the culling correction's effective track (setting AND lite mode) */
+
 /* Slot 1 Shared card, as the core reads it: the library file name from
    settings, or "" when none is chosen (the core then falls back to the
    default shared card). Sanitized here AND in the core: a name from a
@@ -129,7 +143,7 @@ static const char *option_value(const char *key)
     if (!strcmp(key, "pcsx_rearmed_dithering")) return cfg.dithering ? "enabled" : "disabled";
     /* skipped frames never reach the RSX renderer, which then misses drawing that
        later frames texture from: frame skip is for the software renderer only */
-    if (!strcmp(key, "pcsx_rearmed_frameskip_type")) return cfg.frameskip && !cfg.gpu_scale ? "auto" : "disabled";
+    if (!strcmp(key, "pcsx_rearmed_frameskip_type")) return cfg.frameskip && !cfg_rsx_on() ? "auto" : "disabled";
     if (!strcmp(key, "pcsx_rearmed_psxclock")) return cfg.cpu_clock == 2 ? "100" : cfg.cpu_clock == 1 ? "85" : "auto";
     if (!strcmp(key, "pcsx_rearmed_frameskip_threshold")) { snprintf(fsk, sizeof fsk, "33"); return fsk; }
     if (!strcmp(key, "pcsx_rearmed_display_fps_v2")) return "disabled";
@@ -138,7 +152,7 @@ static const char *option_value(const char *key)
     /* the GPU renderer's hooks run wherever the software renderer runs: keep it
        on this thread while the RSX renderer is on */
     if (!strcmp(key, "pcsx_rearmed_gpu_thread_rendering"))
-        return cfg.gpu_thread && !cfg.gpu_scale ? "enabled" : "disabled";
+        return cfg.gpu_thread && !cfg_rsx_on() ? "enabled" : "disabled";
     if (!strcmp(key, "pcsx_rearmed_show_overscan")) return "disabled";
     if (!strcmp(key, "pcsx_rearmed_screen_centering")) return "auto";
     if (!strcmp(key, "pcsx_rearmed_vibration")) return "enabled";   /* the Vibration setting: input.c */
@@ -266,11 +280,37 @@ int disk_iface_path(unsigned i, char *buf, size_t len)
     return -1;
 }
 
-/* One full swap cycle: open the tray, change the disc, close it. The
-   core signals the change with a lid interrupt + a wall-clock case-open
-   timer, so the game detects the new disc on resume even though no
-   emulated frame ran between the three calls. The tray is closed again
-   even when the change itself fails, so the drive never stays open. */
+/* A swap opens the lid and changes the disc, but the lid is NOT closed
+   here. The core's case-open timer is wall-clock (2 s from the close),
+   and the game is paused in the menu while the user picks the disc, so
+   the timer used to expire before the game ever ran again: the drive
+   closed before the first poll and the game never saw the lid open
+   (GameShark kept asking for the lid to be opened; log: close at
+   3768.76, resume only at 3772.00). The lid closes on resume instead
+   (disk_iface_close_lid, from the pause menu's exits), so the 2 s run
+   while the game runs. A failed change still closes the lid at once,
+   so a bad swap never leaves the drive open. */
+static int swap_lid_open;   /* a swap left the lid open; close it on resume */
+
+/* Close the lid a swap left open. No-op when no swap is pending, so the
+   pause menu's exits can all call it unconditionally. */
+void disk_iface_close_lid(void)
+{
+    bool (*eject)(bool) = NULL;
+    if (!swap_lid_open) return;
+    swap_lid_open = 0;
+    if (disk_ext_cb) eject = disk_ext_cb->set_eject_state;
+    if (!eject && disk_cb) eject = disk_cb->set_eject_state;
+    if (eject) eject(false);
+}
+
+/* Quitting instead of resuming just drops the pending close: the game is
+   gone, nothing observes the lid, and the next game must not inherit it. */
+void disk_iface_drop_lid(void)
+{
+    swap_lid_open = 0;
+}
+
 int disk_iface_swap_to_index(unsigned i)
 {
     bool (*eject)(bool) = NULL;
@@ -281,8 +321,9 @@ int disk_iface_swap_to_index(unsigned i)
     if (!eject || !setidx) return -1;
     eject(true);
     ok = setidx(i);
+    if (ok) { swap_lid_open = 1; return 0; }
     eject(false);
-    return ok ? 0 : -1;
+    return -1;
 }
 
 int disk_iface_swap_to_file(const char *path)
@@ -298,14 +339,17 @@ int disk_iface_swap_to_file(const char *path)
     if (!eject || !replace) return -1;
     /* Replace the disc currently in the drive, like a physical swap:
        the running program (a GameShark boot disc, a game waiting for
-       the next disc) keeps running, no reset anywhere in the sequence. */
+       the next disc) keeps running, no reset anywhere in the sequence.
+       The lid stays open until resume (see disk_iface_swap_to_index);
+       a failed replace closes it at once. */
     cur = disk_iface_current_index();
     memset(&info, 0, sizeof info);
     info.path = path;
     eject(true);
     ok = replace(cur, &info);
+    if (ok) { swap_lid_open = 1; return 0; }
     eject(false);
-    return ok ? 0 : -1;
+    return -1;
 }
 
 static void video_cb(const void *data, unsigned w, unsigned h, size_t pitch)
@@ -699,6 +743,8 @@ static void apply_controller_type(void)
     retro_set_controller_port_device(1, dev);
 }
 
+extern int pgxp_cull_track;   /* core, libpcsxcore/pgxp_lite.c: the culling correction's effective track (setting AND lite mode) */
+extern void pgxp_cull_set(int on);   /* core, libpcsxcore/pgxp_lite.c: sets the culling correction's effective track (setting AND lite mode) */
 extern float hwr_pgxp_grow;
 static void seam_apply(void) { static const float g[3] = { 0.5f, 0.25f, 0.f }; hwr_pgxp_grow = cfg.pgxp ? g[cfg.pgxp_seam % 3] : 0.f; }
 void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; pgxp_lite_set(cfg.pgxp); pgxp_cull_set(cfg.pgxp_culling); seam_apply(); cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
@@ -833,8 +879,8 @@ static void run_game(const char *path)
         psx_debug_trace = cfg.debug_log;
     }
     logf_("%s " APP_VERSION " (" BUILD_BRANCH "@" BUILD_COMMIT "), built " __DATE__ " " __TIME__ "\n", APP_TITLE);
-    logf_("settings: cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
-          cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
+    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
+          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
           cfg.show_fps, cfg.gpu_thread);
     logf_("loading %s (%s)\n", is_bios ? "BIOS menu" : path, !cfg.dynarec ? "interpreter" : cfg.dynarec_thread ? "dynarec, compiling on the second thread" : "dynarec");
     logf_("BIOS: %s%s\n", hooks_bios_status(), cfg.boot_logo ? (hooks_bios_present() ? ", PS1 logo on" : ", PS1 logo needs a BIOS") : "");
@@ -859,7 +905,7 @@ static void run_game(const char *path)
     audio_set_input_rate(core_rate);
     /* the BIOS logo is drawn by the software renderer; the chosen one takes over
        when the BIOS reads the game's executable (or after 30 s, if it never does) */
-    hwr_boot_hold = cfg.gpu_scale && cfg.boot_logo && hooks_bios_present();
+    hwr_boot_hold = cfg_rsx_on() && cfg.boot_logo && hooks_bios_present();
     boot_frames = 0;
     if (hwr_boot_hold) logf_("BIOS logo: software renderer until the game starts\n");
     pgxp_lite_set(cfg.pgxp);   /* OFF -> ON: the tables are invalidated first */
@@ -1011,7 +1057,7 @@ static void run_game(const char *path)
                       "(GPU %.2f, sound %.2f, CPU and rest %.2f), audio buffered %u, empty audio blocks %u, renderer %s%s\n",
                       fps_shown, speed_shown, disp_hz, emu_ms, emu_max / 1000.0, gpu_ms, spu_ms, emu_ms - gpu_ms - spu_ms,
                       audio_fill(), audio_underruns(), frame.gpu ? "RSX" : "software",
-                      cfg.gpu_thread && !cfg.gpu_scale ? " + GPU thread" : "");
+                      cfg.gpu_thread && !cfg_rsx_on() ? " + GPU thread" : "");
                 emu_us = emu_max = 0; emu_runs = 0;
                 prof0[0] = gpulib_prof_ticks[0]; prof0[1] = gpulib_prof_ticks[1];
                 if (frame.gpu) hooks_log_gpu_stats();
@@ -1075,8 +1121,8 @@ static int app_main(void)
     watchdog_start();
     config_load();
     log_ready();                        /* log files only with Debug log on */
-    logf_("settings: cpu %s, renderer %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d\n",
-          cfg.dynarec ? "dynarec" : "interp", cfg.gpu_scale, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps);
+    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d\n",
+          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps);
     log_memory("start");
     {
         sys_ppu_thread_stack_t si;

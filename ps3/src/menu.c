@@ -208,12 +208,39 @@ static void rescan(void)
 }
 
 /* ---------------- drawing helpers ---------------- */
-#define C_TEXT   0xffe8e8e8
-#define C_DIM    0xff9098a8
-#define C_ACCENT 0xffffd24a
-#define C_PANEL  0xe0141a26
+/* Theme UI: every menu colour reads through theme_pal(), the active
+   preset in theme.h, so a preset change repaints the whole menu on the
+   next frame. Out-of-range values (a hand-edited file) fall back to
+   Yellow; the settings loader already clamps to the table's range. */
+#include "theme.h"
+static const theme_pal_t *theme_pal(void)
+{
+    int c = cfg.theme_color;
+    if (c < 0 || c >= THEME_COLOR_COUNT) c = THEME_COLOR_YELLOW;
+    return &theme_pals[c];
+}
+#define C_TEXT   (theme_pal()->text)
+#define C_DIM    (theme_pal()->dim)
+#define C_ACCENT (theme_pal()->accent)
+#define C_PANEL  (theme_pal()->panel)
 #define PANEL_R  16   /* rounded panel corner radius, px at 720p (cover + quick menu) */
-#define C_SEL    0xff2c3a58
+#define C_SEL    (theme_pal()->sel)
+#define C_HEADER (theme_pal()->header)
+#define C_CLEAR  (theme_pal()->clear)
+
+/* Selection-row fill: sharp in Mixed/Square, rounded (r 8) in Round. */
+static void sel_fill(int x, int y, int w, int h)
+{
+    if (cfg.theme_shape == THEME_SHAPE_ROUND) ovl_round_fill(x, y, w, h, 8, C_SEL);
+    else ovl_fill(x, y, w, h, C_SEL);
+}
+
+/* Panel fill: rounded in Mixed/Round, sharp in Square. */
+static void panel_fill(int x, int y, int w, int h, uint32_t argb)
+{
+    if (cfg.theme_shape == THEME_SHAPE_SQUARE) ovl_fill(x, y, w, h, argb);
+    else ovl_round_fill(x, y, w, h, PANEL_R, argb);
+}
 
 static const char *menu_name = "game list";
 
@@ -236,7 +263,7 @@ static void frame_begin(int over_game)
         hooks_redraw_last_frame();
         video_redraw_quick(0);
     }
-    else video_clear(0xff0c1018);
+    else video_clear(C_CLEAR);
     video_overlay_clear();
 }
 
@@ -251,7 +278,7 @@ static void frame_end(void)
 
 static void header(const char *title, const char *sub)
 {
-    ovl_fill(0, 0, OVL_W, 64, 0xff182238);
+    ovl_fill(0, 0, OVL_W, 64, C_HEADER);
     ovl_text(MARGIN, 17, title, C_ACCENT);
     if (sub) ovl_text(OVL_W - MARGIN - ovl_text_width(sub), 17, sub, C_DIM);
 }
@@ -264,7 +291,7 @@ static void header(const char *title, const char *sub)
    overscan treats it exactly like the old title. */
 static void header_app(const char *sub)
 {
-    ovl_fill(0, 0, OVL_W, 64, 0xff182238);
+    ovl_fill(0, 0, OVL_W, 64, C_HEADER);
     ovl_fill(MARGIN, 17, 4, 30, C_ACCENT);
     ovl_text(MARGIN + 16, 17, APP_TITLE, C_TEXT);
     if (sub) ovl_text(OVL_W - MARGIN - ovl_text_width(sub), 17, sub, C_DIM);
@@ -275,16 +302,16 @@ static int prompt_width(const char *s);
 
 static void footer(const char *s)
 {
-    ovl_fill(0, OVL_H - 52, OVL_W, 52, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 41, s, C_DIM, 0xff182238);
+    ovl_fill(0, OVL_H - 52, OVL_W, 52, C_HEADER);
+    draw_prompt(MARGIN, OVL_H - 41, s, C_DIM, C_HEADER);
 }
 
 /* two-line footer (the game list) */
 static void footer2(const char *a, const char *b)
 {
-    ovl_fill(0, OVL_H - 84, OVL_W, 84, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 76, a, C_DIM, 0xff182238);
-    draw_prompt(MARGIN, OVL_H - 44, b, C_DIM, 0xff182238);
+    ovl_fill(0, OVL_H - 84, OVL_W, 84, C_HEADER);
+    draw_prompt(MARGIN, OVL_H - 76, a, C_DIM, C_HEADER);
+    draw_prompt(MARGIN, OVL_H - 44, b, C_DIM, C_HEADER);
 }
 
 /* Footer prompts with PS button glyphs (monochrome: glyphs use the text
@@ -341,8 +368,13 @@ static int chip_adv(const char *label) { return ovl_text_width(label) + 16 + 6; 
 static int draw_chip(int x, int y, const char *label, uint32_t color, uint32_t bg)
 {
     int w = ovl_text_width(label) + 16;
-    ovl_round_fill(x, y, w, 30, 15, color);
-    ovl_round_fill(x + 2, y + 2, w - 4, 26, 13, bg);
+    if (cfg.theme_shape == THEME_SHAPE_SQUARE) {
+        ovl_fill(x, y, w, 30, color);
+        ovl_fill(x + 2, y + 2, w - 4, 26, bg);
+    } else {
+        ovl_round_fill(x, y, w, 30, 15, color);
+        ovl_round_fill(x + 2, y + 2, w - 4, 26, 13, bg);
+    }
     ovl_text(x + 8, y, label, color);
     return w + 6;
 }
@@ -448,32 +480,38 @@ static const item_t settings_items[] = {
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
     { "PGXP culling correction", "Experimental. Recomputes triangle culling (NCLIP) from precise vertex positions, so faces that only wobble into view stop flickering. Only works while PGXP is on." },
     { "PGXP seam fill", "Experimental. Solid polygons drawn slightly larger (1/2 or 1/4 pixel) so neighbouring parts overlap instead of leaving thin cracks. A supplement to culling: it covers the sub-pixel gaps left between parts the culling kept; it does not bring back a wrongly culled triangle. Off turns it off (some games glitch with it on)." },
+    { "Auto resolution", "Target height the RSX renderer aims for, in 0.5x steps. Manual uses the Renderer scale." },
+    { "Live memory card swap", "Allow swapping the memory card while a game runs or in the BIOS, from the quick menu. Experimental: off unless you need it." },
+    { "Menu shape", "Mixed: rounded panels and chips, square rows. Round: rows rounded too. Square: everything square." },
+    { "Cover", "Glossy: spine case with shine. Matte: spine case, no shine. Corners: spine case with accent brackets. Framed: black frame around the art, with shine. Frame Matte: black frame, no shine. Shine: bare art with shine. Plain: bare art, no shine." },
+    { "Color preset", "Menu colours: Yellow, Blue, Green, Red, Light, Gray, or LCD warm mono." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 38 settings are grouped into 7 pages, flipped with L1/R1 (top row).
+   The 43 settings are grouped into 8 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
    up to NSET, and the host test checks uniqueness and the grouping itself. */
-#define NPAGES 7
+#define NPAGES 8
 static const char *set_page_titles[NPAGES] = {
-    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color", "PGXP"
+    "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color Correct", "PGXP", "Theme UI"
 };
-static const int set_page_items[NPAGES][9] = {
+static const int set_page_items[NPAGES][10] = {
     { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
-    { 1, 2, 3, 4, 5, 6, 7, 9, 10 },          /* Picture: Renderer, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
+    { 1, 38, 2, 3, 4, 5, 6, 7, 9, 10 },      /* Picture: Renderer, Auto resolution, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
-    { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
-    { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
+    { 19, 20, 22, 23, 24, 25, 26, 29, 39 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap */
+    { 30, 31, 32, 33, 34 },                  /* Color Correct: Brightness, Contrast, Saturation, Temperature, Gamma */
     { 35, 36, 37 },                        /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
+    { 40, 41, 42 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5, 3 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 10, 3, 4, 9, 5, 3, 3 };
+typedef char set_pages_cover_all[(6 + 10 + 3 + 4 + 9 + 5 + 3 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -513,13 +551,23 @@ static void setting_value(int i, char *b, size_t n)
     switch (i) {
     case 0: snprintf(b, n, "%s", !cfg.dynarec ? "Interpreter" : cfg.dynarec_thread ? "Dynarec, 2 threads" : "Dynarec, 1 thread"); break;
     case 1:
-        if (cfg.gpu_scale) {
+        if (cfg_auto_target_h()) {
+            /* auto: the target, and the size it is drawn at now (the effective
+               scale from the renderer); in the game list only the target */
+            int w, h, sx = 0; float sy = 0.f;
+            int at = cfg_auto_target_h();
+            hwr_shown_size(&w, &h);
+            hooks_gpu_scale(&sx, &sy);
+            if (w > 0 && h > 0 && sx > 0) snprintf(b, n, "Auto %d (%dx%d)", at, w * sx, (int)(h * sy + 0.5f));
+            else snprintf(b, n, "Auto %d", at);
+        } else if (cfg.gpu_scale) {
             /* in a game: the resolution it is drawn at now (its picture size times
                the scale); in the game list only the scale (games differ) */
-            int w, h, sx = cfg.gpu_scale > 4 ? 4 : cfg.gpu_scale;
-            float sy = cfg.gpu_scale > 4 ? 4.5f : (float)cfg.gpu_scale;
-            const char *name = cfg.gpu_scale > 4 ? "RSX 4.5x" : cfg.gpu_scale == 4 ? "RSX 4x" : cfg.gpu_scale == 3 ? "RSX 3x" :
-                               cfg.gpu_scale == 2 ? "RSX 2x" : "RSX 1x";
+            int w, h, sx = cfg.gpu_scale / 2;
+            float sy = (float)cfg.gpu_scale / 2.0f;
+            char name[32];   /* "RSX 5x" is 7 bytes; %g of a float can be longer, so keep room */
+            if (sx > 4) sx = 4;
+            snprintf(name, sizeof name, "RSX %gx", sy);
             hwr_shown_size(&w, &h);
             {   /* drawn at less when the screen cannot show more (480-line pictures) */
                 int ex; float ey;
@@ -566,6 +614,15 @@ static void setting_value(int i, char *b, size_t n)
     case 35: snprintf(b, n, "%s", cfg.pgxp == 2 ? "On + textures" : cfg.pgxp ? "On" : "Off"); break;
     case 36: snprintf(b, n, "%s", cfg.pgxp_culling ? "On" : "Off"); break;
     case 37: { static const char *const w[3] = { "1/2 pixel", "1/4 pixel", "Off" }; snprintf(b, n, "%s", w[cfg.pgxp_seam % 3]); } break;
+    case 38:
+        if (cfg.gpu_res_target == 480 || cfg.gpu_res_target == 600 || cfg.gpu_res_target == 720 || cfg.gpu_res_target == 960 ||
+                 cfg.gpu_res_target == 1080 || cfg.gpu_res_target == 1200) snprintf(b, n, "%d", cfg.gpu_res_target);
+        else snprintf(b, n, "Manual");
+        break;
+    case 39: snprintf(b, n, "%s", cfg.mc_swap ? "On" : "Off"); break;
+    case 40: snprintf(b, n, "%s", theme_shape_names[cfg.theme_shape]); break;
+    case 41: snprintf(b, n, "%s", theme_cover_names[cfg.theme_cover]); break;
+    case 42: snprintf(b, n, "%s", theme_color_names[cfg.theme_color]); break;
     }
 }
 
@@ -573,7 +630,11 @@ static void setting_value(int i, char *b, size_t n);
 static void setting_change_(int i, int dir, int in_game);
 static void screen_size_page(int in_game);
 static void vmc_import_page(void);
-static void vmc_slot_picker(int slot);
+static int vmc_slot_picker(int slot, int live);
+
+extern int SwapMcd(int slot, const char *path);   /* core, libpcsxcore/sio.c */
+extern void game_bios_card_set(int slot, const char *name);   /* main.c: one slot of the BIOS boot cards */
+extern const char *game_bios_card_get(int slot);              /* main.c: the same, read back */
 static void setting_change(int i, int dir, int in_game)
 {
     char before[64], after[64];
@@ -603,11 +664,11 @@ static void setting_change_(int i, int dir, int in_game)
         }
         break;
     case 1: {
-        /* Software (native) -> RSX 1x (native, drawn by the RSX) -> 2x -> 3x -> 4x -> 4.5x */
-        static const int order[] = { 0, 1, 2, 3, 4, 5 };
+        /* Software (native) -> RSX 1x -> 1.5x -> 2x -> 2.5x -> 3x -> 3.5x -> 4x -> 4.5x -> 5x (half-steps) */
+        static const int order[] = { 0, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
         int k = 0;
-        while (k < 5 && order[k] != cfg.gpu_scale) k++;
-        k = (k + (dir > 0 ? 1 : 5)) % 6;
+        while (k < 9 && order[k] != cfg.gpu_scale) k++;
+        k = (k + (dir > 0 ? 1 : 9)) % 10;
         cfg.gpu_scale = order[k];
         break;
     }
@@ -639,8 +700,8 @@ static void setting_change_(int i, int dir, int in_game)
     case 21: cfg.speed_limit = (cfg.speed_limit + (dir > 0 ? 1 : 2)) % 3; break;
     case 22: cfg.vram_check ^= 1; break;
     case 23: cfg.debug_log ^= 1; break;
-    case 24: vmc_slot_picker(1); break;   /* any key opens the picker; it only writes settings, so it is safe in a game too (launch-only, like the old mode toggle) */
-    case 25: vmc_slot_picker(2); break;
+    case 24: vmc_slot_picker(1, 0); break;   /* any key opens the picker; it only writes settings, so it is safe in a game too (launch-only, like the old mode toggle) */
+    case 25: vmc_slot_picker(2, 0); break;
     case 26: if (!in_game) vmc_import_page(); break;   /* import writes a card file: game list only, never in a game */
     case 27: cfg.analog ^= 1; break;
     case 28: cfg.cd_speed = (cfg.cd_speed + (dir > 0 ? 1 : 2)) % 3; cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; break;
@@ -663,6 +724,19 @@ static void setting_change_(int i, int dir, int in_game)
     case 35: cfg.pgxp = (cfg.pgxp + (dir > 0 ? 1 : 2)) % 3; break;
     case 36: cfg.pgxp_culling ^= 1; break;
     case 37: cfg.pgxp_seam = (cfg.pgxp_seam + (dir > 0 ? 1 : 2)) % 3; break;
+    case 38: {
+        /* Manual -> 480 -> 600 -> 720 -> 960 -> 1080 -> 1200 */
+        static const int order[] = { 0, 480, 600, 720, 960, 1080, 1200 };
+        int k = 0;
+        while (k < 6 && order[k] != cfg.gpu_res_target) k++;
+        k = (k + (dir > 0 ? 1 : 6)) % 7;
+        cfg.gpu_res_target = order[k];
+        break;
+    }
+    case 39: cfg.mc_swap ^= 1; break;
+    case 40: cfg.theme_shape = (cfg.theme_shape + (dir > 0 ? 1 : THEME_SHAPE_COUNT - 1)) % THEME_SHAPE_COUNT; break;
+    case 41: cfg.theme_cover = (cfg.theme_cover + (dir > 0 ? 1 : THEME_COVER_COUNT - 1)) % THEME_COVER_COUNT; break;
+    case 42: cfg.theme_color = (cfg.theme_color + (dir > 0 ? 1 : THEME_COLOR_COUNT - 1)) % THEME_COLOR_COUNT; break;
     }
 }
 
@@ -840,7 +914,7 @@ static void vmc_import_page(void)
         header("Import PS3 VMC", sub);
         for (i = top; i < nvmc && i < top + rows; i++) {
             int y = 90 + (i - top) * SET_ROW;
-            if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (i == sel) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
             text_fit(MARGIN, y, vmc_names[i], i == sel ? C_ACCENT : C_TEXT);
         }
         footer("Up/Down select    L1 R1 page    X import    Circle back");
@@ -917,7 +991,40 @@ static void vmc_import_page(void)
     }
 }
 
-static void vmc_slot_picker(int slot)
+/* the current choice of a slot, as the settings display shows it */
+static void vmc_slot_label(int slot, char *b, size_t n)
+{
+    int mode = slot == 1 ? cfg.mc1_mode : cfg.mc2_mode;
+    const char *shared = slot == 1 ? cfg.mc1_shared : cfg.mc2_shared;
+    if (mode == 1) snprintf(b, n, "%s", shared[0] ? shared : "Shared (default)");
+    else if (mode == 2) snprintf(b, n, "None");
+    else snprintf(b, n, "Auto (per-game)");
+}
+
+/* the game's serial card path (saves/SCUS-12345_1.mcd): the core dashes
+   the serial (SCUS94426 -> SCUS-94426) when it builds the same path at
+   load. Returns 0 when there is no serial (the BIOS menu). */
+static int vmc_serial_path(int slot, char *out, size_t n)
+{
+    const char *s = hooks_game_serial();
+    char serial[128];
+    size_t d = 0, i;
+    int dashed = 0;
+    if (!s || !s[0]) return 0;
+    for (i = 0; s[i] && d + 2 < sizeof serial; i++) {
+        if (!dashed && s[i] >= '0' && s[i] <= '9') { serial[d++] = '-'; dashed = 1; }
+        serial[d++] = s[i];
+    }
+    serial[d] = 0;
+    snprintf(out, n, APP_DIR "/saves/%s_%d.mcd", serial, slot);
+    return 1;
+}
+
+/* Card picker for a slot. Returns 1 when the choice was applied (set, or
+   live-swapped), 0 when nothing changed (back, refusal, busy, exit).
+   live: from the quick menu's Swap memory card, the choice is applied at
+   once through SwapMcd instead of waiting for the next launch. */
+static int vmc_slot_picker(int slot, int live)
 {
     /* Entries: 0 = Auto, 1..n = imported files, n+1 = None, and n+2 =
        the legacy default shared card, only when such a file exists and
@@ -928,6 +1035,10 @@ static void vmc_slot_picker(int slot)
     int other_mode = slot == 1 ? cfg.mc2_mode : cfg.mc1_mode;
     int sel = 0, top = 0, rows = 17, i, n, total, has_default;
     char title[32], defpath[1300], deftext[64], path[1300];
+    const char *picked_title = NULL, *picked_desc = NULL;
+    char picked_path[1300];
+    const char *bname = "";   /* BIOS boot name of the picked card (live branch) */
+    int have_path = 0;
     snprintf(title, sizeof title, "Memory card %d", slot);
     snprintf(defpath, sizeof defpath, APP_DIR "/saves/pcsx-card%d.mcd", slot);
     snprintf(deftext, sizeof deftext, "Default shared card (pcsx-card%d.mcd)", slot);
@@ -952,7 +1063,7 @@ static void vmc_slot_picker(int slot)
         if (p & PAD_DOWN) sel = (sel + 1) % total;
         if (p & PAD_L1) sel = sel > rows ? sel - rows : 0;
         if (p & PAD_R1) sel = sel + rows < total ? sel + rows : total - 1;
-        if (p & PAD_CIRCLE) return;
+        if (p & PAD_CIRCLE) return 0;
         if (p & PAD_CROSS) break;
         if (sel < top) top = sel;
         if (sel >= top + rows) top = sel - rows + 1;
@@ -962,7 +1073,7 @@ static void vmc_slot_picker(int slot)
             int y = 90 + (i - top) * SET_ROW;
             const char *row = NULL;
             uint32_t col = C_TEXT;
-            if (i == sel) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (i == sel) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
             if (i == 0) row = "Auto (per-game)";
             else if (i <= n) {
                 row = vmc_names[i - 1];
@@ -975,46 +1086,91 @@ static void vmc_slot_picker(int slot)
         footer("Up/Down select    L1 R1 page    X choose    Circle back");
         frame_end();
     }
-    if (app_exit_requested) return;
+    if (app_exit_requested) return 0;
     if (sel == 0) {
         *mode = 0; shared[0] = 0;
+        picked_title = "Memory card set to Auto";
+        picked_desc = "This game's own serial card.";
+        have_path = vmc_serial_path(slot, picked_path, sizeof picked_path);
         config_save();
         logf_("vmc: memory card %d set to Auto\n", slot);
-        vmc_message(title, "Memory card set to Auto", "This game's own serial card.", "Next launch only.");
-        return;
-    }
-    if (sel == n + 1) {
+    } else if (sel == n + 1) {
         *mode = 2; shared[0] = 0;
+        picked_title = "Memory card set to None";
+        picked_desc = "No card in this slot.";
+        snprintf(picked_path, sizeof picked_path, "none");
+        have_path = 1;
         config_save();
         logf_("vmc: memory card %d set to None\n", slot);
-        vmc_message(title, "Memory card set to None", "No card in this slot.", "Next launch only.");
-        return;
-    }
-    if (has_default && sel == n + 2) {
+    } else if (has_default && sel == n + 2) {
         *mode = 1; shared[0] = 0;
+        picked_title = "Memory card set to Default";
+        picked_desc = deftext;
+        snprintf(picked_path, sizeof picked_path, "%s", defpath);
+        have_path = 1;
         config_save();
         logf_("vmc: memory card %d set to default %s\n", slot, defpath);
-        vmc_message(title, "Memory card set to Default", deftext, "Next launch only.");
-        return;
+    } else {
+        /* An imported file: refuse it when the other slot already uses it. */
+        if (other_mode == 1 && other_shared[0] && !strcmp(vmc_names[sel - 1], other_shared)) {
+            char msg[300];
+            snprintf(msg, sizeof msg, "That card is already used by slot %d.", slot == 1 ? 2 : 1);
+            vmc_message(title, "Cannot pick that card", msg, "Pick a different card.");
+            return 0;
+        }
+        snprintf(path, sizeof path, "%s/%s", LIB_DIR, vmc_names[sel - 1]);
+        if (!vmc_valid(path)) {
+            logf_("vmc: slot %d choice refused, %s is not a 128 KB MC card\n", slot, path);
+            vmc_message(title, "Cannot use that card", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
+            return 0;
+        }
+        *mode = 1;
+        snprintf(shared, 256, "%s", vmc_names[sel - 1]);
+        picked_title = "Memory card set";
+        picked_desc = vmc_names[sel - 1];
+        snprintf(picked_path, sizeof picked_path, "%s", path);
+        have_path = 1;
+        config_save();
+        logf_("vmc: memory card %d set to %s\n", slot, path);
     }
-    /* An imported file: refuse it when the other slot already uses it. */
-    if (other_mode == 1 && other_shared[0] && !strcmp(vmc_names[sel - 1], other_shared)) {
-        char msg[300];
-        snprintf(msg, sizeof msg, "That card is already used by slot %d.", slot == 1 ? 2 : 1);
-        vmc_message(title, "Cannot pick that card", msg, "Pick a different card.");
-        return;
+    /* The choice is saved either way; live mode applies it now. */
+    if (!live) {
+        vmc_message(title, picked_title, picked_desc, "Next launch only.");
+        return 1;
     }
-    snprintf(path, sizeof path, "%s/%s", LIB_DIR, vmc_names[sel - 1]);
-    if (!vmc_valid(path)) {
-        logf_("vmc: slot %d choice refused, %s is not a 128 KB MC card\n", slot, path);
-        vmc_message(title, "Cannot use that card", "That file is not a 128 KB PS1 memory card.", "Nothing was changed.");
-        return;
+    if (!have_path) {
+        vmc_message(title, "Cannot swap to Auto", "This game has no serial.", "Nothing was changed.");
+        return 0;
     }
-    *mode = 1;
-    snprintf(shared, 256, "%s", vmc_names[sel - 1]);
-    config_save();
-    logf_("vmc: memory card %d set to %s\n", slot, path);
-    vmc_message(title, "Memory card set", vmc_names[sel - 1], "Next launch only.");
+    /* In the BIOS the boot reads bios_card[], not cfg.mc*_mode, so a live
+       swap must move that choice too or the next Boot BIOS reverts to the
+       home picker's card. The name is the picked file's base name, exactly
+       as the Boot BIOS page lists it; None is "" (no card). Refuse when the
+       other slot already boots from that file, as the Boot BIOS page does. */
+    if (app_game_is_bios()) {
+        if (*mode != 2) {
+            const char *slash = strrchr(picked_path, '/');
+            bname = slash ? slash + 1 : picked_path;
+        }
+        if (bname[0]) {
+            const char *other = game_bios_card_get(slot == 1 ? 2 : 1);
+            if (other && other[0] && !strcmp(bname, other)) {
+                char msg[300];
+                snprintf(msg, sizeof msg, "That card is already used by slot %d.", slot == 1 ? 2 : 1);
+                vmc_message(title, "Cannot pick that card", msg, "Pick a different card.");
+                return 0;
+            }
+        }
+    }
+    if (SwapMcd(slot, picked_path)) {
+        char ok[300];
+        snprintf(ok, sizeof ok, "Slot %d now uses %s.", slot, picked_desc);
+        if (app_game_is_bios()) game_bios_card_set(slot, bname);
+        vmc_message(title, "Memory card swapped", ok, "The game sees the new card now.");
+        return 1;
+    }
+    vmc_message(title, "Card busy", "The card was in use. Nothing was changed.", "Try again from the quick menu.");
+    return 0;
 }
 
 static void draw_settings(int sel, int y0, int in_game, int highlight, const char *help)
@@ -1041,7 +1197,7 @@ static void draw_settings(int sel, int y0, int in_game, int highlight, const cha
         int g = set_page_items[pg][i];
         char v[64];
         int y = y0 + i * SET_ROW;
-        if (g == sel && highlight) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+        if (g == sel && highlight) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
         ovl_text(50, y, settings_items[g].label, g == sel && highlight ? C_ACCENT : C_TEXT);
         setting_value(g, v, sizeof v);
         ovl_text(520, y, "<", C_DIM);
@@ -1222,11 +1378,11 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
                 ovl_text(50, y, has_personal ? "This title has its own settings."
                                              : "This title has no personal settings yet.", C_DIM);
                 y += SET_ROW;
-                if (apply == 0) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+                if (apply == 0) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
                 ovl_text(50, y, "Apply to this title only", apply == 0 ? C_ACCENT : C_TEXT);
                 y += SET_ROW; k = 1;
             }
-            if (apply == k) ovl_fill(30, y - 1, OVL_W - 60, SET_ROW, C_SEL);
+            if (apply == k) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
             ovl_text(50, y, "Apply to global setting", apply == k ? C_ACCENT : C_TEXT);
             y += SET_ROW;
             if (panel_msg) ovl_text(50, y, panel_msg, C_ACCENT);
@@ -1403,7 +1559,7 @@ static int copy_disc(const char *title, char *cue, size_t cue_n)
         header("Copy disc to HDD", NULL);
         text_fit(MARGIN, 110, title, C_ACCENT);
         text_fit(MARGIN, 170, dest, C_DIM);
-        {   /* the bar */
+        {   /* the bar: square in every shape (a level, not a selection row) */
             int w = OVL_W - 2 * MARGIN, f = total ? (int)((uint64_t)w * done / total) : 0;
             ovl_fill(MARGIN, 240, w, 36, C_SEL);
             ovl_fill(MARGIN, 240, f, 36, C_ACCENT);
@@ -1567,19 +1723,57 @@ static void cover_disc_shine(int cx, int cy, int r, int bx, int by, int bw)
     }
 }
 
+/* Case fill: sharp in Mixed/Square, rounded (r 6) in Round — the shadow
+   follows the case so the edge stays even. */
+static void case_fill(int x, int y, int w, int h, uint32_t argb)
+{
+    if (cfg.theme_shape == THEME_SHAPE_ROUND) ovl_round_fill(x, y, w, h, 6, argb);
+    else ovl_fill(x, y, w, h, argb);
+}
+
+/* Corner brackets on the case corners (Cover: Corners): two accent
+   strips per corner, 36 px long, 4 px thick, laid on the case's black
+   border so they never spill past the panel. */
+static void cover_corners(void)
+{
+    int bx = COVER_X, by = 110, bw = CASE_W, bh = CASE_H, L = 36, T = 4;
+    ovl_fill(bx, by, L, T, C_ACCENT);                 ovl_fill(bx, by, T, L, C_ACCENT);
+    ovl_fill(bx + bw - L, by, L, T, C_ACCENT);        ovl_fill(bx + bw - T, by, T, L, C_ACCENT);
+    ovl_fill(bx, by + bh - T, L, T, C_ACCENT);        ovl_fill(bx, by + bh - L, T, L, C_ACCENT);
+    ovl_fill(bx + bw - L, by + bh - T, L, T, C_ACCENT); ovl_fill(bx + bw - T, by + bh - L, T, L, C_ACCENT);
+}
+
 static void draw_cover_panel(const char *title, const char *line2)
 {
-    ovl_round_fill(PANEL_X, 90, PANEL_W, 530, PANEL_R, C_PANEL);
+    panel_fill(PANEL_X, 90, PANEL_W, 530, C_PANEL);
     if (cover_img.px) {
-        /* Spine case: drop shadow, black case base, spine grooves, art
-           inset right of the spine, plastic shine over the art. */
-        ovl_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
-        ovl_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
-        ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
-        ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
-        ovl_blit(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART,
+        /* The case treatment depends on the Cover style. Spine styles keep
+           the picked jewel case (shadow, black base, spine grooves, art
+           inset right of the spine). Framed styles use a black frame
+           around the art (shadow + black base, art inset). Bare styles
+           draw no case at all: the art fills the case rect. */
+        int ax, ay, as;  /* art rect */
+        if (cfg.theme_cover == THEME_COVER_FRAMED ||
+            cfg.theme_cover == THEME_COVER_FRAME_MATTE) {
+            case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+            case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+            ax = COVER_X + 20; ay = 122; as = 252;
+        } else if (cfg.theme_cover == THEME_COVER_SHINE ||
+                   cfg.theme_cover == THEME_COVER_PLAIN) {
+            ax = COVER_X; ay = 110; as = 276;
+        } else {
+            case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+            case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+            ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
+            ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
+            ax = COVER_X + SPINE_W + 2; ay = 110 + 6; as = CASE_ART;
+        }
+        ovl_blit(ax, ay, as, as,
                  cover_img.px, cover_img.w, cover_img.h);
-        cover_shine(COVER_X + SPINE_W + 2, 110 + 6, CASE_ART, CASE_ART);
+        if (cfg.theme_cover == THEME_COVER_GLOSSY ||
+            cfg.theme_cover == THEME_COVER_FRAMED ||
+            cfg.theme_cover == THEME_COVER_SHINE)
+            cover_shine(ax, ay, as, as);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     } else {
@@ -1588,8 +1782,8 @@ static void draw_cover_panel(const char *title, const char *line2)
            deliberately duplicated so the tested with-cover branch stays
            untouched); the label is drawn AFTER the shine so it stays
            legible over the reflection. */
-        ovl_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
-        ovl_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
+        case_fill(COVER_X + 4, 110 + 6, CASE_W, CASE_H, 0x73000000u);
+        case_fill(COVER_X, 110, CASE_W, CASE_H, 0xff000000u);
         ovl_fill(COVER_X + 6, 110, 2, CASE_H, 0xff222222u);
         ovl_fill(COVER_X + 16, 110, 2, CASE_H, 0xff222222u);
         ovl_round_fill(TRAY_X, TRAY_Y, TRAY_S, TRAY_S, 12, 0xff1a1a1au);
@@ -1599,13 +1793,15 @@ static void draw_cover_panel(const char *title, const char *line2)
         cover_disc_fill(DISC_CX, DISC_CY, 15, 0xff1a1a1au);
         ovl_circle(DISC_CX, DISC_CY, 15, 0xff888888u);
         cover_disc_fill(DISC_CX, DISC_CY, 5, 0xff000000u);
-        cover_disc_shine(DISC_CX, DISC_CY, DISC_R,
-                         COVER_X + SPINE_W + 2, 110 + 6, CASE_ART);
+        if (cfg.theme_cover == THEME_COVER_GLOSSY)
+            cover_disc_shine(DISC_CX, DISC_CY, DISC_R,
+                             COVER_X + SPINE_W + 2, 110 + 6, CASE_ART);
         ovl_text(DISC_CX - ovl_text_width("NO COVER") / 2, DISC_CY + 34,
                  "NO COVER", C_DIM);
         text_fit_r(COVER_X, 420, title, C_ACCENT, PANEL_X + PANEL_W - 15);
         if (line2[0]) text_fit_r(COVER_X, 460, line2, C_TEXT, PANEL_X + PANEL_W - 15);
     }
+    if (cfg.theme_cover == THEME_COVER_CORNERS) cover_corners();
 }
 
 /* Yes/No confirm for deleting a title's personal settings. Same layout and
@@ -1663,14 +1859,22 @@ static void bios_scan_dir(char **cards, int *ncards, const char *dir)
 static int bios_cards_page(void)
 {
     static char *cards[MAX_CARDS];
-    static int ncards, pick[2] = { 1, 0 };   /* index + 1 into cards, 0 none */
-    int i, row = 0, ret = 0;
+    static int ncards, pick[2] = { 0, 0 };   /* index + 1 into cards, 0 none; set from bios_card[] below */
+    int i, j, row = 0, ret = 0;
     for (i = 0; i < ncards; i++) free(cards[i]);
     ncards = 0;
     bios_scan_dir(cards, &ncards, APP_DIR "/saves");
     bios_scan_dir(cards, &ncards, APP_DIR "/saves/imported");
     qsort(cards, ncards, sizeof *cards, cmp_games);
     for (i = 0; i < 2; i++) if (pick[i] > ncards) pick[i] = 0;
+    /* Start on the cards the BIOS actually uses now (a live swap in the BIOS
+       moved bios_card[]; the page must show that card, not the pick from the
+       last Boot BIOS). No match (file gone, or never picked) leaves 0. */
+    for (i = 0; i < 2; i++) {
+        const char *b = game_bios_card_get(i + 1);
+        pick[i] = 0;
+        if (b && b[0]) for (j = 0; j < ncards; j++) if (!strcmp(cards[j], b)) { pick[i] = j + 1; break; }
+    }
     if (ncards && !pick[0] && !pick[1]) pick[0] = 1;
     logf_("menu: Boot BIOS, %d memory card files\n", ncards);
     menu_name = "Boot BIOS";
@@ -1693,7 +1897,7 @@ static int bios_cards_page(void)
         ovl_text(MARGIN, 136, "Its memory card screen copies and deletes saves between the two slots.", C_DIM);
         for (i = 0; i < 2; i++) {
             int y = 210 + i * 54;
-            if (i == row) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            if (i == row) sel_fill(30, y - 6, OVL_W - 60, 42);
             snprintf(line, sizeof line, "Memory card %d   < %s >", i + 1, pick[i] ? cards[pick[i] - 1] : "none");
             text_fit(MARGIN, y, line, i == row ? C_ACCENT : C_TEXT);
         }
@@ -1838,7 +2042,7 @@ const char *menu_run(void)
         header_app(sub);
         for (i = top; i < n && i < top + rows; i++) {
             int y = y0 + (i - top) * 44;
-            if (i == sel) ovl_fill(30, y - 6, 870, 42, C_SEL);
+            if (i == sel) sel_fill(30, y - 6, 870, 42);
             if (i == 0) {               /* the disc in the drive: icon, its game, "from disc" */
                 char t[128], nm[160];
                 int r = disc_identify_result(t, sizeof t), max;
@@ -1909,11 +2113,11 @@ const char *menu_run(void)
         if (disc_msg_frames > 0) {
             disc_msg_frames--;
             if (disc_msg2[0]) {
-                ovl_fill(30, OVL_H - 176, OVL_W - 60, 80, C_SEL);
+                sel_fill(30, OVL_H - 176, OVL_W - 60, 80);
                 ovl_text(MARGIN, OVL_H - 170, disc_msg, C_ACCENT);
                 ovl_text(MARGIN, OVL_H - 134, disc_msg2, C_TEXT);
             } else {
-                ovl_fill(30, OVL_H - 140, OVL_W - 60, 44, C_SEL);
+                sel_fill(30, OVL_H - 140, OVL_W - 60, 44);
                 ovl_text(MARGIN, OVL_H - 134, disc_msg, C_ACCENT);
             }
         }
@@ -2101,7 +2305,7 @@ static int cheat_screen(void)
             int optw = 0;
             if (idx >= n) break;
             c = &db.codes[idx];
-            if (idx == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            if (idx == sel) sel_fill(30, y - 6, OVL_W - 60, 42);
             col = !c->supported ? C_DIM : idx == sel ? C_ACCENT : C_TEXT;
             ovl_text(MARGIN, y, enabled[idx] ? "[X]" : "[ ]", col);
             if (c->has_options && c->supported) {
@@ -2360,7 +2564,7 @@ static int disc_swap_screen(char *out_label, size_t out_len)
             uint32_t col;
             if (idx >= n) break;
             e = &list[idx];
-            if (idx == sel) ovl_fill(30, y - 6, OVL_W - 60, 42, C_SEL);
+            if (idx == sel) sel_fill(30, y - 6, OVL_W - 60, 42);
             col = (e->is_playlist && e->index == cur) ? C_DIM : idx == sel ? C_ACCENT : C_TEXT;
             if (e->is_playlist) {
                 if (e->index == cur) snprintf(line, sizeof line, "Disc %u: %s (current)", e->index + 1, e->label);
@@ -2376,21 +2580,65 @@ static int disc_swap_screen(char *out_label, size_t out_len)
     return swapped;
 }
 
+/* Swap memory card (quick menu, only when the gate is on): pick a slot,
+   then the card picker in live mode swaps it through SwapMcd at once.
+   Returns 1 when a swap happened, filling out_label with
+   "slot N: <choice>"; 0 otherwise. */
+static int mc_swap_screen(char *out_label, size_t out_len)
+{
+    int sel = 0;
+    logf_("menu: swap memory card\n");
+    while (!app_exit_requested) {
+        uint32_t p;
+        char d1[256], d2[256], r1[272], r2[272];
+        int i;
+        frame_begin(0);
+        p = input_pressed();
+        if (p & (PAD_UP | PAD_DOWN)) sel = (sel + 1) % 2;
+        if (p & PAD_CIRCLE) return 0;
+        if (p & PAD_CROSS) break;
+        vmc_slot_label(1, d1, sizeof d1);
+        vmc_slot_label(2, d2, sizeof d2);
+        snprintf(r1, sizeof r1, "Slot 1 - %s", d1);
+        snprintf(r2, sizeof r2, "Slot 2 - %s", d2);
+        header("Swap memory card", "Pick a slot");
+        for (i = 0; i < 2; i++) {
+            int y = 110 + i * SET_ROW;
+            const char *row = i == 0 ? r1 : r2;
+            if (i == sel) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
+            text_fit(MARGIN, y, row, i == sel ? C_ACCENT : C_TEXT);
+        }
+        footer("Up/Down select    X choose    Circle back");
+        frame_end();
+    }
+    if (app_exit_requested) return 0;
+    if (vmc_slot_picker(sel + 1, 1)) {
+        char d[256];
+        vmc_slot_label(sel + 1, d, sizeof d);
+        snprintf(out_label, out_len, "slot %d: %s", sel + 1, d);
+        return 1;
+    }
+    return 0;
+}
+
 int menu_ingame(void)
 {
     static const char *items[] = { "Resume", "Save state", "Load state", "Swap disc", "Reset", "Joystick mode", "Settings", "Cheats",
-                                   "Quit to game list", "Dump VRAM (debug)", "Save Screenshot" };
+                                   "Quit to game list", "Dump VRAM (debug)", "Swap memory card", "Save Screenshot" };
     /* Action ids are the items[] indexes. Swap disc sits above Reset and
        is shown for any running disc (not the BIOS): it is NOT gated on
        the playlist size, so a GameShark-style boot disc (a single image)
-       can swap to any scanned image. The Cheats row only exists when
-       the global gate is on (and the running game has a serial); the Dump
-       row only when VRAM check is on. The Save Screenshot row only when
-       a disc is running (not the BIOS); it only sets a flag and resumes,
-       so the capture runs on the next clean presented frame. qitems maps
+       can swap to any scanned image. The Swap memory card row only exists
+       when the mc_swap gate is on, in a game and in the BIOS (the BIOS
+       memory card screen is where it is most useful). The Cheats row only
+       exists when the global gate is on (and the running game has a
+       serial); the Dump row only when VRAM check is on. The Save Screenshot
+       row only when a disc is running (not the BIOS); it only sets a flag
+       and resumes, so the capture runs on the next clean presented frame.
+       qitems maps
        display rows to action ids, rebuilt every frame so a gate toggle in
        the shared settings panel takes effect when returning here. */
-    int qitems[11], N = 0;
+    int qitems[12], N = 0;
     static int slot;             /* kept while the app runs */
     int sel = 0;
     const char *msg = NULL;
@@ -2405,11 +2653,12 @@ int menu_ingame(void)
         N = 0;
         qitems[N++] = 0; qitems[N++] = 1; qitems[N++] = 2;
         if (!app_game_is_bios()) qitems[N++] = 3;
+        if (cfg.mc_swap) qitems[N++] = 10;
         qitems[N++] = 4; qitems[N++] = 5; qitems[N++] = 6;
         if (cfg.cheat_enable && !app_game_is_bios() && hooks_game_serial()[0]) qitems[N++] = 7;
         qitems[N++] = 8;
         if (cfg.vram_check) qitems[N++] = 9;
-        if (!app_game_is_bios()) qitems[N++] = 10;
+        if (!app_game_is_bios()) qitems[N++] = 11;
         if (sel >= N) sel = N - 1;
         frame_begin(1);          /* the quick menu always draws over the game */
         p = input_pressed();
@@ -2420,15 +2669,15 @@ int menu_ingame(void)
             game_state_info(slot, info, sizeof info);
             msg = NULL;
         }
-        if (p & PAD_CIRCLE) { menu_name = "game list"; logf_("menu: resume\n"); return 0; }
+        if (p & PAD_CIRCLE) { disk_iface_close_lid(); menu_name = "game list"; logf_("menu: resume\n"); return 0; }
         if (p & PAD_CROSS) {
             switch (qitems[sel]) {
-            case 0: menu_name = "game list"; logf_("menu: resume\n"); return 0;
+            case 0: disk_iface_close_lid(); menu_name = "game list"; logf_("menu: resume\n"); return 0;
             case 1:
                 msg = game_save_state(slot) ? "State saved" : "Saving failed";
                 game_state_info(slot, info, sizeof info);
                 break;
-            case 2: if (game_load_state(slot)) return 0; msg = "This slot is empty"; break;
+            case 2: if (game_load_state(slot)) { disk_iface_close_lid(); return 0; } msg = "This slot is empty"; break;
             case 3: {
                 static char sm[280];
                 char lbl[256];
@@ -2438,7 +2687,16 @@ int menu_ingame(void)
                 } else msg = NULL;
                 break;
             }
-            case 4: game_reset(); return 0;
+            case 10: {
+                static char mm[280];
+                char lbl[256];
+                if (mc_swap_screen(lbl, sizeof lbl)) {
+                    snprintf(mm, sizeof mm, "Swapped to %s", lbl);
+                    msg = mm;
+                } else msg = NULL;
+                break;
+            }
+            case 4: game_reset(); disk_iface_close_lid(); return 0;
             case 5:
                 cfg.analog ^= 1;
                 game_settings_changed();   /* applies the port type immediately */
@@ -2468,7 +2726,7 @@ int menu_ingame(void)
                 } else msg = NULL;
                 break;
             }
-            case 8: menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
+            case 8: disk_iface_drop_lid(); menu_name = "game list"; logf_("menu: quit to game list\n"); return 1;
             case 9: {
                 static char dm[64];
                 int n = game_dump_vram();
@@ -2476,7 +2734,7 @@ int menu_ingame(void)
                 msg = n ? dm : "Dump failed (see the log)";
                 break;
             }
-            case 10: {
+            case 11: {
                 /* only a flag + resume: the capture runs on the next clean
                    presented frame (video_present), so the picture has no menu */
                 const char *s = hooks_game_serial();
@@ -2485,7 +2743,7 @@ int menu_ingame(void)
             }
             }
         }
-        ovl_round_fill(290, 110, 700, 130 + N * 46 + (msg ? 50 : 0), PANEL_R, C_PANEL);
+        panel_fill(290, 110, 700, 130 + N * 46 + (msg ? 50 : 0), C_PANEL);
         ovl_text(320, 132, "Paused", C_ACCENT);
         for (i = 0; i < N; i++) {
             int y = 180 + i * 46;
@@ -2499,7 +2757,7 @@ int menu_ingame(void)
                 else snprintf(line, sizeof line, "%s", items[a]);
             }
             else snprintf(line, sizeof line, "%s", items[a]);   /* Quit, Dump: plain labels */
-            if (i == sel) ovl_fill(305, y - 7, 670, 42, C_SEL);
+            if (i == sel) sel_fill(305, y - 7, 670, 42);
             ovl_text(330, y, line, i == sel ? C_ACCENT : C_TEXT);
         }
         {
@@ -2510,5 +2768,6 @@ int menu_ingame(void)
         if (msg) ovl_text(330, 180 + N * 46 + 56, msg, C_ACCENT);
         frame_end();
     }
+    disk_iface_drop_lid();
     return 1;
 }
