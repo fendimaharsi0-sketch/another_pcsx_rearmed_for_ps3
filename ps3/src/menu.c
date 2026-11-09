@@ -446,7 +446,7 @@ static const item_t settings_items[] = {
     { "Temperature", "-10 warmer (red), +10 cooler (blue). 0 is the picture as it is." },
     { "Gamma", "-10 darker midtones, +10 brighter midtones. Black stays black, white stays white. 0 is the picture as it is." },
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
-    { "PGXP culling", "Experimental. Recomputes triangle culling (NCLIP) from precise vertex positions, so faces that only wobble into view stop flickering. Only works while PGXP is on." },
+    { "PGXP culling correction", "Experimental. Recomputes triangle culling (NCLIP) from precise vertex positions, so faces that only wobble into view stop flickering. Only works while PGXP is on." },
     { "PGXP seam fill", "Experimental. Solid polygons drawn slightly larger (1/2 or 1/4 pixel) so neighbouring parts overlap instead of leaving thin cracks. A supplement to culling: it covers the sub-pixel gaps left between parts the culling kept; it does not bring back a wrongly culled triangle. Off turns it off (some games glitch with it on)." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
@@ -470,7 +470,7 @@ static const int set_page_items[NPAGES][9] = {
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
     { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
-    { 35, 36, 37 },                        /* PGXP: PGXP (steadier 3D), PGXP culling, PGXP seam fill */
+    { 35, 36, 37 },                        /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
 };
 static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5, 3 };
 typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 + 3 == NSET) ? 1 : -1];

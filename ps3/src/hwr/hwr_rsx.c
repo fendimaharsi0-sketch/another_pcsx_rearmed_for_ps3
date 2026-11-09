@@ -1675,7 +1675,7 @@ static void log_stats(void)
         }
         pgxp_lite_addr_hits = pgxp_lite_hits = pgxp_lite_welds = 0;
         if (pgxp_cull_track)
-            logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero), %u fell back (not in the lite table), %u with a guessed corner, %u with zero precise winding\n",
+            logf_("hwr: PGXP culling correction: %u triangles recomputed, %u flipped, %u restored (integer winding was zero), %u fell back (not in the lite table), %u with a guessed corner, %u with zero precise winding\n",
                   pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte, pgxp_nclip_guess, pgxp_nclip_dzero);
         pgxp_nclip_total = pgxp_nclip_flip = pgxp_nclip_restore = pgxp_nclip_nogte = 0;
         pgxp_nclip_guess = pgxp_nclip_dzero = 0;

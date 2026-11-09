@@ -1000,7 +1000,7 @@ static void screenshot_capture(void)
         extern unsigned int pgxp_lite_addr_hits, pgxp_lite_hits, pgxp_lite_welds;
         extern unsigned int pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte;
         extern unsigned int pgxp_nclip_guess, pgxp_nclip_dzero;
-        logf_("screenshot: saved %s (%ux%u, pgxp %d cull %d cpu %s; running window, partial — PGXP %u sub-pixel, %u whole-pixel, corners addr %u value %u, amb %u alone %u welds %u, culling %u recomputed %u flipped %u restored %u nogte %u guessed %u dzero)\n",
+        logf_("screenshot: saved %s (%ux%u, pgxp %d cull %d cpu %s; running window, partial — PGXP %u sub-pixel, %u whole-pixel, corners addr %u value %u, amb %u alone %u welds %u, PGXP culling correction %u recomputed %u flipped %u restored %u nogte %u guessed %u dzero)\n",
               path, scr_w, scr_h, cfg.pgxp, cfg.pgxp_culling, cfg.dynarec ? "dynarec" : "interp",
               hwr_pgxp_polys, hwr_pgxp_misses, pgxp_lite_addr_hits, pgxp_lite_hits, hwr_pgxp_amb, hwr_pgxp_alone, pgxp_lite_welds,
               pgxp_nclip_total, pgxp_nclip_flip, pgxp_nclip_restore, pgxp_nclip_nogte, pgxp_nclip_guess, pgxp_nclip_dzero);
