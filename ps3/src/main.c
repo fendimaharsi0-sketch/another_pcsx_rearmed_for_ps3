@@ -700,7 +700,7 @@ static void apply_controller_type(void)
 }
 
 extern float hwr_pgxp_grow;
-static void seam_apply(void) { static const float g[3] = { 0.5f, 0.25f, 0.f }; hwr_pgxp_grow = g[cfg.pgxp_seam % 3]; }
+static void seam_apply(void) { static const float g[3] = { 0.5f, 0.25f, 0.f }; hwr_pgxp_grow = cfg.pgxp ? g[cfg.pgxp_seam % 3] : 0.f; }
 void game_settings_changed(void) { vars_dirty = 1; gte_widescreen = cfg.widescreen; pgxp_lite_set(cfg.pgxp); pgxp_cull_set(cfg.pgxp_culling); seam_apply(); cdr_speed_up = cfg.cd_speed == 1 ? 2 : 1; hooks_apply_gpu_settings(); apply_spu_mdec(); audio_set_stretch(cfg.audio_stretch); apply_controller_type(); }
 
 /* ---- cheats: feeding the core's dormant engine ----
