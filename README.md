@@ -28,7 +28,7 @@ The additions include quality-of-life features and renderer work:
 - **Digital pad / analog toggle** — switching between digital and analog pad modes from the quick menu.
 - **Widescreen rendering** — a GTE-based 16:9 widescreen hack.
 - **Texture filtering** — bilinear texture filtering, including a performance variant, and sprite texture filtering.
-- **PGXP culling correction** — a per-game setting (PGXP page, off by default) that recomputes triangle culling (NCLIP) from the precise vertex positions, closing holes and cracks in 3D games that seam fill alone cannot fix.
+- **PGXP culling correction** — a per-game setting (PGXP page, off by default) that recomputes NCLIP from the same precise positions the renderer draws from, keeping the whole-pixel result when no precise position is recorded. There is no CPU mode, so positions changed by the CPU after the GTE are not covered. It only changes the culling decision, not the drawing, and some gaps may remain.
 - **Auto resolution** — a target-height setting (Manual, 480, 600, 720, 960, 1080, 1200; ceiling 1200) with 0.5x renderer steps, so the renderer scales to the chosen height.
 - **Live memory card swap** — swapping memory cards mid-game from the quick menu (global gate, off by default); works in the BIOS screen too, and sticks to the next Boot BIOS in the same session.
 - **Theme UI** — a settings page to change the menu shape (Mixed/Round/Square), cover style (7 styles), and colour preset (10 presets). Defaults match the old look.
