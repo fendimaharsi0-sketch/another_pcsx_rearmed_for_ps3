@@ -1668,6 +1668,11 @@ static void log_stats(void)
         if (pgxp_lite_on)
             logf_("hwr: PGXP: %u polygons at sub-pixel positions, %u at whole pixels (not from the GTE; of those %u with one corner found alone); corners found by address %u, by value %u; %u polygons with a corner standing for two vertices; %u vertices welded to a neighbour\n",
                   hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_alone, pgxp_lite_addr_hits, pgxp_lite_hits, hwr_pgxp_amb, pgxp_lite_welds);
+        {
+            extern unsigned int hwr_pgxp_grown; extern float hwr_pgxp_grow;
+            if (pgxp_lite_on) logf_("hwr: PGXP seam fill %.2f pixel: %u polygons drawn larger\n", hwr_pgxp_grow, hwr_pgxp_grown);
+            hwr_pgxp_grown = 0;
+        }
         pgxp_lite_addr_hits = pgxp_lite_hits = pgxp_lite_welds = 0;
         if (pgxp_cull_track)
             logf_("hwr: PGXP culling: %u triangles recomputed, %u flipped, %u restored (integer winding was zero), %u fell back (not in the lite table), %u with a guessed corner, %u with zero precise winding\n",

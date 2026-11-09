@@ -3,6 +3,7 @@
  * tracks the drawing state, turns primitives into triangle lists and decides
  * when a fresh snapshot of native VRAM is needed. */
 #include <string.h>
+#include <math.h>
 #include "hwr.h"
 
 #define VCAP      65536   /* vertices per submit */
@@ -51,6 +52,8 @@ void pgxp_lite_prefetch(const uint32_t *const *ptr, const uint32_t *words, int n
 static int pg_poly;                    /* the primitive being emitted has PGXP-lite offsets */
 unsigned int hwr_pgxp_polys, hwr_pgxp_misses, hwr_pgxp_persp, hwr_pgxp_flat, hwr_pgxp_misfit, hwr_pgxp_alone, hwr_pgxp_amb;   /* polygons drawn with / without them (log) */
 int hwr_pgxp_first;                    /* host tests: the first vertex of a word, as before build 86 */
+float hwr_pgxp_grow = 0.5f;            /* PGXP seam fill: solid polygons drawn this much (pixels) larger */
+unsigned int hwr_pgxp_grown;           /* PGXP seam fill: polygons drawn larger (log) */
 /* where PGXP's time goes in the renderer (timebase ticks, PowerPC; for the log) */
 unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth;
 
@@ -869,6 +872,43 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
             }
             if (p[0].ow > 0.f) hwr_pgxp_persp++;
             else hwr_pgxp_flat++;
+        }
+        /* Seam fill: a model's parts (Jill's face and forehead, the top and her
+           skin) are separate meshes whose edges meet only after the PS1 rounds
+           their corners to whole pixels. Drawn exactly, they stand a fraction of a
+           pixel apart and thin cracks open between them, showing what is behind
+           (eyes, neck, shoulders in RE3). A solid polygon is drawn slightly larger,
+           every edge moved outward by hwr_pgxp_grow, so neighbouring parts overlap
+           instead. Semi-transparent ones stay as they are (an overlap would blend
+           twice: a visible line). Only the upscaled pass moves (the offsets).
+           A supplement to culling, not a replacement: it only grows polygons the
+           culling kept, so a wrongly culled triangle stays missing. */
+        if (pg && !semi && hwr_pgxp_grow > 0.f) {
+            static const int o4[4] = { 0, 1, 3, 2 }, o3[3] = { 0, 1, 2 };   /* corners in outline order */
+            const int *o = n == 4 ? o4 : o3;
+            float qx[4], qy[4], ax[4], ay[4], area = 0.f;
+            for (i = 0; i < n; i++) { qx[i] = p[o[i]].x + p[o[i]].ox; qy[i] = p[o[i]].y + p[o[i]].oy; }
+            for (i = 0; i < n; i++) { int j = i + 1 == n ? 0 : i + 1; area += qx[i] * qy[j] - qx[j] * qy[i]; }
+            if (area > 0.05f || area < -0.05f) {
+                float sg = area > 0.f ? hwr_pgxp_grow : -hwr_pgxp_grow;
+                for (i = 0; i < n; i++) {
+                    int pr = i ? i - 1 : n - 1, nx = i + 1 == n ? 0 : i + 1;
+                    float e1x = qx[i] - qx[pr], e1y = qy[i] - qy[pr], e2x = qx[nx] - qx[i], e2y = qy[nx] - qy[i];
+                    float l1 = e1x * e1x + e1y * e1y, l2 = e2x * e2x + e2y * e2y, k;
+                    ax[i] = ay[i] = 0.f;
+                    if (l1 < 1e-6f || l2 < 1e-6f) continue;
+                    l1 = 1.f / sqrtf(l1); l2 = 1.f / sqrtf(l2);
+                    e1x *= l1; e1y *= l1; e2x *= l2; e2y *= l2;
+                    /* the corner moves along its bisector so both of its edges move
+                       out by the same amount; a sharp corner at most ~2.8 times */
+                    k = 1.f + e1x * e2x + e1y * e2y;
+                    if (k < 0.25f) k = 0.25f;
+                    k = sg / k;
+                    ax[i] = (e1y + e2y) * k; ay[i] = -(e1x + e2x) * k;
+                }
+                for (i = 0; i < n; i++) { p[o[i]].ox += ax[i]; p[o[i]].oy += ay[i]; }
+                hwr_pgxp_grown++;
+            }
         }
         hwr_pgxp_t_depth += PG_TB() - t0;
     }

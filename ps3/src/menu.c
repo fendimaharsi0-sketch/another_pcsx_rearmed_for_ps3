@@ -69,15 +69,67 @@ static int is_listed(const char *name)
     return 0;
 }
 
+/* track files described by a sheet in the same directory: those named on a
+   .cue's FILE lines and a .ccd's .img (same name). Only those are hidden:
+   before build 102 one .cue or .ccd anywhere in a folder hid every .bin and .img
+   in it, so a lone .img (no sheet) next to other games never showed. */
+static char **tracks;
+static int ntracks, cap_tracks;
+
+static void add_track(const char *name)
+{
+    if (ntracks == cap_tracks) {
+        char **t = realloc(tracks, (cap_tracks ? cap_tracks * 2 : 64) * sizeof *t);
+        if (!t) return;
+        tracks = t; cap_tracks = cap_tracks ? cap_tracks * 2 : 64;
+    }
+    if ((tracks[ntracks] = strdup(name))) ntracks++;
+}
+
+static void read_sheet(const char *dir, const char *name)
+{
+    char path[1300], line[600];
+    const char *dot = strrchr(name, '.');
+    int stem = dot ? (int)(dot - name) : (int)strlen(name);
+    FILE *f;
+    if (is_ext(name, "ccd")) {           /* CloneCD: game.ccd + game.img (+ .sub) */
+        snprintf(line, sizeof line, "%.*s.img", stem, name); add_track(line);
+        return;
+    }
+    snprintf(path, sizeof path, "%s/%s", dir, name);
+    if (!(f = fopen(path, "r"))) return;
+    while (fgets(line, sizeof line, f)) {   /* FILE "name" BINARY, or FILE name BINARY */
+        char *p = line, *b, *e;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncasecmp(p, "FILE", 4) || (p[4] != ' ' && p[4] != '\t')) continue;
+        p += 5;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '"') { p++; e = strchr(p, '"'); }
+        else e = strpbrk(p, " \t\r\n");
+        if (e) *e = 0;
+        b = strrchr(p, '/'); if (!b) b = strrchr(p, '\\');
+        if (*p) add_track(b ? b + 1 : p);
+    }
+    fclose(f);
+}
+
+static int is_track(const char *name)
+{
+    int i;
+    for (i = 0; i < ntracks; i++) if (!strcasecmp(tracks[i], name)) return 1;
+    return 0;
+}
+
 #define MAX_DIR_ENTRIES 4096
 
 /* one directory: read it once, then decide what to show */
 static void scan(const char *dir, int depth)
 {
-    static const char *exts[] = { "cue", "chd", "pbp", "m3u", "ccd", "iso", "img", "bin", "exe", NULL };
+    /* .mdf: Alcohol 120% (the core reads the .mds next to it) */
+    static const char *exts[] = { "cue", "chd", "pbp", "m3u", "ccd", "iso", "img", "bin", "mdf", "exe", NULL };
     char **names = NULL;
     unsigned char *isdir = NULL;
-    int n = 0, i, has_sheet = 0;
+    int n = 0, i;
     DIR *d;
     struct dirent *de;
 
@@ -102,9 +154,11 @@ static void scan(const char *dir, int depth)
     closedir(d);
 
     nlisted = 0;
+    for (i = 0; i < ntracks; i++) free(tracks[i]);
+    ntracks = 0;
     for (i = 0; i < n; i++) {
         if (isdir[i]) continue;
-        if (is_ext(names[i], "cue") || is_ext(names[i], "ccd")) has_sheet = 1;
+        if (is_ext(names[i], "cue") || is_ext(names[i], "ccd")) read_sheet(dir, names[i]);
         if (is_ext(names[i], "m3u")) read_m3u(dir, names[i]);
     }
     for (i = 0; i < n && ngames < MAX_GAMES; i++) {
@@ -112,8 +166,8 @@ static void scan(const char *dir, int depth)
         if (isdir[i]) continue;
         for (k = 0; exts[k]; k++) if (is_ext(names[i], exts[k])) break;
         if (!exts[k]) continue;
-        /* track files described by a .cue/.ccd next to them */
-        if ((is_ext(names[i], "bin") || is_ext(names[i], "img")) && has_sheet) continue;
+        /* track files described by a sheet next to them (read_sheet) */
+        if ((is_ext(names[i], "bin") || is_ext(names[i], "img")) && is_track(names[i])) continue;
         if (is_listed(names[i])) continue;
         {
             char path[1300];
@@ -393,13 +447,14 @@ static const item_t settings_items[] = {
     { "Gamma", "-10 darker midtones, +10 brighter midtones. Black stays black, white stays white. 0 is the picture as it is." },
     { "PGXP (steadier 3D)", "Experimental. RSX renderer: steadier 3D; + textures: no texture warping." },
     { "PGXP culling", "Experimental. Recomputes triangle culling (NCLIP) from precise vertex positions, so faces that only wobble into view stop flickering. Only works while PGXP is on." },
+    { "PGXP seam fill", "Experimental. Solid polygons drawn slightly larger (1/2 or 1/4 pixel) so neighbouring parts overlap instead of leaving thin cracks. A supplement to culling: it covers the sub-pixel gaps left between parts the culling kept; it does not bring back a wrongly culled triangle. Off turns it off (some games glitch with it on)." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 37 settings are grouped into 7 pages, flipped with L1/R1 (top row).
+   The 38 settings are grouped into 7 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -415,10 +470,10 @@ static const int set_page_items[NPAGES][9] = {
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29 },      /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats */
     { 30, 31, 32, 33, 34 },                  /* Color: Brightness, Contrast, Saturation, Temperature, Gamma */
-    { 35, 36 },                           /* PGXP: PGXP (steadier 3D), PGXP culling */
+    { 35, 36, 37 },                        /* PGXP: PGXP (steadier 3D), PGXP culling, PGXP seam fill */
 };
-static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5, 2 };
-typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 + 2 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 6, 9, 3, 4, 8, 5, 3 };
+typedef char set_pages_cover_all[(6 + 9 + 3 + 4 + 8 + 5 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -510,6 +565,7 @@ static void setting_value(int i, char *b, size_t n)
     case 34: color_slider(cfg.color_gamma, b, n); break;
     case 35: snprintf(b, n, "%s", cfg.pgxp == 2 ? "On + textures" : cfg.pgxp ? "On" : "Off"); break;
     case 36: snprintf(b, n, "%s", cfg.pgxp_culling ? "On" : "Off"); break;
+    case 37: { static const char *const w[3] = { "1/2 pixel", "1/4 pixel", "Off" }; snprintf(b, n, "%s", w[cfg.pgxp_seam % 3]); } break;
     }
 }
 
@@ -606,6 +662,7 @@ static void setting_change_(int i, int dir, int in_game)
     case 34: color_step(&cfg.color_gamma, dir); break;
     case 35: cfg.pgxp = (cfg.pgxp + (dir > 0 ? 1 : 2)) % 3; break;
     case 36: cfg.pgxp_culling ^= 1; break;
+    case 37: cfg.pgxp_seam = (cfg.pgxp_seam + (dir > 0 ? 1 : 2)) % 3; break;
     }
 }
 

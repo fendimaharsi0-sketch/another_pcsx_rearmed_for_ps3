@@ -1850,8 +1850,10 @@ static void rec_load_memory(struct lightrec_cstate *cstate,
 
 		if (c.i.op == OP_LH)
 			jit_extr_s(rt, rt);
-		else if (c.i.op == OP_LW && __WORDSIZE == 64)
-			jit_extr_i(rt, rt);
+		else if ((c.i.op == OP_LW || c.i.op == OP_META_LWU) && __WORDSIZE == 64)
+			jit_extr_i(rt, rt);   /* (LWU: a LWL/LWR pair, also a full word; the
+			   byte swap left it zero-extended and a 64-bit compare with a
+			   negative value failed: Mortal Kombat Trilogy crashed on the PS3) */
 	}
 
 	lightrec_free_reg(reg_cache, rs);
@@ -2032,8 +2034,10 @@ static void rec_load_direct(struct lightrec_cstate *cstate,
 
 		if (c.i.op == OP_LH)
 			jit_extr_s(rt, rt);
-		else if (c.i.op == OP_LW && __WORDSIZE == 64)
-			jit_extr_i(rt, rt);
+		else if ((c.i.op == OP_LW || c.i.op == OP_META_LWU) && __WORDSIZE == 64)
+			jit_extr_i(rt, rt);   /* (LWU: a LWL/LWR pair, also a full word; the
+			   byte swap left it zero-extended and a 64-bit compare with a
+			   negative value failed: Mortal Kombat Trilogy crashed on the PS3) */
 	}
 
 	lightrec_free_reg(reg_cache, addr_reg);
