@@ -880,9 +880,9 @@ static void run_game(const char *path)
         psx_debug_trace = cfg.debug_log;
     }
     logf_("%s " APP_VERSION " (" BUILD_BRANCH "@" BUILD_COMMIT "), built " __DATE__ " " __TIME__ "\n", APP_TITLE);
-    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
+    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d, spu audio %d\n",
           cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
-          cfg.show_fps, cfg.gpu_thread);
+          cfg.show_fps, cfg.gpu_thread, cfg.spu_audio);
     logf_("loading %s (%s)\n", is_bios ? "BIOS menu" : path, !cfg.dynarec ? "interpreter" : cfg.dynarec_thread ? "dynarec, compiling on the second thread" : "dynarec");
     logf_("BIOS: %s%s\n", hooks_bios_status(), cfg.boot_logo ? (hooks_bios_present() ? ", PS1 logo on" : ", PS1 logo needs a BIOS") : "");
     {   /* Lightrec's compiler thread (core: restarts Lightrec if the setting changed) */
@@ -1122,8 +1122,8 @@ static int app_main(void)
     watchdog_start();
     config_load();
     log_ready();                        /* log files only with Debug log on */
-    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d\n",
-          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps);
+    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, spu audio %d\n",
+          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps, cfg.spu_audio);
     log_memory("start");
     {
         sys_ppu_thread_stack_t si;

@@ -214,6 +214,7 @@ int spu_audio_init(void)
 		return 0;
 	}
 	A.on = 1;
+	logf_("spu audio: mixing on the SPU\n");
 	return 1;
 }
 

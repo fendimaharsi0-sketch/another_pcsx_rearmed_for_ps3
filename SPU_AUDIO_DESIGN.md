@@ -179,6 +179,13 @@ DONE in increment 2:
   `SPU_configure()` -> `init/exit_spu_thread`. (On the `ps3` branch the
   same item sits after PGXP seam fill; here PGXP culling/seam keep
   research numbering 36/37 and Theme UI is 40/41/42.)
+- **Logging** (2026-11-10): `spu_audio.c` used to log only on failure
+  paths, so a clean run was silent. It now logs
+  `spu audio: mixing on the SPU` on successful init, and both
+  `settings:` prints in `main.c` (app start + per-game) include
+  `spu audio 0/1` — a log now shows at a glance whether the feature
+  was on, and the `sound` number in the `game:` line is the
+  before/after figure (`gpulib_prof_ticks[1]`).
 - **Host test** (`hosttest/spuaudio/test.c`, build with
   `-DUSE_SPU_AUDIO`, also in `hosttest/build.sh`):
   jobs 1-2 **PASS, bit-exact** (simple interp, gauss + FMOD, noise,
