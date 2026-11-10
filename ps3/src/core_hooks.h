@@ -9,6 +9,8 @@ void hooks_game_stopping(void);
 void hooks_apply_gpu_settings(void);
 const char *hooks_game_serial(void);
 const char *hooks_bios_status(void);
+int hooks_ps3_bios(void);                 /* the PS3's own PS1 BIOS is there (PS3_BIOS) */
+int hooks_bios_auto_flash(void);          /* Auto: nothing in system/, the PS3's own is used */
 int hooks_bios_present(void);             /* a BIOS file is in system/ (else the HLE BIOS) */
 
 /* GPU renderer */

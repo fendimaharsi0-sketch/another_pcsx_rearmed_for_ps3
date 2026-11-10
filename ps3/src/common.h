@@ -7,6 +7,8 @@
 #include <ppu-types.h>
 
 #define APP_ID    "PCSR00003"
+/* the PS1 BIOS of the PS3's own PS1 emulator (512 KiB or 4 MiB; the core reads the first 512 KiB) */
+#define PS3_BIOS "/dev_flash/ps1emu/ps1_rom.bin"
 #define APP_TITLE "Another PCSX-ReARMed for PS3 (PGXP)"
 #define APP_VERSION "0.1 (build 72)"   /* logs only; not shown in the game list (version lives on the release page) */
 #ifndef APP_DIR   /* overridable for the host UI tests */
@@ -59,6 +61,7 @@ typedef struct {
     int spu_audio;      /* PS1 SPU (sound) mixing on a Cell SPU */
     int audio_stretch;  /* sound slows down with the game instead of crackling */
     int cpu_clock;      /* PS1 CPU speed: 0 normal, 1 +50%, 2 +75% */
+    int low_latency;    /* wait for the last frame to be shown before reading the pad (main loop) */
     int debug_log;      /* extra logging: core debug messages, emulator state in hang and 10 s reports */
     int skip_intro;     /* fast-forward FMVs that start in a game's first 3 minutes */
     int vibration;      /* DualShock vibration */
@@ -121,6 +124,7 @@ unsigned video_height(void);
 void *video_frame_buffer(size_t *pitch);
 /* begins a display frame: waits until the back buffer may be drawn again */
 void video_begin(void);
+unsigned video_wait_shown(void);   /* low latency: the last queued frame is on screen; returns the RSX lag (us) */
 void video_clear(uint32_t argb);
 /* draws a software frame (XRGB8888 in main memory) to the 4:3 or full area */
 void video_draw_frame(const void *pix, unsigned w, unsigned h, size_t pitch);

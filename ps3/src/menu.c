@@ -462,7 +462,7 @@ static const item_t settings_items[] = {
     { "Sound when slow", "Slow down: sound slows with the game instead of crackling." },
     { "Skip intro videos", "Skips videos in a game's first 3 minutes (presses Start/X; fast-forwards the rest)." },
     { "PAL games at 60 Hz", "European games run at 60 Hz: 20% faster. From the next game start." },
-    { "PS1 logo at start", "Shows the PlayStation logo at game start. Needs a BIOS in USRDIR/system." },
+    { "PS1 logo at start", "Shows the PlayStation logo at game start. Needs a BIOS: the PS3's own, or one in USRDIR/system." },
     { "Speed limit", "Normal: catches up after a hitch. Strict: never faster. Off: no limit." },
     { "VRAM check (debug)", "Debug: software renderer draws too. Pause menu > Dump VRAM." },
     { "Debug log", "Debug: writes log files (USRDIR/log.txt, USRDIR/logs) and hang reports." },
@@ -486,13 +486,14 @@ static const item_t settings_items[] = {
     { "Cover", "Glossy: spine case with shine. Matte: spine case, no shine. Corners: spine case with accent brackets. Framed: black frame around the art, with shine. Frame Matte: black frame, no shine. Shine: bare art with shine. Plain: bare art, no shine." },
     { "Color preset", "Menu colours: Yellow, Blue, Green, Red, Light, Gray, or LCD warm mono." },
     { "SPU audio mixing", "Mix the PS1 sound on a Cell SPU while the PPU keeps emulating. Experimental: off unless you need it." },
+    { "Low latency", "Less input lag: about a frame. Steps aside in scenes too heavy for it, so it costs no speed." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 43 settings are grouped into 8 pages, flipped with L1/R1 (top row).
+   The 45 settings are grouped into 8 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -502,7 +503,7 @@ static const char *set_page_titles[NPAGES] = {
     "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color Correct", "PGXP", "Theme UI"
 };
 static const int set_page_items[NPAGES][10] = {
-    { 0, 16, 21, 8, 11, 28 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD */
+    { 0, 16, 21, 8, 11, 28, 44 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD, Low latency */
     { 1, 38, 2, 3, 4, 5, 6, 7, 9, 10 },      /* Picture: Renderer, Auto resolution, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
     { 15, 18, 17, 43 },                      /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow, SPU audio mixing */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
@@ -511,8 +512,8 @@ static const int set_page_items[NPAGES][10] = {
     { 35, 36, 37 },                        /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
     { 40, 41, 42 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 6, 10, 4, 4, 9, 5, 3, 3 };
-typedef char set_pages_cover_all[(6 + 10 + 4 + 4 + 9 + 5 + 3 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 7, 10, 4, 4, 9, 5, 3, 3 };
+typedef char set_pages_cover_all[(7 + 10 + 4 + 4 + 9 + 5 + 3 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -625,6 +626,7 @@ static void setting_value(int i, char *b, size_t n)
     case 41: snprintf(b, n, "%s", theme_cover_names[cfg.theme_cover]); break;
     case 42: snprintf(b, n, "%s", theme_color_names[cfg.theme_color]); break;
     case 43: snprintf(b, n, "%s", cfg.spu_audio ? "SPU" : "PPU"); break;
+    case 44: snprintf(b, n, "%s", cfg.low_latency ? "On" : "Off"); break;
     }
 }
 
@@ -740,6 +742,7 @@ static void setting_change_(int i, int dir, int in_game)
     case 41: cfg.theme_cover = (cfg.theme_cover + (dir > 0 ? 1 : THEME_COVER_COUNT - 1)) % THEME_COVER_COUNT; break;
     case 42: cfg.theme_color = (cfg.theme_color + (dir > 0 ? 1 : THEME_COLOR_COUNT - 1)) % THEME_COLOR_COUNT; break;
     case 43: cfg.spu_audio ^= 1; break;
+    case 44: cfg.low_latency ^= 1; break;
     }
 }
 

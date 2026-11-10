@@ -629,6 +629,16 @@ static void ps1_sample_shift(pv *t, int n)
             float gx = ((vb - va) * e2y - (vc - va) * e1y) * ix;
             float gy = ((vc - va) * e1x - (vb - va) * e2x) * ix;
             float s = -0.5f * gy + (i < 2 ? 1.f / 256.f : 0.f) + dx * gx + dy0 * gy;
+            /* across too, when a pixel spans more than one texel: the PS1 takes the
+               texel at the pixel's left edge, a GPU the one at its centre, gx / 2
+               further (X-Files picks single bytes of its 24-bit picture with quads
+               of 4 texels per pixel for its cursor: one at the centre took the
+               wrong bytes, a box of noise; 1:1 and magnified textures land on the
+               same texel either way and keep the measured mapping). The middle of
+               that texel, not its edge: the RSX puts the corners on its sub-pixel
+               grid, which moves the coordinates by up to gx / 64 (at the edge
+               the cursor's colours came from the byte before) */
+            if (i < 2 && (gx > 1.f || gx < -1.f)) s += -0.5f * gx + 0.5f - 1.f / 256.f;
             *(float *)((char *)a + off) += s; *(float *)((char *)b + off) += s; *(float *)((char *)c + off) += s;
         }
     }

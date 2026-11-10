@@ -390,6 +390,18 @@ static void wait_flip(int rsx_wait)
     if (w > vs.wait_max) vs.wait_max = w;
 }
 
+/* Low latency: waits until the last queued frame is on screen, so the pad is
+   read and the next frame emulated right after a refresh and shown at the next
+   one. Without it the next frame is emulated while the last one still waits for
+   its flip, and is shown a refresh later. Returns how long the RSX was still
+   drawing that frame (microseconds). */
+unsigned video_wait_shown(void)
+{
+    u64 g = vs.gpu_wait_us;
+    if (pend >= 0) wait_flip(nbuf < 3);
+    return (unsigned)(vs.gpu_wait_us - g);
+}
+
 /* the buffer to draw the next frame into: not on screen, not waiting for its flip */
 static void pick_buffer(void)
 {

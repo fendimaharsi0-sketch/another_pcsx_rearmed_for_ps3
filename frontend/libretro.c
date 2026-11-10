@@ -3968,6 +3968,26 @@ static void loadPSXBios(void)
    bool use_hle = get_bios_config_hle();
    enum retro_log_level level = RETRO_LOG_INFO;
 
+   /* the PS3 frontend's choice: "file:" + a full path (its own PS1 BIOS, from
+      /dev_flash). Tried first, like upstream's chosen BIOS; the full path is
+      kept in bios_saved (psxmem.c opens it as it is, not under BiosDir). */
+   if (!use_hle)
+   {
+      struct retro_variable var = { "pcsx_rearmed_bios", NULL };
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value &&
+          strncmp(var.value, "file:", 5) == 0 && var.value[5] == '/')
+      {
+         size_t k, f = ARRAY_SIZE(bios_saved);
+         snprintf(path, sizeof(path), "%s", var.value + 5);
+         try_use_bios(path, sizeof(path), false, false);
+         for (k = 0; k < ARRAY_SIZE(bios_saved); k++) if (bios_saved[k]) f = k;
+         if (f < ARRAY_SIZE(bios_saved)) {
+            free(bios_saved[f]);
+            bios_saved[f] = strdup(var.value + 5);
+         }
+      }
+   }
+
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir)
    {
       unsigned i;

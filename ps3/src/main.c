@@ -119,7 +119,10 @@ static const char *option_value(const char *key)
     static char fsk[8];
     if (!strcmp(key, "pcsx_rearmed_drc")) return cfg.dynarec ? "enabled" : "disabled";
     if (!strcmp(key, "pcsx_rearmed_drc_thread")) return "disabled";
-    if (!strcmp(key, "pcsx_rearmed_bios")) return "auto";
+    if (!strcmp(key, "pcsx_rearmed_bios")) {   /* Settings > BIOS (core: frontend/libretro.c loadPSXBios) */
+        if (hooks_bios_auto_flash()) return "file:" PS3_BIOS;   /* Auto, or a chosen file gone */
+        return "auto";
+    }
     /* the logo needs a real BIOS (the HLE one cannot boot the disc itself) */
     if (!strcmp(key, "pcsx_rearmed_show_bios_bootlogo")) return cfg.boot_logo && hooks_bios_present() ? "enabled" : "disabled";
     if (!strcmp(key, "pcsx_rearmed_region")) return cfg.pal60 ? "NTSC" : "auto";   /* NTSC timing: 60 Hz */
@@ -853,6 +856,7 @@ static void run_game(const char *path)
 {
     struct retro_game_info gi = { path, NULL, 0, NULL };
     struct retro_system_av_info av;
+    struct { int on, strikes; unsigned misses, resumes, tail, tail_peak; u64 last, t0, calm_t, win_t, on_t, peak[2]; } ll = { 0 };
     double acc = 0.0, disp_hz = 59.94, fps_shown = 0.0, speed_shown = 100.0;
     unsigned speed_runs = 0;                /* core frames run since the last FPS update */
     u64 pace_t = 0;                         /* time of the last pacing step (0: start over) */
@@ -928,6 +932,25 @@ static void run_game(const char *path)
         int runs = 0;
         u64 now;
 
+        /* Low latency: the pad is read once the last frame is on screen. The
+           next frame then has to be emulated and drawn within one refresh; when a
+           frame misses its refresh this steps aside (the normal pipelining, where
+           emulation overlaps the RSX and the flip) until the frames are short
+           enough again, so it does not cost speed for long. */
+        if (!cfg.low_latency || cfg.speed_limit == 2 || fmv.skipping) { ll.on = 0; ll.last = 0; }
+        else if (ll.on) {
+            unsigned g = video_wait_shown();
+            u64 t = sysGetSystemTime();
+            if (g > ll.tail_peak) ll.tail_peak = g;
+            if (ll.last && t - ll.last > 1500000.0 / disp_hz) {
+                /* off for 2 s, doubling (to 32 s) while it keeps missing soon after resuming */
+                if (t - ll.on_t > 10000000) ll.strikes = 0;
+                ll.on = 0; ll.calm_t = t + (2000000ull << ll.strikes); ll.misses++;
+                if (ll.strikes < 4) ll.strikes++;
+            }
+            ll.last = t;
+        }
+        ll.t0 = sysGetSystemTime();
         app_poll_system();
         input_poll();
         p0 = input_pad(0);
@@ -950,6 +973,7 @@ static void run_game(const char *path)
             video_overlay_clear();          /* drop the menu from the overlay */
             input_blocked = 1;              /* the confirming X press must not reach the game */
             acc = 0.0; pace_t = 0;
+            ll.last = 0;                    /* the menu's frames are not the game's */
         }
 
         /* run the core at its own rate (59.94 / 50 Hz) by the clock: as many
@@ -1037,6 +1061,22 @@ static void run_game(const char *path)
             } else if (n) video_draw_overlay_rows(660, 700);
             notice_frames++;
         }
+        if (cfg.low_latency) {
+            /* busy time of this pass (emulation and drawing, no waits); peak over
+               the last one to two seconds. Low latency resumes when the peak plus
+               the RSX lag seen while it was on fit in 80% of a refresh. */
+            u64 t = sysGetSystemTime(), b = t - ll.t0, pk;
+            if (b > ll.peak[1]) ll.peak[1] = b;
+            if (t - ll.win_t > 1000000) {
+                ll.peak[0] = ll.peak[1]; ll.peak[1] = 0; ll.win_t = t;
+                if (ll.on) { ll.tail = ll.tail_peak; ll.tail_peak = 0; }   /* the lag is only seen while on */
+            }
+            pk = ll.peak[0] > ll.peak[1] ? ll.peak[0] : ll.peak[1];
+            if (!ll.on && cfg.speed_limit != 2 && !fmv.skipping && t > ll.calm_t &&
+                pk + ll.tail < 800000.0 / disp_hz) {
+                ll.on = 1; ll.last = 0; ll.resumes++; ll.on_t = t;
+            }
+        }
         video_present();
 
         now = sysGetSystemTime();
@@ -1060,6 +1100,13 @@ static void run_game(const char *path)
                       audio_fill(), audio_underruns(), frame.gpu ? "RSX" : "software",
                       cfg.gpu_thread && !cfg_rsx_on() ? " + GPU thread" : "");
                 emu_us = emu_max = 0; emu_runs = 0;
+                if (cfg.low_latency) {
+                    logf_("low latency: %s now; frames that missed their refresh %u, resumed %u times (10 s); "
+                          "longest pass %.1f ms, RSX lag %.1f ms, refresh %.1f ms\n",
+                          ll.on ? "on" : "stepped aside", ll.misses, ll.resumes,
+                          (ll.peak[0] > ll.peak[1] ? ll.peak[0] : ll.peak[1]) / 1000.0, ll.tail / 1000.0, 1000.0 / disp_hz);
+                    ll.misses = ll.resumes = 0;
+                }
                 prof0[0] = gpulib_prof_ticks[0]; prof0[1] = gpulib_prof_ticks[1];
                 if (frame.gpu) hooks_log_gpu_stats();
                 if (cfg.debug_log && lightrec_debug_counts) {   /* dynarec totals so far */

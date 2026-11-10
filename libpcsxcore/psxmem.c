@@ -313,7 +313,10 @@ void psxMemReset() {
 			r = 0;
 		if (!Config.Bios[r][0] || strcmp(Config.Bios[r], "HLE") == 0)
 			continue;
-		snprintf(bios, sizeof(bios), "%s/%s", Config.BiosDir, Config.Bios[r]);
+		if (Config.Bios[r][0] == '/')   /* a full path (PS3: the system's own BIOS) */
+			snprintf(bios, sizeof(bios), "%s", Config.Bios[r]);
+		else
+			snprintf(bios, sizeof(bios), "%s/%s", Config.BiosDir, Config.Bios[r]);
 		f = fopen(bios, "rb");
 		if (f == NULL) {
 			SysMessage("Could not open BIOS: \"%s\"\n", bios);

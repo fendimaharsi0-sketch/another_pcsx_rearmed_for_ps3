@@ -110,6 +110,10 @@ static struct {
     u64 t_cmd, t_submit, t_copy, t_wait, t_present, t_up, t_nat;
     int vp_loaded;                /* the renderer's vertex program is the RSX's current one */
     int mask_used;                /* the game has drawn with the mask check (since the renderer started) */
+    int cpu_read;                 /* the game has read VRAM back with the CPU (bit 15 is data then) */
+    int self_ok;                  /* the bit-15 self copy passed its start-up test (diagnostic only: it
+                                     passed and failed on the same console, see cpu_vram_read) */
+    int shadow;                   /* the software renderer draws too, as with the VRAM check (cpu_vram_read) */
     int mask_resync;              /* the target's stencil mask plane needs a full copy from the native VRAM */
 } R;
 
@@ -537,8 +541,10 @@ static void use_prog(int p, int filt, signed char *bound, signed char *boundf)
    A blended op on a console whose RSX does not keep the colour while setting X
    (fix_blend 0) would lose its blend in the redraw: its pixels are copied onto
    themselves instead (program HWR_PROG_SELF reads the native VRAM after a barrier).
-   Blended STP texels only once the game has used the mask check: until then
-   nothing reads their bit 15 and the extra pass would only cost time. */
+   Blended STP texels only once the game has used the mask check or read VRAM
+   back: until then nothing reads their bit 15 and the extra pass would only cost
+   time. (The X-Files reads back the area where it builds its cursor from the
+   bytes of its 24-bit picture: without bit 15 the cursor had wrong colours.) */
 static int op_bit15(const hwr_op *o)
 {
     int b = HWR_PROG_BASE(o->prog);
@@ -1274,6 +1280,32 @@ static void full_vram_read(int x, int y, int w, int h)
     R.sync_ticks += gpulib_prof_now() - t0;
 }
 
+/* The game reads VRAM back (GP0 C0h, or a copy the core does itself). What it
+   reads must be exact, bit 15 included, and the RSX cannot always give that: on
+   consoles where it cannot blend and set bit 15 in one pass, blended pixels have
+   bit 15 = 0 (the X-Files builds its cursor from such pixels: wrong colours), and
+   the pass that copies them onto themselves with bit 15 (op_bit15 2) is not
+   reliable (its start-up test passed and failed on the same console; used, it
+   striped the X-Files' menus). So from the first read on, the software renderer
+   draws too, as with the VRAM check, and reads come from its exact copy; the RSX
+   still draws the picture. Costs the software renderer's CPU time, in such games
+   only. */
+static int cmd_check(const uint32_t *list, const uint32_t *end);
+static void cpu_vram_read(int x, int y, int w, int h)
+{
+    if (!R.cpu_read) {
+        R.cpu_read = 1;
+        if (!R.check) {
+            full_vram_read(0, 0, 1024, 512);         /* the software renderer continues from here */
+            R.shadow = 1;
+            gpu_frontend_hooks.cmd = cmd_check;
+            gpu_frontend_hooks.vram_copy = NULL;
+            logf_("hwr: the game reads VRAM back: the software renderer draws too from now on (exact reads)\n");
+            return;
+        }
+    }
+}
+
 /* A VRAM-to-VRAM copy (GP0 80h) done by the RSX in the native VRAM: through the
    CPU it cost a readback of the source when the RSX had drawn there (a wait for
    the RSX each time) and an upload of the destination. RE3 makes hundreds per
@@ -1287,7 +1319,7 @@ static int full_vram_copy(int sx, int sy, int dx, int dy, int w, int h, int msb)
 {
     u64 t0;
     int bx = sx, by = sy, bw = w, bh = h;
-    if (R.dead || R.check || msb || w <= 0 || h <= 0) return 0;
+    if (R.dead || R.check || R.shadow || msb || w <= 0 || h <= 0) return 0;
     if (sx + w > 1024 || dx + w > 1024 || sy + h > 512 || dy + h > 512 || ((sx ^ dx) & 1)) return 0;
     if (!drawn_bbox(&bx, &by, &bw, &bh)) return 0;   /* the core's copy of the source is current */
     t0 = gpulib_prof_now();
@@ -1311,7 +1343,7 @@ static int full_vram_copy(int sx, int sy, int dx, int dy, int w, int h, int msb)
    nothing left to read back) */
 void hooks_sync_vram_for_state(void)
 {
-    if (R.on && R.base.full && !R.dead && !R.check) full_vram_read(0, 0, 1024, 512);
+    if (R.on && R.base.full && !R.dead && !R.check && !R.shadow) full_vram_read(0, 0, 1024, 512);
 }
 
 /* ---- startup self-test ---- */
@@ -1481,6 +1513,38 @@ static int self_test(int full)
                 logf_("hwr self-test (full mode): bit 15 (STP/mask bit) kept in the native VRAM (%s)\n", V[chosen].name);
             } else logf_("hwr self-test (full mode): bit 15 not kept: drawing stores it as 0, like before\n");
         }
+        R.self_ok = 0;
+        if (R.bit15 && !R.fix_blend) {
+            /* the self copy (op_bit15 2): a blended op (add) with STP texels (row 5)
+               over row 16 x 0..7, which holds 0: the colours stay the texels', and
+               bit 15 must come out set. Only a log line and a flag: games that read
+               VRAM back use it only if it passes (build 111 used it untested: on a
+               console it striped blended pixels) */
+            static const u16 want2[8] = { 0, 0x9111, 0xa222, 0xb333, 0xc444, 0xd555, 0, 0 };
+            hwr_op so = bo;
+            char got_s[64]; int n = 0, sbad = 0, keep = R.cpu_read;
+            u16 *cv = (u16 *)gpulib_get_vram();
+            for (i = 0; i < 8; i++) cv[16 * 1024 + i] = 0;
+            upload_part(0, 16, 8, 1);
+            for (i = 0; i < 12; i++) { bt[i].y += 1.f; bt[i].pass = 2; }
+            so.blend = HWR_BLEND_ADD; so.pass = 2; so.count = 6;     /* the first quad only */
+            R.cpu_read = 1; R.self_ok = 1;
+            rsxr_snapshot(&R.base, NULL);
+            rsxr_submit(&R.base, &so, 1, bt, 6);
+            R.cpu_read = keep;
+            if (!drain()) return 1;
+            for (i = 0; i < 8; i++) {
+                const u8 *p = R.nat + (16 * 1024 + i) * 2;
+                u32 got = (u32)p[0] << 8 | p[1];
+                if (got != want2[i]) sbad++;
+                n += snprintf(got_s + n, sizeof got_s - n, " %04x", (unsigned)got);
+            }
+            R.self_ok = !sbad;
+            logf_("hwr self-test: bit 15 self copy of blended pixels: %s (x 0..7:%s, want 0000 9111 a222 b333 c444 d555 0000 0000)\n",
+                  sbad ? "wrong, not used" : "OK", got_s);
+            for (i = 0; i < 8; i++) cv[16 * 1024 + i] = 0;
+            upload_part(0, 16, 8, 1);
+        }
     }
     if (!bad_total) logf_("hwr self-test (%s mode): all paths match the PS1\n", full ? "full" : "hybrid");
     return bad_total;
@@ -1596,7 +1660,7 @@ static int present_hook(int x, int y, int w, int h, int bgr24)
     tr_frame(x, y, w, h);
     r = hwr_present(x, y, w, h, bgr24);
     /* the core shows this frame from its own VRAM: bring the area up to date */
-    if (!r && R.base.full && !R.dead && !R.check) full_vram_read(x, y, bgr24 ? (w * 3 + 1) / 2 : w, h);
+    if (!r && R.base.full && !R.dead && !R.check && !R.shadow) full_vram_read(x, y, bgr24 ? (w * 3 + 1) / 2 : w, h);
     R.t_present += gpulib_prof_now() - t0;
     return r;
 }
@@ -1635,6 +1699,7 @@ static void start(void)
     R.base.vtx_area = rsxr_vtx_area;
     R.cpu_waits = R.syncs_in = R.syncs_out = 0; R.sync_ticks = 0; gpu_copies = 0;
     R.mask_used = R.mask_resync = R.base.mask_stencil = 0;
+    R.cpu_read = 0; R.shadow = 0;
     if (!tested) {
         tested = 1;
         R.base.full = 1;
@@ -1670,7 +1735,7 @@ static void start(void)
     R.check = R.base.full && cfg.vram_check;
     gpu_frontend_hooks.cmd = R.check ? cmd_check : cmd_timed;
     gpu_frontend_hooks.vram_written = R.base.full ? full_vram_written : hwr_vram_written;
-    gpu_frontend_hooks.vram_read = R.base.full && !R.check ? full_vram_read : NULL;
+    gpu_frontend_hooks.vram_read = R.base.full ? cpu_vram_read : NULL;   /* (VRAM check: only notes the read) */
     gpu_frontend_hooks.vram_copy = R.base.full && !R.check ? full_vram_copy : NULL;
     gpu_frontend_hooks.sync_ecmds = hwr_sync_ecmds;
     gpu_frontend_hooks.present = present_hook;
@@ -1773,7 +1838,7 @@ static void stop(void)
     log_stats();
     memset(&gpu_frontend_hooks, 0, sizeof gpu_frontend_hooks);
     hwr_detach();
-    if (R.base.full && !R.check)
+    if (R.base.full && !R.check && !R.shadow)
         full_vram_read(0, 0, 1024, 512);   /* the software renderer continues from here */
     else
         drain();
