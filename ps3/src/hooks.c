@@ -12,6 +12,16 @@ const char *hooks_game_serial(void) { return CdromId; }
 
 /* a BIOS the core will use: one of the names it tries first, else any file of
    512 KiB in system/ (the core takes those too, of any name) */
+static int ps3_bios_ok(const char *p)
+{
+    struct stat st;
+    return stat(p, &st) == 0 && (st.st_size == 512 * 1024 || st.st_size == 4 * 1024 * 1024);
+}
+int hooks_ps3_bios(void) { return ps3_bios_ok(PS3_BIOS); }
+
+static int bios_from_flash;
+int hooks_bios_auto_flash(void) { hooks_bios_status(); return bios_from_flash; }
+
 const char *hooks_bios_status(void)
 {
     static char b[200];
@@ -19,6 +29,11 @@ const char *hooks_bios_status(void)
     int i;
     DIR *d;
     struct dirent *e;
+    bios_from_flash = 0;
+    if (ps3_bios_ok(PS3_BIOS)) {   /* Auto: the PS3's own first, it is on every PS3 */
+        bios_from_flash = 1;
+        return "the PS3's own (ps1_rom.bin) found";
+    }
     for (i = 0; names[i]; i++) {
         char p[256];
         struct stat st;
