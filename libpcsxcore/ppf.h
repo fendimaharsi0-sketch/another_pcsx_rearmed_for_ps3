@@ -28,6 +28,7 @@ void FreePPFCache();
 void CheckPPFCache(unsigned char *pB, unsigned char m, unsigned char s, unsigned char f);
 
 int LoadSBI(const char *fname, int sector_count);
+int LoadLSD(const char *fname, int sector_count);
 void UnloadSBI(void);
 
 extern unsigned char *sbi_sectors;

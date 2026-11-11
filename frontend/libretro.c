@@ -1953,6 +1953,9 @@ static void show_enabled_hacks(void)
 
 static void loadPSXBios(void);
 
+/* PS3 front end: a LibCrypt-protected game without its .sbi (or subchannel data) */
+int libretro_libcrypt_missing;
+
 bool retro_load_game(const struct retro_game_info *info)
 {
    size_t i;
@@ -2247,7 +2250,8 @@ bool retro_load_game(const struct retro_game_info *info)
 #endif
    log_mem_usage(0);
 
-   if (check_unsatisfied_libcrypt()) {
+   libretro_libcrypt_missing = check_unsatisfied_libcrypt();
+   if (libretro_libcrypt_missing) {
       show_notification("LibCrypt protected game with missing SBI detected",
             3000, 3, RETRO_LOG_WARN);
    }

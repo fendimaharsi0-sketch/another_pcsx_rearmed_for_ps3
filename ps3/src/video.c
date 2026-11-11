@@ -774,6 +774,40 @@ static void game_rect(float *x0, float *y0, float *x1, float *y1, float *shown)
     *x1 = *x0 + w; *y1 = *y0 + h;
 }
 
+/* the game picture last shown, scaled down to w x h (ARGB, each pixel the mean of
+   4 samples) for a save state's picture; taken when the in-game menu opens, before
+   the menu is drawn over it. 0: nothing shown yet */
+int video_snapshot(uint32_t *out, int w, int h)
+{
+    float x0, y0, x1, y1, sh;
+    const u32 *src;
+    int x, y, b;
+    if (pend >= 0) wait_flip(0);          /* the last frame on screen, the RSX done with it */
+    b = disp;
+    if (b < 0 || b >= nbuf || !fb[b].ptr) return 0;
+    src = fb[b].ptr;
+    game_rect(&x0, &y0, &x1, &y1, &sh);
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > scr_w) x1 = scr_w;
+    if (y1 > scr_h) y1 = scr_h;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            unsigned r = 0, g = 0, bl = 0, k;
+            for (k = 0; k < 4; k++) {
+                int sx = (int)(x0 + (x + 0.25f + 0.5f * (k & 1)) * (x1 - x0) / w);
+                int sy = (int)(y0 + (y + 0.25f + 0.5f * (k >> 1)) * (y1 - y0) / h);
+                u32 v;
+                if (sx >= (int)scr_w) sx = scr_w - 1;
+                if (sy >= (int)scr_h) sy = scr_h - 1;
+                v = src[sy * scr_w + sx];
+                r += v >> 16 & 255; g += v >> 8 & 255; bl += v & 255;
+            }
+            out[y * w + x] = 0xff000000u | (r / 4) << 16 | (g / 4) << 8 | bl / 4;
+        }
+    return 1;
+}
+
 /* cuts the rectangle (and its texture coordinates) to the screen */
 static void clip_to_screen(float *x0, float *y0, float *x1, float *y1, float *u0, float *v0, float *u1, float *v1)
 {

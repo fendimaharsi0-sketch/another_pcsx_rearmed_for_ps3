@@ -55,7 +55,7 @@ int hwr_pgxp_first;                    /* host tests: the first vertex of a word
 float hwr_pgxp_grow = 0.5f;            /* PGXP seam fill: solid polygons drawn this much (pixels) larger */
 unsigned int hwr_pgxp_grown;           /* PGXP seam fill: polygons drawn larger (log) */
 /* where PGXP's time goes in the renderer (timebase ticks, PowerPC; for the log) */
-unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth;
+unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth, hwr_pgxp_t_seam;
 
 /* Small integers to float from tables. On the PS3's PPU an integer reaches a
    floating-point register only through memory, and loading it straight after
@@ -651,6 +651,98 @@ static void colour(pv *p, uint32_t c)
 
 #include "pgxp_depth.h"   /* corner depths made to fit one surface */
 
+/* Seam fill: the edges PGXP polygons drew this frame (sub-pixel positions,
+   1/256 pixel), so an edge a later polygon shares with an earlier one is left
+   where it is. Grown, it covered a strip of the earlier polygon, and when the
+   game drew that one again semi-transparently (fog, light, reflections: Silent
+   Hill's ground, GT2, Soul Reaver), the strip lost the blend: a grid of light or
+   dark lines along the polygon edges. Separate meshes (the cracks seam fill is
+   for) share no edges, so theirs still grow. A semi-transparent polygon laid
+   over an earlier one moves out where that one did, so it covers its strip too,
+   but only on edges no other solid polygon has: there the neighbour's own layer
+   covers it, and two additive layers over one strip were a line of their own
+   (Silent Hill's ground: its fog is added over every tile). A solid polygon does
+   not grow over an edge a semi-transparent one drew before it either (GT2's
+   wheels: a light outline). */
+#define SEEN_N 16384
+/* 8 bytes an edge, 128 KiB: twice the edges of the old table (20 bytes an
+   edge, 160 KiB), where busy frames (Silent Hill) already lost a few, in less
+   memory, as it is read for every polygon (the PS3's PPU waits ~400 cycles for
+   main memory). k: the edge (both corners) hashed; st: the frame it is from
+   (seen_st); v: n << 2 | grown << 1 | ns (n solid, ns semi-transparent
+   polygons had it, grown: the first solid one moved out there) */
+static struct { uint32_t k; uint16_t st, v; } seen[SEEN_N];
+static uint16_t seen_st;          /* this frame's stamp: 1..65535, the table cleared when it wraps */
+static uint32_t seen_frame = ~0u;
+static void seen_new_frame(void)
+{
+    if (hwr_stats.frames == seen_frame) return;
+    seen_frame = hwr_stats.frames;
+    if (++seen_st == 0) { memset(seen, 0, sizeof seen); seen_st = 1; }
+}
+/* a corner, 1/256 pixel, from x * 256 + 1.5 * 2^23 (rounded to a whole number
+   by the add itself, as lrintf did): its bits are read as an integer below,
+   all eight of a polygon's stored first, so only the first load waits */
+#define SEEN_MAGIC 12582912.f
+/* the corner exactly: x and y in the float's low 23 bits (2^22 + the value) */
+static uint64_t seen_corner(uint32_t bx, uint32_t by) { return (uint64_t)(bx & 0x7fffff) << 23 | (by & 0x7fffff); }
+static uint64_t seen_hash(uint64_t c1, uint64_t c2)   /* either direction */
+{
+    uint64_t a = c1 < c2 ? c1 : c2, b = c1 < c2 ? c2 : c1, h = a * 0x9E3779B97F4A7C15ull ^ b * 0xC2B2AE3D27D4EB4Full;
+    h ^= h >> 29;
+    return h * 0xBF58476D1CE4E5B9ull;
+}
+#define SEEN_SLOT(h) ((unsigned)((h) >> 50) & (SEEN_N - 1))   /* 14 bits: SEEN_N */
+#define SEEN_KEY(h) ((uint32_t)((h) >> 16))
+/* the edge's slot this frame, made when it is new (-1: no room near it);
+   *r: 0 if no polygon had it yet, else n * 2 + grown + 4096 if a
+   semi-transparent one had it */
+static inline int seen_find(uint64_t hh, int *r)
+{
+    unsigned h = SEEN_SLOT(hh), k;
+    uint32_t key = SEEN_KEY(hh);
+    for (k = 0; k < 8; k++, h = (h + 1) & (SEEN_N - 1)) {
+        if (seen[h].st != seen_st) {
+            seen[h].k = key; seen[h].st = seen_st; seen[h].v = 0;
+            *r = 0; return h;
+        }
+        if (seen[h].k == key) {
+            unsigned v = seen[h].v;
+            *r = (v >> 2) * 2 + ((v >> 1) & 1) + (v & 1 ? 4096 : 0);
+            return h;
+        }
+    }
+    *r = 0; return -1;
+}
+/* add: 1 + grown for a solid polygon, 4 for a semi-transparent one */
+static inline void seen_add(int h, int add)
+{
+    unsigned v, n;
+    if (h < 0) return;
+    v = seen[h].v; n = v >> 2;
+    if (add == 4) v |= 1;
+    else {
+        if (!n) v = (v & ~2u) | (add == 2 ? 2u : 0u);
+        if (n < 1000) v += 4;
+    }
+    seen[h].v = (uint16_t)v;
+}
+/* 1 / sqrt(x), x > 0: the PPU's estimate and two Newton steps (relative error
+   about 1e-6; offsets of a fraction of a pixel need far less), without the
+   divide and square root that each stall the PPU for dozens of cycles */
+static inline float seam_rsqrt(float x)
+{
+#if defined(__powerpc__) || defined(__PPU__)
+    double d = x, y;
+    __asm__("frsqrte %0,%1" : "=d" (y) : "d" (d));
+    y = y * (1.5 - 0.5 * d * y * y);
+    y = y * (1.5 - 0.5 * d * y * y);
+    return (float)y;
+#else
+    return 1.f / sqrtf(x);
+#endif
+}
+
 /* DuckStation IsPossibleSpritePolygon, integer-exact: a textured triangle is
    sprite-like when its UV mapping is separable — U varies only with X and V
    only with Y (dU/dY == 0 and dV/dX == 0). The numerators below are the same
@@ -887,40 +979,96 @@ static void do_poly(const uint32_t *l, const uint32_t *end)
            skin) are separate meshes whose edges meet only after the PS1 rounds
            their corners to whole pixels. Drawn exactly, they stand a fraction of a
            pixel apart and thin cracks open between them, showing what is behind
-           (eyes, neck, shoulders in RE3). A solid polygon is drawn slightly larger,
-           every edge moved outward by hwr_pgxp_grow, so neighbouring parts overlap
-           instead. Semi-transparent ones stay as they are (an overlap would blend
-           twice: a visible line). Only the upscaled pass moves (the offsets).
+           (eyes, neck, shoulders in RE3). A solid textured polygon is drawn larger,
+           an edge moved outward by hwr_pgxp_grow, so neighbouring parts overlap
+           instead. Edges shared with a polygon drawn earlier this frame stay
+           (see seen[]); semi-transparent polygons move out only where the solid
+           one under them did (elsewhere an overlap would blend twice: a visible
+           line). Only the upscaled pass moves (the offsets).
            A supplement to culling, not a replacement: it only grows polygons the
            culling kept, so a wrongly culled triangle stays missing. */
-        if (pg && !semi && hwr_pgxp_grow > 0.f) {
+        t1 = PG_TB(); hwr_pgxp_t_depth += t1 - t0; t0 = t1;
+        if (pg && hwr_pgxp_grow > 0.f) {
             static const int o4[4] = { 0, 1, 3, 2 }, o3[3] = { 0, 1, 2 };   /* corners in outline order */
             const int *o = n == 4 ? o4 : o3;
-            float qx[4], qy[4], ax[4], ay[4], area = 0.f;
-            for (i = 0; i < n; i++) { qx[i] = p[o[i]].x + p[o[i]].ox; qy[i] = p[o[i]].y + p[o[i]].oy; }
-            for (i = 0; i < n; i++) { int j = i + 1 == n ? 0 : i + 1; area += qx[i] * qy[j] - qx[j] * qy[i]; }
-            if (area > 0.05f || area < -0.05f) {
-                float sg = area > 0.f ? hwr_pgxp_grow : -hwr_pgxp_grow;
+            float qx[4], qy[4], ax[4], ay[4], area = 0.f, g[4], ex[4], ey[4], el[4];
+            union { float f[8]; uint32_t u[8]; } cb;
+            uint64_t eh[4];
+            int slot[4], grew;
+            int ng = 0;
+            seen_new_frame();
+            for (i = 0; i < n; i++) {
+                qx[i] = p[o[i]].x + p[o[i]].ox; qy[i] = p[o[i]].y + p[o[i]].oy;
+                cb.f[2 * i] = qx[i] * 256.f + SEEN_MAGIC; cb.f[2 * i + 1] = qy[i] * 256.f + SEEN_MAGIC;
+            }
+            for (i = 0; i < n; i++) {
+                int j = i + 1 == n ? 0 : i + 1;
+                eh[i] = seen_hash(seen_corner(cb.u[2 * i], cb.u[2 * i + 1]), seen_corner(cb.u[2 * j], cb.u[2 * j + 1]));
+                __builtin_prefetch(&seen[SEEN_SLOT(eh[i])]);   /* loaded while the sums below run */
+            }
+            /* the edges (corner i to the next) and their squared lengths */
+            for (i = 0; i < n; i++) {
+                int j = i + 1 == n ? 0 : i + 1;
+                ex[i] = qx[j] - qx[i]; ey[i] = qy[j] - qy[i]; el[i] = ex[i] * ex[i] + ey[i] * ey[i];
+                area += qx[i] * qy[j] - qx[j] * qy[i];
+            }
+            /* a sliver under a pixel thick (GT2 draws such grey ones along its
+               cars' wheels) hardly shows on the PS1; moved out it would be a
+               line around the wheel. Those keep their size. */
+            {
+                float ml = el[0];
+                for (i = 1; i < n; i++) if (el[i] > ml) ml = el[i];
+                /* thickness: twice the area over the longest side (a quad: half that) */
+                if (area * area < (n == 4 ? 4.f : 1.f) * ml) area = 0.f;
+            }
+            /* g[i]: how far edge i moves out */
+            for (i = 0; i < n; i++) {
+                int e;
+                slot[i] = seen_find(eh[i], &e);
+                /* solid: no polygon had it yet; semi: one solid had it and moved out there, no semi one.
+                   Plain (untextured) ones stay: GT2 lays grey ones under its cars'
+                   tyres, and moved out they showed as a light line around them. */
+                g[i] = (semi ? e == 3 : e == 0 && tex) ? hwr_pgxp_grow : 0.f;
+                ng += g[i] > 0.f;
+            }
+            grew = ng && (area > 0.05f || area < -0.05f);
+            if (grew) {
+                float sd = area > 0.f ? 1.f : -1.f, lim = hwr_pgxp_grow * 2.8f;
+                /* unit edges, each edge once (it is in two corners) */
+                for (i = 0; i < n; i++)
+                    if (el[i] >= 1e-6f) { float r = seam_rsqrt(el[i]); ex[i] *= r; ey[i] *= r; }
                 for (i = 0; i < n; i++) {
-                    int pr = i ? i - 1 : n - 1, nx = i + 1 == n ? 0 : i + 1;
-                    float e1x = qx[i] - qx[pr], e1y = qy[i] - qy[pr], e2x = qx[nx] - qx[i], e2y = qy[nx] - qy[i];
-                    float l1 = e1x * e1x + e1y * e1y, l2 = e2x * e2x + e2y * e2y, k;
+                    int pr = i ? i - 1 : n - 1;
+                    float e1x = ex[pr], e1y = ey[pr], e2x = ex[i], e2y = ey[i], k, g1 = g[pr], g2 = g[i];
+                    float n1x, n1y, n2x, n2y, det;
                     ax[i] = ay[i] = 0.f;
-                    if (l1 < 1e-6f || l2 < 1e-6f) continue;
-                    l1 = 1.f / sqrtf(l1); l2 = 1.f / sqrtf(l2);
-                    e1x *= l1; e1y *= l1; e2x *= l2; e2y *= l2;
-                    /* the corner moves along its bisector so both of its edges move
-                       out by the same amount; a sharp corner at most ~2.8 times */
-                    k = 1.f + e1x * e2x + e1y * e2y;
-                    if (k < 0.25f) k = 0.25f;
-                    k = sg / k;
-                    ax[i] = (e1y + e2y) * k; ay[i] = -(e1x + e2x) * k;
+                    if (el[pr] < 1e-6f || el[i] < 1e-6f || (g1 == 0.f && g2 == 0.f)) continue;
+                    if (g1 == g2) {
+                        /* the corner moves along its bisector so both of its edges
+                           move out by the same amount; a sharp corner at most ~2.8 times */
+                        k = 1.f + e1x * e2x + e1y * e2y;
+                        if (k < 0.25f) k = 0.25f;
+                        k = sd * g1 / k;
+                        ax[i] = (e1y + e2y) * k; ay[i] = -(e1x + e2x) * k;
+                        continue;
+                    }
+                    /* one edge moves, the other stays: the corner goes where the
+                       moved edge's line meets the other edge's line */
+                    n1x = sd * e1y; n1y = -sd * e1x; n2x = sd * e2y; n2y = -sd * e2x;   /* outward normals */
+                    det = n1x * n2y - n1y * n2x;
+                    if (det > -0.05f && det < 0.05f) continue;   /* (nearly) straight on: leave the corner */
+                    det = 1.f / det;
+                    ax[i] = (g1 * n2y - g2 * n1y) * det; ay[i] = (n1x * g2 - n2x * g1) * det;
+                    k = ax[i] * ax[i] + ay[i] * ay[i];
+                    if (k > lim * lim) { k = lim * seam_rsqrt(k); ax[i] *= k; ay[i] *= k; }
                 }
                 for (i = 0; i < n; i++) { p[o[i]].ox += ax[i]; p[o[i]].oy += ay[i]; }
                 hwr_pgxp_grown++;
             }
+            for (i = 0; i < n; i++)   /* (where they are exactly, before the offsets) */
+                seen_add(slot[i], semi ? 4 : 1 + (g[i] > 0.f && grew));
         }
-        hwr_pgxp_t_depth += PG_TB() - t0;
+        hwr_pgxp_t_seam += PG_TB() - t0;
     }
     if (pg) {   /* the vertices' pgx, pgy, pgz (1/1024 pixel; depth 0: affine, as the PS1):
                    all stored, then all loaded, so only the first load waits (see f_byte) */

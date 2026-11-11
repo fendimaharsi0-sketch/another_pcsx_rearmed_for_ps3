@@ -116,7 +116,13 @@ typedef struct {
     sys_mutex_t lock;          /* the core's read-ahead thread and the main thread both read */
     unsigned reads, errors;
     uint32_t last_status;      /* the drive's status for the last command */
+    /* subchannel Q (LibCrypt): read with each sector once sub_mode is set */
+    int sub_mode;              /* SUB_*: how the drive gives it */
+    uint32_t q_lba;            /* the sector q[] belongs to (~0: none) */
+    uint8_t q[12];             /* control/ADR .. CRC, as on the disc */
+    unsigned q_bad, q_off;     /* Q with a bad CRC, Q of another sector */
 } disc_t;
+enum { SUB_NONE, SUB_RAW, SUB_Q };   /* READ CD sub-channel 001b (raw P-W, 96 bytes), 010b (formatted Q, 16 bytes) */
 
 static int cmd_in(disc_t *d, const uint8_t *pkt, int pktlen, void *out, uint32_t len)
 {
@@ -182,21 +188,85 @@ static int read_toc(disc_t *d)
     return d->ntracks > 0 && d->leadout ? 0 : -1;
 }
 
-static int read_raw(disc_t *d, uint32_t lba, void *out)
+/* the Q channel (bit 6 of each byte) of raw P-W subchannel data */
+static void q_from_raw(const uint8_t *pw, uint8_t *q)
 {
-    /* READ CD: any sector type, 1 sector, sync + headers + data + EDC/ECC (2352 bytes) */
+    int i, b;
+    for (i = 0; i < 12; i++) {
+        uint8_t v = 0;
+        for (b = 0; b < 8; b++) v = (uint8_t)(v << 1 | (pw[i * 8 + b] >> 6 & 1));
+        q[i] = v;
+    }
+}
+
+/* the CRC of a Q, as the core checks it (libpcsxcore/misc.c) */
+extern unsigned short calcCrc(const unsigned char *d, int len);
+static int q_crc_ok(const uint8_t *q) { return calcCrc(q, 10) == (q[10] << 8 | q[11]); }
+static uint8_t bcd(unsigned v) { return (uint8_t)(v / 10 << 4 | v % 10); }
+/* Q's absolute position is this sector (ADR 1) */
+static int q_is_at(const uint8_t *q, uint32_t lba)
+{
+    uint32_t a = lba + 150;
+    return (q[0] & 15) == 1 && q[7] == bcd(a / 4500) && q[8] == bcd(a / 75 % 60) && q[9] == bcd(a % 75);
+}
+
+static int read_sub(disc_t *d, uint32_t lba, void *out, int mode)
+{
+    /* READ CD: any sector type, 1 sector, sync + headers + data + EDC/ECC (2352 bytes),
+       and the subchannel if asked */
     uint8_t pkt[12] = { 0xbe, 0, (uint8_t)(lba >> 24), (uint8_t)(lba >> 16), (uint8_t)(lba >> 8), (uint8_t)lba,
                         0, 0, 1, 0xf8, 0, 0 };
-    uint8_t sector[SECTOR_RAW + 16];
+    uint8_t sector[SECTOR_RAW + 96];
     int with_q = d->big == READ_604_Q || d->big == READ_616_Q;
+    uint32_t len = SECTOR_RAW;
     int r;
-    if (with_q) pkt[10] = 2;
-    r = cmd_in(d, pkt, 12, sector, with_q ? sizeof sector : SECTOR_RAW);
-    if (!r) memcpy(out, sector, SECTOR_RAW);
+    if (with_q && mode == SUB_NONE) mode = SUB_Q;   /* this drive layout always has Q */
+    if (mode == SUB_RAW) { pkt[10] = 1; len += 96; }
+    else if (mode == SUB_Q) { pkt[10] = 2; len += 16; }
+    r = cmd_in(d, pkt, 12, sector, len);
+    if (!r) {
+        memcpy(out, sector, SECTOR_RAW);
+        if (mode != SUB_NONE) {   /* the read-ahead thread and the main thread both read */
+            if (d->lock) sysMutexLock(d->lock, 0);
+            if (mode == SUB_RAW) q_from_raw(sector + SECTOR_RAW, d->q);
+            else memcpy(d->q, sector + SECTOR_RAW, 12);
+            d->q_lba = lba;
+            if (d->lock) sysMutexUnlock(d->lock);
+        }
+    }
     d->reads++;
     if (r && ++d->errors <= 5 && d->reads > 1)
         logf_("disc: reading sector %u failed (%#x, drive status %#x)\n", (unsigned)lba, (unsigned)r, (unsigned)d->last_status);
     return r;
+}
+
+static int read_raw(disc_t *d, uint32_t lba, void *out) { return read_sub(d, lba, out, d->sub_mode); }
+
+/* which subchannel read gives this sector's Q, with a CRC that checks: tried
+   on three sectors of the first track (log: the Q bytes) */
+static void sub_probe(disc_t *d)
+{
+    static const int modes[2] = { SUB_RAW, SUB_Q };
+    uint8_t sec[SECTOR_RAW];
+    int m, k;
+    for (m = 0; m < 2; m++) {
+        int good = 0;
+        for (k = 0; k < 3; k++) {
+            uint32_t lba = d->start[1] + 16 + k * 1000;
+            int r = read_sub(d, lba, sec, modes[m]);
+            const uint8_t *q = d->q;
+            if (r) { logf_("disc: subchannel (%s) refused (%#x)\n", modes[m] == SUB_RAW ? "raw P-W" : "Q", (unsigned)r); break; }
+            logf_("disc: subchannel (%s) at sector %u: Q %02x %02x %02x %02x:%02x:%02x %02x %02x:%02x:%02x crc %02x%02x (%s, %s)\n",
+                  modes[m] == SUB_RAW ? "raw P-W" : "Q", (unsigned)lba, q[0], q[1], q[2], q[3], q[4], q[5], q[6], q[7], q[8], q[9],
+                  q[10], q[11], q_crc_ok(q) ? "CRC ok" : "CRC bad", q_is_at(q, lba) ? "this sector" : "not this sector");
+            if (q_crc_ok(q) && q_is_at(q, lba)) good++;
+        }
+        if (good == 3) { d->sub_mode = modes[m]; break; }
+    }
+    d->q_lba = ~0u;
+    logf_("disc: subchannel %s\n", d->sub_mode == SUB_RAW ? "read (raw P-W): LibCrypt-protected discs work" :
+          d->sub_mode == SUB_Q ? "read (formatted Q): LibCrypt-protected discs work" :
+          "not readable: LibCrypt-protected discs freeze later (copy the disc and add its .sbi)");
 }
 
 static void disc_free(disc_t *d)
@@ -403,6 +473,9 @@ static int title_for(const char *serial, char *title, size_t n)
     fclose(f);
     return 0;
 }
+
+/* for the Memory cards tab: a game's name from its serial (SLES01301) */
+int disc_title_for(const char *serial, char *title, size_t n) { return title_for(serial, title, n); }
 
 static volatile int id_state;           /* 1 while the thread runs */
 static int id_found;
@@ -729,14 +802,17 @@ void *rcdrom_open(const char *name, uint32_t *total_lba, uint32_t *have_sub)
     a.attr_protocol = SYS_MUTEX_PROTOCOL_FIFO; a.attr_recursive = SYS_MUTEX_ATTR_NOT_RECURSIVE;
     if (sysMutexCreate(&d->lock, &a) != 0) d->lock = 0;
     *total_lba = d->leadout;
-    *have_sub = 0;
+    d->q_lba = ~0u;
+    sub_probe(d);
+    *have_sub = d->sub_mode != SUB_NONE;
     return d;
 }
 
 void rcdrom_close(void *stream)
 {
     disc_t *d = (disc_t *)stream;
-    if (d) logf_("disc: %u sectors read, %u errors\n", d->reads, d->errors);
+    if (d) logf_("disc: %u sectors read, %u errors; subchannel Q with a bad CRC %u, of another sector %u\n",
+                 d->reads, d->errors, d->q_bad, d->q_off);
     disc_free(d);
 }
 
@@ -768,10 +844,28 @@ int rcdrom_readSector(void *stream, unsigned int lba, void *b)
     return read_raw((disc_t *)stream, lba, b);
 }
 
+/* the core's subchannel: 96 bytes, Q at 12..23 (libpcsxcore/cdrom.c struct SubQ).
+   The Q of the sector read last is kept, so a sector and its Q take one read.
+   A LibCrypt sector's Q has a bad CRC, which the core leaves out as a PS1 does. */
 int rcdrom_readSub(void *stream, unsigned int lba, void *b)
 {
-    (void)stream; (void)lba; (void)b;
-    return -1;
+    disc_t *d = (disc_t *)stream;
+    uint8_t *o = (uint8_t *)b, sec[SECTOR_RAW];
+    uint8_t q[12];
+    int tries;
+    if (!d || d->sub_mode == SUB_NONE) return -1;
+    for (tries = 0; ; tries++) {
+        if (d->lock) sysMutexLock(d->lock, 0);
+        if (d->q_lba == lba) { memcpy(q, d->q, 12); break; }
+        if (d->lock) sysMutexUnlock(d->lock);
+        if (tries == 2 || read_raw(d, lba, sec)) return -1;
+    }
+    memset(o, 0, 96);
+    memcpy(o + 12, q, 12);
+    if (!q_crc_ok(q)) { if (++d->q_bad <= 40) logf_("disc: subchannel Q at sector %u: bad CRC (LibCrypt?)\n", lba); }
+    else if (!q_is_at(q, lba) && (q[0] & 15) == 1) { if (++d->q_off <= 10) logf_("disc: subchannel Q at sector %u is of another sector\n", lba); }
+    if (d->lock) sysMutexUnlock(d->lock);
+    return 0;
 }
 
 /* always "inserted" for now: a failed check would make the core eject the disc
