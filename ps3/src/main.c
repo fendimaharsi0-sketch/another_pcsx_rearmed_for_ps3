@@ -34,9 +34,30 @@ void log_memory(const char *when)
 }
 static int input_blocked;       /* ignore pads until all buttons are released (after menus) */
 static char game_name[256];     /* ROM file name without extension, for save states */
+static char game_title[160];    /* what the in-game menu calls the game: its name from ps1titles.txt, else game_name */
+int disc_title_for(const char *serial, char *title, size_t n);   /* disc.c */
+const char *game_display_name(void) { return game_title[0] ? game_title : game_name; }
 static int game_is_disc;        /* the game runs from the disc in the console's drive */
 static int game_is_bios;        /* the running "game" is the BIOS menu (no disc, no serial) */
 const char *app_game_name(void) { return game_name; }
+/* A LibCrypt game without its .sbi (or the disc's subchannel): webMAN's
+   LibCrypt pack puts the protection data for every such game in
+   /dev_hdd0/tmp/lsd, named as the disc's boot file (SLES_013.01.lsd). */
+extern int LoadLSD(const char *fname, int sector_count);   /* libpcsxcore/ppf.c */
+extern void UnloadSBI(void);
+extern int check_unsatisfied_libcrypt(void);              /* libpcsxcore/database.c */
+extern int libretro_libcrypt_missing;                      /* frontend/libretro.c */
+extern char CdromId[10];
+static void lsd_try(void)
+{
+    char p[128];
+    if (strlen(CdromId) < 9) return;
+    snprintf(p, sizeof p, "/dev_hdd0/tmp/lsd/%.4s_%.3s.%.2s.lsd", CdromId, CdromId + 4, CdromId + 7);
+    UnloadSBI();
+    if (LoadLSD(p, 100 * 60 * 75) != 0) { logf_("libcrypt: no %s\n", p); return; }
+    libretro_libcrypt_missing = check_unsatisfied_libcrypt();
+    logf_("libcrypt: protection data from %s%s\n", p, libretro_libcrypt_missing ? ", but it does not fit this disc" : "");
+}
 /* Boot BIOS (path "bios:"): the BIOS's own menu, no disc; the memory card files
    (in saves/) the player chose for its slots, "" none */
 static char bios_card[2][128];
@@ -633,6 +654,47 @@ static int run_core_state(void *buf, size_t sz, int load)
     return state_job.ok;
 }
 
+/* Save states' pictures: the game as it was when the in-game menu opened,
+   160x120 (160x90 with widescreen), saved next to the state as <state>.thumb:
+   "THM1", width, height (16 bits each), then the pixels (32-bit XRGB). */
+#define THUMB_MAX (160 * 120)
+static uint32_t thumb_now[THUMB_MAX];
+static int thumb_w, thumb_h;
+void game_snapshot_take(void)
+{
+    thumb_w = 160; thumb_h = cfg.widescreen ? 90 : 120;
+    if (!video_snapshot(thumb_now, thumb_w, thumb_h)) thumb_w = 0;
+}
+static void thumb_write(int slot)
+{
+    char path[600];
+    FILE *f;
+    unsigned char hd[8] = { 'T', 'H', 'M', '1', 0, 0, 0, 0 };
+    path_state(path, sizeof path, slot, ".thumb");
+    if (!thumb_w) { remove(path); return; }
+    hd[4] = thumb_w >> 8; hd[5] = thumb_w; hd[6] = thumb_h >> 8; hd[7] = thumb_h;
+    if (!(f = fopen(path, "wb"))) return;
+    fwrite(hd, 1, 8, f);
+    fwrite(thumb_now, 4, (size_t)thumb_w * thumb_h, f);   /* (big-endian words, as read back) */
+    fclose(f);
+}
+/* a slot's picture into px (THUMB_MAX pixels): 1 and its size, 0 none */
+int game_state_thumb(int slot, uint32_t *px, int *w, int *h)
+{
+    char path[600];
+    unsigned char hd[8];
+    FILE *f;
+    int ok = 0;
+    path_state(path, sizeof path, slot, ".thumb");
+    if (!(f = fopen(path, "rb"))) return 0;
+    if (fread(hd, 1, 8, f) == 8 && !memcmp(hd, "THM1", 4)) {
+        *w = hd[4] << 8 | hd[5]; *h = hd[6] << 8 | hd[7];
+        ok = *w > 0 && *h > 0 && *w * *h <= THUMB_MAX && fread(px, 4, (size_t)*w * *h, f) == (size_t)*w * *h;
+    }
+    fclose(f);
+    return ok;
+}
+
 int game_save_state(int slot)
 {
     char path[600], tmp[600];
@@ -668,6 +730,7 @@ int game_save_state(int slot)
         }
     }
     free(buf);
+    if (ok) thumb_write(slot);
     logf_("save state slot %d: %s (%s)\n", slot, ok ? "saved" : "FAILED", path);
     log_sync();
     return ok;
@@ -927,6 +990,9 @@ static void run_game(const char *path)
     audio_set_stretch(cfg.audio_stretch);
     log_memory("game started");
     logf_("running at %.3f fps, audio %.0f Hz\n", core_fps, core_rate);
+    if (!game_is_bios && libretro_libcrypt_missing) lsd_try();
+    if (game_is_bios || !CdromId[0] || !disc_title_for(CdromId, game_title, sizeof game_title))
+        snprintf(game_title, sizeof game_title, "%s", game_name);
     app_in_game = 1;
     memset(&fmv, 0, sizeof fmv); fmv.last_count = mdec_dma1_count; fmv.quiet = 1000;
 
@@ -1056,6 +1122,10 @@ static void run_game(const char *path)
         {   /* renderer notice: the first 6 seconds of a game */
             static const char *shown_notice;
             const char *n = notice_frames < 360 ? hooks_gpu_notice() : NULL;
+            /* a LibCrypt-protected PAL game without its .sbi freezes or crashes
+               later on (Soul Reaver: at the first enemy); 10 s at game start */
+            if (!n && libretro_libcrypt_missing && notice_frames < 600)
+                n = "LibCrypt-protected game without its .sbi file: it will freeze later (see README)";
             if (n != shown_notice) {
                 video_overlay_clear_rows(660, 700);
                 if (n) { ovl_text(42, 667, n, 0xc0000000); ovl_text(40, 665, n, 0xffffd060); }

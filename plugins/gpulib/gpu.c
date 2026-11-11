@@ -13,6 +13,8 @@
 #include <string.h>
 
 #include "gpu.h"
+
+int gpulib_read_by_cpu;   /* set while vram_read is called for GP0 C0h (PS3 front end) */
 #include "../../libpcsxcore/pgxp_lite.h"
 #include "gpu_hooks.h"
 #include "gpu_timing.h"
@@ -591,8 +593,11 @@ static noinline void start_vram_transfer(struct psx_gpu *gpu, uint32_t pos_word,
 
   if (is_read) {
     const uint16_t *mem;
-    if (gpu_frontend_hooks.vram_read)
+    if (gpu_frontend_hooks.vram_read) {
+      gpulib_read_by_cpu = 1;   /* GP0 C0h: the game's CPU reads (not a copy or a savestate) */
       gpu_frontend_hooks.vram_read(gpu->dma.x, gpu->dma.y, gpu->dma.w, gpu->dma.h);
+      gpulib_read_by_cpu = 0;
+    }
     mem = VRAM_MEM_XY(gpu->vram, gpu->dma.x, gpu->dma.y);
     gpu->status |= PSX_GPU_STATUS_IMG;
     // XXX: wrong for width 1

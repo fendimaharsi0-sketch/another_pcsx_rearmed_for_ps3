@@ -114,6 +114,8 @@ static struct {
     int self_ok;                  /* the bit-15 self copy passed its start-up test (diagnostic only: it
                                      passed and failed on the same console, see cpu_vram_read) */
     int shadow;                   /* the software renderer draws too, as with the VRAM check (cpu_vram_read) */
+    unsigned pframes;             /* frames presented (present_hook) */
+    unsigned read_last, read_win, read_n;   /* reads: frame of the last, start of the window, frames with reads in it */
     int mask_resync;              /* the target's stencil mask plane needs a full copy from the native VRAM */
 } R;
 
@@ -1288,22 +1290,45 @@ static void full_vram_read(int x, int y, int w, int h)
    reliable (its start-up test passed and failed on the same console; used, it
    striped the X-Files' menus). So from the first read on, the software renderer
    draws too, as with the VRAM check, and reads come from its exact copy; the RSX
-   still draws the picture. Costs the software renderer's CPU time, in such games
-   only. */
+   still draws the picture. That costs the software renderer's CPU time (Soul
+   Reaver, which reads once while loading: 80% speed), so it starts only once a
+   game reads in 3 frames within 5 s (until then reads come from the RSX, as before)
+   and ends after 10 s without reads. */
+#define SHADOW_READ_FRAMES 3
+#define SHADOW_WINDOW 300
+#define SHADOW_IDLE 600
 static int cmd_check(const uint32_t *list, const uint32_t *end);
+static int cmd_timed(const uint32_t *list, const uint32_t *end);
+static int full_vram_copy(int sx, int sy, int dx, int dy, int w, int h, int msb);
+extern int gpulib_read_by_cpu;   /* plugins/gpulib/gpu.c */
 static void cpu_vram_read(int x, int y, int w, int h)
 {
-    if (!R.cpu_read) {
-        R.cpu_read = 1;
-        if (!R.check) {
-            full_vram_read(0, 0, 1024, 512);         /* the software renderer continues from here */
-            R.shadow = 1;
-            gpu_frontend_hooks.cmd = cmd_check;
-            gpu_frontend_hooks.vram_copy = NULL;
-            logf_("hwr: the game reads VRAM back: the software renderer draws too from now on (exact reads)\n");
-            return;
-        }
-    }
+    unsigned f = R.pframes;
+    if (R.check || R.shadow) { if (gpulib_read_by_cpu) R.read_last = f; return; }   /* the core's VRAM is exact */
+    full_vram_read(x, y, w, h);
+    /* only the game's own reads count: copies the core does itself and savestates
+       only need the RSX's pixels (as before build 114) */
+    if (!gpulib_read_by_cpu) return;
+    R.cpu_read = 1;
+    if (R.read_n && f == R.read_last) return;               /* this frame is counted */
+    if (!R.read_n || f - R.read_win > SHADOW_WINDOW) { R.read_win = f; R.read_n = 0; }
+    R.read_last = f;
+    if (++R.read_n < SHADOW_READ_FRAMES) return;
+    full_vram_read(0, 0, 1024, 512);                         /* the software renderer continues from here */
+    R.shadow = 1; R.read_n = 0;
+    gpu_frontend_hooks.cmd = cmd_check;
+    gpu_frontend_hooks.vram_copy = NULL;
+    logf_("hwr: the game reads VRAM back often: the software renderer draws too (exact reads)\n");
+}
+
+/* 10 s without reads: the RSX alone again (it drew everything meanwhile too) */
+static void shadow_idle_check(void)
+{
+    if (!R.shadow || R.pframes - R.read_last < SHADOW_IDLE) return;
+    R.shadow = 0;
+    gpu_frontend_hooks.cmd = cmd_timed;
+    gpu_frontend_hooks.vram_copy = full_vram_copy;
+    logf_("hwr: no VRAM reads for 10 s: the software renderer stops drawing\n");
 }
 
 /* A VRAM-to-VRAM copy (GP0 80h) done by the RSX in the native VRAM: through the
@@ -1658,6 +1683,8 @@ static int present_hook(int x, int y, int w, int h, int bgr24)
     int r;
     u64 t0 = gpulib_prof_now();
     tr_frame(x, y, w, h);
+    R.pframes++;
+    shadow_idle_check();
     r = hwr_present(x, y, w, h, bgr24);
     /* the core shows this frame from its own VRAM: bring the area up to date */
     if (!r && R.base.full && !R.dead && !R.check && !R.shadow) full_vram_read(x, y, bgr24 ? (w * 3 + 1) / 2 : w, h);
@@ -1699,7 +1726,7 @@ static void start(void)
     R.base.vtx_area = rsxr_vtx_area;
     R.cpu_waits = R.syncs_in = R.syncs_out = 0; R.sync_ticks = 0; gpu_copies = 0;
     R.mask_used = R.mask_resync = R.base.mask_stencil = 0;
-    R.cpu_read = 0; R.shadow = 0;
+    R.cpu_read = 0; R.shadow = 0; R.read_n = 0;
     if (!tested) {
         tested = 1;
         R.base.full = 1;
@@ -1784,7 +1811,7 @@ static void log_stats(void)
             logf_("hwr: PGXP textures: %u polygons in perspective (of those %u with a corner depth repaired), %u flat\n",
                   hwr_pgxp_persp, hwr_pgxp_misfit, hwr_pgxp_flat);
         {   /* PGXP's share of the polygon time below (the polygon line itself is in the debug block) */
-            extern unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth, pgxp_lite_ticks;
+            extern unsigned long long hwr_pgxp_t_find, hwr_pgxp_t_pick, hwr_pgxp_t_depth, hwr_pgxp_t_seam, pgxp_lite_ticks;
             static unsigned pg_last;
             double n = hwr_stats.frames - pg_last, k, k8;
             if (n < 1) n = 1;
@@ -1792,9 +1819,9 @@ static void log_stats(void)
             k8 = k * 8;   /* the renderer times one polygon in 8 (PG_SAMPLE in hwr_core.c) */
             pg_last = hwr_stats.frames;
             if (pgxp_lite_on)
-                logf_("hwr: PGXP ms per frame: finding corners %.2f, choosing between vertices %.2f, depths %.2f; working out the GTE's projections %.2f\n",
-                      hwr_pgxp_t_find * k8, hwr_pgxp_t_pick * k8, hwr_pgxp_t_depth * k8, pgxp_lite_ticks * k);
-            hwr_pgxp_t_find = hwr_pgxp_t_pick = hwr_pgxp_t_depth = 0;
+                logf_("hwr: PGXP ms per frame: finding corners %.2f, choosing between vertices %.2f, depths %.2f, seam fill %.2f; working out the GTE's projections %.2f\n",
+                      hwr_pgxp_t_find * k8, hwr_pgxp_t_pick * k8, hwr_pgxp_t_depth * k8, hwr_pgxp_t_seam * k8, pgxp_lite_ticks * k);
+            hwr_pgxp_t_find = hwr_pgxp_t_pick = hwr_pgxp_t_depth = hwr_pgxp_t_seam = 0;
             pgxp_lite_ticks = 0;
         }
         hwr_pgxp_polys = hwr_pgxp_misses = hwr_pgxp_persp = hwr_pgxp_flat = hwr_pgxp_misfit = hwr_pgxp_alone = hwr_pgxp_amb = 0;

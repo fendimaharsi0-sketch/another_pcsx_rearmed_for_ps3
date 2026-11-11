@@ -441,6 +441,41 @@ end:
 	return sbi_sectors ? 0 : -1;
 }
 
+/* .lsd ("LibCrypt Subchannel Data", webMAN's /dev_hdd0/tmp/lsd/SCES_003.11.lsd
+   and DuckStation's): no header, 15 bytes per sector: its absolute MSF (BCD),
+   then its 12 Q bytes. Only which sectors are listed matters here, as with .sbi */
+int LoadLSD(const char *fname, int sector_count) {
+	unsigned char rec[15];
+	FILE *f;
+	int s, good_sectors = 0;
+
+	if (sbi_sectors)
+		return 0;
+	f = fopen(fname, "rb");
+	if (f == NULL)
+		return -1;
+	sbi_len = (sector_count + 7) / 8;
+	sbi_sectors = calloc(1, sbi_len);
+	if (sbi_sectors != NULL) {
+		while (fread(rec, 1, sizeof(rec), f) == sizeof(rec)) {
+			s = MSF2SECT(btoi(rec[0]), btoi(rec[1]), btoi(rec[2]));
+			if (s >= 0 && s < sector_count) {
+				sbi_sectors[s >> 3] |= 1 << (s & 7);
+				good_sectors++;
+			}
+			else
+				SysPrintf("LSD sector %d >= %d?\n", s, sector_count);
+		}
+	}
+	fclose(f);
+	if (!good_sectors) {
+		free(sbi_sectors);
+		sbi_sectors = NULL;
+		sbi_len = 0;
+	}
+	return sbi_sectors ? 0 : -1;
+}
+
 void UnloadSBI(void) {
 	if (sbi_sectors) {
 		free(sbi_sectors);

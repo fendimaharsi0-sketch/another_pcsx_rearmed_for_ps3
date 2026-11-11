@@ -2221,6 +2221,9 @@ const char *menu_run(void)
 extern int game_save_state(int slot);
 extern int game_load_state(int slot);
 extern const char *game_state_info(int slot, char *out, size_t n);
+extern const char *game_display_name(void);
+extern void game_snapshot_take(void);
+extern int game_state_thumb(int slot, uint32_t *px, int *w, int *h);
 extern int game_dump_vram(void);
 extern void game_reset(void);
 extern void game_settings_changed(void);
@@ -2696,6 +2699,92 @@ static int mc_swap_screen(char *out_label, size_t out_len)
     return 0;
 }
 
+/* The save state slots as a grid of pictures: each slot's picture (the game as
+   it was when the menu opened before saving), its number and when it was saved.
+   save: 1 Save state, 0 Load state. Returns 1 when a state was loaded or saved,
+   0 back; *slot: the one chosen (kept as the next one shown first).
+   Fork note: the pictures are drawn with ovl_blit, which reads RGBA bytes, so
+   the ARGB words from game_state_thumb are stored rotated by one byte
+   (0xFFRRGGBB -> 0xRRGGBBFF); ovl_blit then writes back the same ARGB word.
+   No replace-confirm: saving over a slot overwrites it, as the old quick menu did. */
+#define SG_W 128
+#define SG_H 96
+static uint32_t sg_pix[10][SG_W * SG_H];
+static int sg_has[10];
+static char sg_info[10][40];
+static void states_thumbs(void)
+{
+    static uint32_t raw[160 * 120];
+    int i, w, h, x, y;
+    for (i = 0; i < 10; i++) {
+        game_state_info(i, sg_info[i], sizeof sg_info[i]);
+        sg_has[i] = strcmp(sg_info[i], "empty") && game_state_thumb(i, raw, &w, &h);
+        if (!sg_has[i]) continue;
+        {   /* as wide as the cell, its own shape, centred (black above and below) */
+            int th = SG_W * h / w, top;
+            if (th > SG_H) th = SG_H;
+            top = (SG_H - th) / 2;
+            for (y = 0; y < SG_H; y++)
+                for (x = 0; x < SG_W; x++)
+                    sg_pix[i][y * SG_W + x] = y < top || y >= top + th ? 0x000000ffu
+                        : (raw[((y - top) * h / th) * w + x * w / SG_W] << 8) | 0xffu;
+        }
+    }
+}
+static int states_page(int save, int *slot)
+{
+    int sel = *slot, i;
+    char title[160], msg[80] = "";
+    char short_name[120];
+    snprintf(title, sizeof title, "%s: %s", save ? "Save state" : "Load state", game_display_name());
+    {   /* the game's name without "(USA)", "(Disc 1)" and the like */
+        char *q;
+        snprintf(short_name, sizeof short_name, "%s", game_display_name());
+        while ((q = strrchr(short_name, '(')) && q > short_name) { *q = 0; while (q > short_name && q[-1] == ' ') *--q = 0; }
+    }
+    states_thumbs();
+    menu_name = save ? "save state" : "load state";
+    while (!app_exit_requested) {
+        uint32_t p;
+        frame_begin(0);
+        p = input_pressed();
+        if (p & PAD_UP) { sel = (sel + 9) % 10; msg[0] = 0; }
+        if (p & PAD_DOWN) { sel = (sel + 1) % 10; msg[0] = 0; }
+        if (p & (PAD_LEFT | PAD_RIGHT)) { sel = (sel + 5) % 10; msg[0] = 0; }
+        if (p & (PAD_CIRCLE | PAD_TRIANGLE)) { *slot = sel; menu_name = "in-game"; return 0; }
+        if (p & PAD_CROSS) {
+            *slot = sel;
+            if (save) {
+                if (game_save_state(sel)) { menu_name = "in-game"; return 1; }
+                snprintf(msg, sizeof msg, "Saving failed (see the log)");
+            } else {
+                if (!strcmp(sg_info[sel], "empty")) snprintf(msg, sizeof msg, "Slot %d is empty", sel);
+                else if (game_load_state(sel)) { menu_name = "in-game"; return 1; }
+                else snprintf(msg, sizeof msg, "Loading failed (see the log)");
+            }
+        }
+        header(title, NULL);
+        for (i = 0; i < 10; i++) {   /* two columns: slots 0-4, 5-9 */
+            int cx = 12 + (i / 5) * 632, cy = 76 + (i % 5) * 112, ty = cy + 8, empty = !strcmp(sg_info[i], "empty");
+            char nm[16];
+            if (i == sel) sel_fill(cx, cy, 624, 112);
+            if (sg_has[i]) ovl_blit(cx + 10, ty, SG_W, SG_H, (const unsigned char *)sg_pix[i], SG_W, SG_H);
+            else ovl_fill(cx + 10, ty, SG_W, SG_H, 0xff0a0e16);
+            /* the slot's number on its picture; the game's name and when, at the right */
+            snprintf(nm, sizeof nm, "%d", i);
+            ovl_fill(cx + 10, ty, ovl_text_width(nm) + 12, 34, 0xc0000000);
+            ovl_text(cx + 16, ty + 1, nm, i == sel ? C_ACCENT : C_TEXT);
+            text_fit_r(cx + SG_W + 26, ty + 14, empty ? "Empty slot" : short_name, empty ? C_DIM : i == sel ? C_ACCENT : C_TEXT, cx + 616);
+            if (!empty) text_fit_r(cx + SG_W + 26, ty + 54, sg_info[i], C_DIM, cx + 616);
+            if (!empty && !sg_has[i]) ovl_text(cx + 10 + (SG_W - ovl_text_width("no pic")) / 2, ty + 40, "no pic", C_DIM);
+        }
+        if (msg[0]) { sel_fill(30, OVL_H - 120, OVL_W - 60, 44); ovl_text(MARGIN, OVL_H - 114, msg, C_ACCENT); }
+        footer(save ? "Up/Down/Left/Right slot    X save here    Circle back" : "Up/Down/Left/Right slot    X load    Circle back");
+        frame_end();
+    }
+    return 0;
+}
+
 int menu_ingame(void)
 {
     static const char *items[] = { "Resume", "Save state", "Load state", "Swap disc", "Reset", "Joystick mode", "Settings", "Cheats",
@@ -2720,6 +2809,7 @@ int menu_ingame(void)
     char info[40] = "";
     char close_msg[64] = "";
     logf_("menu: in-game menu opened\n");
+    game_snapshot_take();        /* the game as it is now: a save state's picture */
     menu_name = "in-game";
     game_state_info(slot, info, sizeof info);
     while (!app_exit_requested) {
@@ -2739,20 +2829,19 @@ int menu_ingame(void)
         p = input_pressed();
         if (p & PAD_UP) sel = (sel + N - 1) % N;
         if (p & PAD_DOWN) sel = (sel + 1) % N;
-        if ((sel == 1 || sel == 2) && (p & (PAD_LEFT | PAD_RIGHT))) {
-            slot = (slot + (p & PAD_LEFT ? 9 : 1)) % 10;
-            game_state_info(slot, info, sizeof info);
-            msg = NULL;
-        }
         if (p & PAD_CIRCLE) { disk_iface_close_lid(); menu_name = "game list"; logf_("menu: resume\n"); return 0; }
         if (p & PAD_CROSS) {
             switch (qitems[sel]) {
             case 0: disk_iface_close_lid(); menu_name = "game list"; logf_("menu: resume\n"); return 0;
             case 1:
-                msg = game_save_state(slot) ? "State saved" : "Saving failed";
+                if (states_page(1, &slot)) {
+                    static char sm[40];
+                    snprintf(sm, sizeof sm, "State saved in slot %d", slot);
+                    msg = sm;
+                }
                 game_state_info(slot, info, sizeof info);
                 break;
-            case 2: if (game_load_state(slot)) { disk_iface_close_lid(); return 0; } msg = "This slot is empty"; break;
+            case 2: if (states_page(0, &slot)) { disk_iface_close_lid(); return 0; } break;
             case 3: {
                 static char sm[280];
                 char lbl[256];
@@ -2819,13 +2908,12 @@ int menu_ingame(void)
             }
         }
         panel_fill(290, 110, 700, 130 + N * 46 + (msg ? 50 : 0), C_PANEL);
-        ovl_text(320, 132, "Paused", C_ACCENT);
+        text_fit_r(320, 132, game_display_name(), C_ACCENT, 975);   /* the game paused (its save states) */
         for (i = 0; i < N; i++) {
             int y = 180 + i * 46;
             int a = qitems[i];
             char line[80];
-            if (a == 1 || a == 2) snprintf(line, sizeof line, "%s   < slot %d >", items[a], slot);
-            else if (a == 5) snprintf(line, sizeof line, "%s: %s", items[a], cfg.analog ? "analog" : "digital");
+            if (a == 5) snprintf(line, sizeof line, "%s: %s", items[a], cfg.analog ? "analog" : "digital");
             else if (a == 7) {
                 int n = cheat_enabled_count();
                 if (n > 0) snprintf(line, sizeof line, "%s: %d on", items[a], n);

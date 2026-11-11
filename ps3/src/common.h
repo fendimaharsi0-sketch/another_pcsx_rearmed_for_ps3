@@ -123,6 +123,7 @@ unsigned video_width(void);
 unsigned video_height(void);
 /* buffer the core may render the next frame into (mapped for the RSX) */
 void *video_frame_buffer(size_t *pitch);
+int video_snapshot(uint32_t *out, int w, int h);   /* the game picture last shown, scaled down */
 /* begins a display frame: waits until the back buffer may be drawn again */
 void video_begin(void);
 unsigned video_wait_shown(void);   /* low latency: the last queued frame is on screen; returns the RSX lag (us) */

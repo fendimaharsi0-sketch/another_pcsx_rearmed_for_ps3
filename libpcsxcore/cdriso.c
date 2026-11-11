@@ -338,6 +338,36 @@ static int parsetoc(const char *isofile) {
 
 // this function tries to get the .cue file of the given .bin
 // the necessary data is put into the ti (trackinformation)-array
+#ifndef _WIN32
+#include <dirent.h>
+#include <strings.h>
+/* the file at path, its name matched without regard to case (a .cue naming
+   "GAME.BIN" for game.bin: Windows does not care, the PS3's and Linux's file
+   systems do); path gets the name as it is on disk. NULL: none */
+static FILE *fopen_nocase(char *path)
+{
+	char *slash = strrchr(path, '/');
+	struct dirent *e = NULL;
+	DIR *d;
+	if (slash == NULL || slash == path)
+		return NULL;
+	*slash = 0;
+	d = opendir(path);
+	*slash = '/';
+	if (d == NULL)
+		return NULL;
+	while ((e = readdir(d)) != NULL)
+		if (strcasecmp(e->d_name, slash + 1) == 0 && strlen(e->d_name) == strlen(slash + 1)) {
+			memcpy(slash + 1, e->d_name, strlen(e->d_name));
+			break;
+		}
+	closedir(d);
+	return e != NULL ? fopen(path, "rb") : NULL;
+}
+#else
+static FILE *fopen_nocase(char *path) { (void)path; return NULL; }
+#endif
+
 static int parsecue(const char *isofile) {
 	char			cuename[MAXPATHLEN];
 	char			filepath[MAXPATHLEN];
@@ -487,6 +517,8 @@ static int parsecue(const char *isofile) {
 					tmp = tmpb;
 				strncpy(incue_fname, tmp, incue_max_len);
 				ti[numtracks + 1].handle = fopen(filepath, "rb");
+				if (ti[numtracks + 1].handle == NULL && (ti[numtracks + 1].handle = fopen_nocase(filepath)) != NULL)
+					SysPrintf(".cue: %s opened (the .cue writes its name in other case)\n", filepath);
 			}
 			if (ti[numtracks + 1].handle == NULL) {
 				SysPrintf(_("\ncould not open: %s\n"), filepath);
@@ -1154,7 +1186,10 @@ static int opensbifile(const char *isoname) {
 		return -1;
 	}
 
-	return LoadSBI(sbiname, ti[1].length);
+	if (LoadSBI(sbiname, ti[1].length) == 0)
+		return 0;
+	strcpy(sbiname + strlen(sbiname) - 4, ".lsd");   /* (the same name, .lsd) */
+	return LoadLSD(sbiname, ti[1].length);
 }
 
 static int cdread_normal(FILE *f, unsigned int base, void *dest, int sector)
