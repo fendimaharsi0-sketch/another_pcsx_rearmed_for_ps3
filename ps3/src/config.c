@@ -14,7 +14,7 @@
 
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 4, .gpu_res_target = 0, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .spu_audio = 0, .audio_stretch = 1, .cpu_clock = 0, .low_latency = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .mc_swap = 0, .theme_shape = 0, .theme_cover = 0, .theme_color = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .pgxp = 0, .pgxp_culling = 0, .pgxp_seam = 1,
+    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .spu_audio = 0, .audio_stretch = 1, .cpu_clock = 0, .low_latency = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .mc_swap = 0, .theme_shape = 0, .theme_cover = 0, .theme_color = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .pgxp = 0, .pgxp_culling = 0, .pgxp_seam = 1, .bios_file = "",
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -123,6 +123,9 @@ static int read_file(const char *path, settings_t *s, int game)
         if (!game && !strcmp(k, "vmc_source")) snprintf(s->vmc_source, sizeof s->vmc_source, "%s", eq);
         if (!game && !strcmp(k, "mc1_shared")) snprintf(s->mc1_shared, sizeof s->mc1_shared, "%s", eq);
         if (!game && !strcmp(k, "mc2_shared")) snprintf(s->mc2_shared, sizeof s->mc2_shared, "%s", eq);
+        /* "bios": per game (no !game guard), like upstream: "" auto, "HLE"
+           built-in, else a file in system/. */
+        if (!strcmp(k, "bios")) snprintf(s->bios_file, sizeof s->bios_file, "%s", eq);
         if (!strcmp(k, "version")) version = atoi(eq);
     }
     if (!seen_cd_speed && (legacy_turbo == 0 || legacy_turbo == 1))
@@ -150,6 +153,7 @@ static int write_file(const char *path, const settings_t *s, int game)
     fprintf(f, "version=%d\n", CFG_VERSION);
     for (i = 0; i < NINTS; i++)
         if (!game || ints[i].game) fprintf(f, "%s=%d\n", ints[i].key, IV(s, i));
+    fprintf(f, "bios=%s\n", s->bios_file);   /* per game: written in both files */
     if (!game) fprintf(f, "vmc_source=%s\n", s->vmc_source);
     if (!game) fprintf(f, "mc1_shared=%s\n", s->mc1_shared);
     if (!game) fprintf(f, "mc2_shared=%s\n", s->mc2_shared);

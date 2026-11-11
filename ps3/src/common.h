@@ -76,6 +76,7 @@ typedef struct {
     char mc1_shared[256]; /* library card file name for slot 1 Shared (saves/imported/<name>), global only; empty = default pcsx-card1.mcd */
     char mc2_shared[256]; /* same for slot 2 Shared (default pcsx-card2.mcd) */
     char last_dir[512];
+    char bios_file[128];  /* BIOS: "" auto, "HLE" built-in, else a file in system/ (per game) */
     int cd_speed;       /* CD-ROM speed: 0 normal, 1 turbo (data reads and seeks twice as fast; audio keeps its speed), 2 max (the core's TurboCD: instant seeks + faster reads) */
     int cheat_enable;   /* global-only master gate for cheats (default off): the Cheats menu in the pause menu only appears when this is on, and no cheat is applied while it is off */
     int mc_swap;        /* global-only master gate for live memory card swap (default off): the Swap memory card row in the pause menu only appears when this is on */

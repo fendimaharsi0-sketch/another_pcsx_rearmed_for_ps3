@@ -19,28 +19,22 @@ static int ps3_bios_ok(const char *p)
 }
 int hooks_ps3_bios(void) { return ps3_bios_ok(PS3_BIOS); }
 
-static int bios_from_flash;
-int hooks_bios_auto_flash(void) { hooks_bios_status(); return bios_from_flash; }
-
-const char *hooks_bios_status(void)
+/* a real (external) BIOS in system/: the known names first, else any file
+   of 512 KiB. The PS3's own is NOT one: it has no BIOS menu (no Sony logo,
+   no memory card / CD player screen), so Boot BIOS must not count it. */
+static int external_bios(char *name, size_t n)
 {
-    static char b[200];
     static const char *names[] = { "scph5500", "scph5501", "scph5502", "psxonpsp660", "scph101", "scph7001", "scph1001", NULL };
     int i;
     DIR *d;
     struct dirent *e;
-    bios_from_flash = 0;
-    if (ps3_bios_ok(PS3_BIOS)) {   /* Auto: the PS3's own first, it is on every PS3 */
-        bios_from_flash = 1;
-        return "the PS3's own (ps1_rom.bin) found";
-    }
     for (i = 0; names[i]; i++) {
         char p[256];
         struct stat st;
         snprintf(p, sizeof p, APP_DIR "/system/%s.bin", names[i]);
         if (stat(p, &st) == 0 && st.st_size == 512 * 1024) {
-            snprintf(b, sizeof b, "%s.bin found", names[i]);
-            return b;
+            if (name) snprintf(name, n, "%s.bin", names[i]);
+            return 1;
         }
     }
     if ((d = opendir(APP_DIR "/system"))) {
@@ -50,12 +44,36 @@ const char *hooks_bios_status(void)
             if (e->d_name[0] == '.') continue;
             snprintf(p, sizeof p, APP_DIR "/system/%s", e->d_name);
             if (stat(p, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 512 * 1024) {
-                snprintf(b, sizeof b, "%.150s found", e->d_name);
+                if (name) snprintf(name, n, "%.150s", e->d_name);
                 closedir(d);
-                return b;
+                return 1;
             }
         }
         closedir(d);
+    }
+    return 0;
+}
+
+int hooks_bios_menu_ok(void) { return external_bios(NULL, 0); }
+
+static int bios_from_flash;
+int hooks_bios_auto_flash(void) { hooks_bios_status(); return bios_from_flash; }
+
+const char *hooks_bios_status(void)
+{
+    static char b[200];
+    char name[160];
+    bios_from_flash = 0;
+    /* Auto: a real BIOS in system/ first, then the PS3's own, then HLE.
+       The PS3's own used to be first (it is on every PS3), but it is a
+       stripped PS2-era ROM with no BIOS menu, so a real BIOS wins. */
+    if (external_bios(name, sizeof name)) {
+        snprintf(b, sizeof b, "%s found", name);
+        return b;
+    }
+    if (ps3_bios_ok(PS3_BIOS)) {
+        bios_from_flash = 1;
+        return "the PS3's own (ps1_rom.bin) found";
     }
     return "none found, using the built-in HLE BIOS (put scph5501.bin in system/)";
 }
