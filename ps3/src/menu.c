@@ -486,13 +486,14 @@ static const item_t settings_items[] = {
     { "PGXP culling correction", "Experimental. Recomputes triangle culling (NCLIP) from precise vertex positions, so faces that only wobble into view stop flickering. Only works while PGXP is on." },
     { "PGXP seam fill", "Experimental. Solid polygons drawn slightly larger (1/2 or 1/4 pixel) so neighbouring parts overlap instead of leaving thin cracks. A supplement to culling: it covers the sub-pixel gaps left between parts the culling kept; it does not bring back a wrongly culled triangle. Off turns it off (some games glitch with it on)." },
     { "Low latency", "Less input lag: about a frame. Steps aside in scenes too heavy for it, so it costs no speed." },
+    { "BIOS", "Which BIOS boots the game. Auto tries a real BIOS in USRDIR/system first, then the PS3's own, then the built-in HLE. The PS3's own has no BIOS menu. From the next game start." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 44 settings are grouped into 8 pages, flipped with L1/R1 (top row).
+   The 45 settings are grouped into 8 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -506,13 +507,13 @@ static const int set_page_items[NPAGES][10] = {
     { 1, 36, 2, 3, 4, 5, 6, 7, 9, 10 },      /* Picture: Renderer, Auto resolution, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
-    { 19, 20, 22, 23, 24, 25, 26, 29, 37 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap */
+    { 19, 20, 22, 23, 24, 25, 26, 29, 37, 44 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap, BIOS */
     { 30, 31, 32, 33, 34 },                  /* Color Correct: Brightness, Contrast, Saturation, Temperature, Gamma */
     { 35, 41, 42 },                           /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
     { 38, 39, 40 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 7, 10, 3, 4, 9, 5, 3, 3 };
-typedef char set_pages_cover_all[(7 + 10 + 3 + 4 + 9 + 5 + 3 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 7, 10, 3, 4, 10, 5, 3, 3 };
+typedef char set_pages_cover_all[(7 + 10 + 3 + 4 + 10 + 5 + 3 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -546,6 +547,13 @@ static void color_slider(int v, char *b, size_t n)
     t[p] = 0;
     snprintf(b, n, "%s %s%d", t, v > 0 ? "+" : "", v);
 }
+
+/* Settings > BIOS (defined below, after setting_value): the file list and
+   the pick index, so setting_value can show the choice. */
+static char bios_names[24][64];
+static int nbios;
+static int bios_index(void);
+static int bios_menu_ok(void);
 
 static void setting_value(int i, char *b, size_t n)
 {
@@ -625,7 +633,56 @@ static void setting_value(int i, char *b, size_t n)
     case 41: snprintf(b, n, "%s", cfg.pgxp_culling ? "On" : "Off"); break;
     case 42: { static const char *const w[3] = { "1/2 pixel", "1/4 pixel", "Off" }; snprintf(b, n, "%s", w[cfg.pgxp_seam % 3]); } break;
     case 43: snprintf(b, n, "%s", cfg.low_latency ? "On" : "Off"); break;
+    case 44: { int k = bios_index(); snprintf(b, n, "%.30s", k == 0 ? "Auto" : k == 1 ? "Built-in (HLE)" : bios_names[k - 2][0] == '/' ? "PS3's own (ps1_rom.bin)" : bios_names[k - 2]); } break;
     }
+}
+
+/* Settings > BIOS: the files of 512 KiB in USRDIR/system, plus the PS3's
+   own last (upstream's picker). Rebuilt on every use, so a file added or
+   removed between sessions is never stale. */
+static void bios_scan(void)
+{
+    DIR *d = opendir(APP_DIR "/system");
+    struct dirent *e;
+    nbios = 0;
+    while (d && (e = readdir(d)) && nbios < 24) {
+        char p[512];
+        struct stat st;
+        if (e->d_name[0] == '.' || strlen(e->d_name) >= sizeof bios_names[0]) continue;
+        snprintf(p, sizeof p, APP_DIR "/system/%s", e->d_name);
+        if (stat(p, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 512 * 1024)
+            snprintf(bios_names[nbios++], sizeof bios_names[0], "%s", e->d_name);
+    }
+    if (d) closedir(d);
+    {   /* sorted by name */
+        int i, j;
+        char t[64];
+        for (i = 1; i < nbios; i++)
+            for (j = i; j > 0 && strcasecmp(bios_names[j - 1], bios_names[j]) > 0; j--) {
+                memcpy(t, bios_names[j], sizeof t); memcpy(bios_names[j], bios_names[j - 1], sizeof t); memcpy(bios_names[j - 1], t, sizeof t);
+            }
+    }
+    if (hooks_ps3_bios() && nbios < 24)   /* the PS3's own, last */
+        snprintf(bios_names[nbios++], sizeof bios_names[0], "%s", PS3_BIOS);
+}
+/* 0 auto, 1 built-in, 2.. a file (a chosen file no longer there: auto) */
+static int bios_index(void)
+{
+    int i;
+    bios_scan();
+    if (!cfg.bios_file[0]) return 0;
+    if (!strcmp(cfg.bios_file, "HLE")) return 1;
+    for (i = 0; i < nbios; i++) if (!strcmp(bios_names[i], cfg.bios_file)) return i + 2;
+    return 0;
+}
+/* Boot BIOS needs the BIOS's own menu: the PS3's own has none, and neither
+   does HLE. The BIOS that will actually boot is the pick, or Auto's pick. */
+static int bios_menu_ok(void)
+{
+    int k = bios_index();
+    if (k == 0) return hooks_bios_menu_ok();   /* Auto: a real file wins if there */
+    if (k == 1) return 0;                      /* built-in HLE */
+    return strcmp(bios_names[k - 2], PS3_BIOS) != 0;
 }
 
 static void setting_value(int i, char *b, size_t n);
@@ -740,6 +797,13 @@ static void setting_change_(int i, int dir, int in_game)
     case 41: cfg.pgxp_culling ^= 1; break;
     case 42: cfg.pgxp_seam = (cfg.pgxp_seam + (dir > 0 ? 1 : 2)) % 3; break;
     case 43: cfg.low_latency ^= 1; break;
+    case 44:                                            /* from the next game start */
+        if (!in_game) {
+            int k = bios_index(), m = nbios + 2;
+            k = (k + (dir > 0 ? 1 : m - 1)) % m;
+            snprintf(cfg.bios_file, sizeof cfg.bios_file, "%s", k == 0 ? "" : k == 1 ? "HLE" : bios_names[k - 2]);
+        }
+        break;
     }
 }
 
@@ -1979,8 +2043,13 @@ const char *menu_run(void)
         if (p & PAD_CROSS) {
             if (sel == 0) { const char *d = start_disc(); if (d) { cover_release(); return d; } continue; }
             if (sel == 1) {   /* Boot BIOS: the PS1 BIOS menu, no disc */
-                if (!hooks_bios_present()) {
-                    vmc_message("Boot BIOS", "No real BIOS found", "Put scph5501.bin in " APP_DIR "/system/", "The built-in HLE BIOS has no menu.");
+                if (!bios_menu_ok()) {
+                    int k = bios_index();
+                    const char *why = "No real BIOS found";
+                    if (k == 1) why = "The built-in HLE BIOS has no menu";
+                    else if (k >= 2 && !strcmp(bios_names[k - 2], PS3_BIOS)) why = "The PS3's own BIOS has no menu";
+                    else if (hooks_bios_present()) why = "The PS3's own BIOS has no menu";   /* Auto, only the PS3's own */
+                    vmc_message("Boot BIOS", why, "Put scph5501.bin in " APP_DIR "/system/,", "then pick it in Settings > BIOS.");
                     continue;
                 }
                 if (bios_cards_page()) {

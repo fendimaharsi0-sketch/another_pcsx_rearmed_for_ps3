@@ -11,7 +11,8 @@ const char *hooks_game_serial(void);
 const char *hooks_bios_status(void);
 int hooks_ps3_bios(void);                 /* the PS3's own PS1 BIOS is there (PS3_BIOS) */
 int hooks_bios_auto_flash(void);          /* Auto: nothing in system/, the PS3's own is used */
-int hooks_bios_present(void);             /* a BIOS file is in system/ (else the HLE BIOS) */
+int hooks_bios_menu_ok(void);             /* a real BIOS is in system/ (the PS3's own has no menu) */
+int hooks_bios_present(void);             /* a real BIOS or the PS3's own is there (else the HLE BIOS) */
 
 /* GPU renderer */
 void hooks_frame_from_gpu(unsigned w, unsigned h);   /* in main.c */

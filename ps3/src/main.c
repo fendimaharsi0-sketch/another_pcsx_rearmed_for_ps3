@@ -116,11 +116,15 @@ static unsigned boot_frames;
 static const char *option_value(const char *key)
 {
     static char fsk[8];
+    static char biosv[200];
     if (!strcmp(key, "pcsx_rearmed_drc")) return cfg.dynarec ? "enabled" : "disabled";
     if (!strcmp(key, "pcsx_rearmed_drc_thread")) return "disabled";
     if (!strcmp(key, "pcsx_rearmed_bios")) {   /* Settings > BIOS (core: frontend/libretro.c loadPSXBios) */
+        if (!strcmp(cfg.bios_file, "HLE")) return "HLE";
         if (hooks_bios_auto_flash()) return "file:" PS3_BIOS;   /* Auto, or a chosen file gone */
-        return "auto";
+        if (!cfg.bios_file[0]) return "auto";
+        snprintf(biosv, sizeof biosv, "file:%s", cfg.bios_file);
+        return biosv;
     }
     /* the logo needs a real BIOS (the HLE one cannot boot the disc itself) */
     if (!strcmp(key, "pcsx_rearmed_show_bios_bootlogo")) return cfg.boot_logo && hooks_bios_present() ? "enabled" : "disabled";
