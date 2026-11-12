@@ -780,9 +780,14 @@ static void rec_special_AND(struct lightrec_cstate *state,
 	/* Z(rd) = Z(rs) | Z(rt) */
 	flags_rd = REG_ZEXT & (flags_rs | flags_rt);
 
-	/* E(rd) = (E(rt) & Z(rt)) | (E(rs) & Z(rs)) | (E(rs) & E(rt)) */
-	if (((flags_rs & REG_EXT) && (flags_rt & REG_ZEXT)) ||
-	    ((flags_rt & REG_EXT) && (flags_rs & REG_ZEXT)) ||
+	/* E(rd) = (E(rt) & Z(rt)) | (E(rs) & Z(rs)) | (E(rs) & E(rt))
+	 * (a register both zero- and sign-extended has bit 31 clear, so the AND
+	 * has too. The code tested E(rs) & Z(rt): a sign-extended 0x80000000
+	 * ANDed with a zero-extended 0x80080100 gave a zero-extended 0x80000000
+	 * marked sign-extended, and BNE against the sign-extended 0x80000000 was
+	 * taken - Need for Speed: Porsche skipped drawing its menu text.) */
+	if (((flags_rt & REG_EXT) && (flags_rt & REG_ZEXT)) ||
+	    ((flags_rs & REG_EXT) && (flags_rs & REG_ZEXT)) ||
 	    (REG_EXT & flags_rs & flags_rt))
 		flags_rd |= REG_EXT;
 
