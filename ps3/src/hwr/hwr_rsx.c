@@ -514,10 +514,11 @@ static void nat_format(int one)
    2 bilinear (performance). Only the upscaled pass of a running renderer
    filters at all, and only textured programs; sprites use sprite_texfilter,
    everything else uses texfilter. Flat/copy/self alias nearest anyway. */
+static int self_testing;   /* the self-test runs: its ops are drawn unfiltered (else their texels blend and the test fails) */
 static int op_filt(const hwr_op *o)
 {
     int base = o->prog & 7, cfgf;
-    if (!R.on || R.draw_native) return 0;
+    if (self_testing || !R.on || R.draw_native) return 0;
     if (!(base == 1 || base == 2 || base == 3 || base == 5 || base == 6 || base == 7)) return 0;
     cfgf = o->sprite ? cfg.sprite_texfilter : cfg.texfilter;
     return cfgf == 2 ? 2 : cfgf ? 1 : 0;
@@ -1379,7 +1380,19 @@ static const uint16_t test_pat[16] = { 0x001f, 0x03e0, 0x7c00, 0x0001, 0x0020, 0
 /* draws known VRAM data with the copy, 15-bit, 4-bit and 8-bit programs (and a flat
    colour in full mode), reads the pixels back from the target (and the native
    surface) and logs anything that differs. Returns the number of wrong pixels. */
+static int self_test_(int full);
+/* With the Texture or Sprite filter on, the test's texels came out blended with
+   their neighbours: it failed, and the console fell back to the hybrid renderer
+   for the whole session (NFS Porsche: its menu text gone). */
 static int self_test(int full)
+{
+    int r;
+    self_testing = 1;
+    r = self_test_(full);
+    self_testing = 0;
+    return r;
+}
+static int self_test_(int full)
 {
     static const char *names[5] = { "VRAM copy", "15-bit texture", "4-bit CLUT", "8-bit CLUT", "flat colour" };
     static const int progs[5] = { 4, 3, 1, 2, 0 };

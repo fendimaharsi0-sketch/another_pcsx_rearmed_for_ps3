@@ -58,6 +58,31 @@ static void lsd_try(void)
     libretro_libcrypt_missing = check_unsatisfied_libcrypt();
     logf_("libcrypt: protection data from %s%s\n", p, libretro_libcrypt_missing ? ", but it does not fit this disc" : "");
 }
+/* a notice at the bottom of the screen: one line, or two when it is longer than
+   NOTICE_MAX characters (wrapped at a space), so it stays inside the TV's frame */
+#define NOTICE_MAX 70
+static void notice_line(int y, const char *t, int len)
+{
+    char b[NOTICE_MAX + 1];
+    if (len > NOTICE_MAX) len = NOTICE_MAX;
+    memcpy(b, t, len); b[len] = 0;
+    ovl_text(42, y + 2, b, 0xc0000000); ovl_text(40, y, b, 0xffffd060);
+}
+static void notice_draw(const char *n)
+{
+    int len = (int)strlen(n), cut;
+    if (len <= NOTICE_MAX) { notice_line(665, n, len); return; }
+    {   /* after its last ": " when the rest fits, else at the last space that fits */
+        const char *c = NULL, *q;
+        for (q = n; (q = strstr(q, ": ")) && q - n < NOTICE_MAX; q++) c = q;
+        cut = c && (int)strlen(c + 2) <= NOTICE_MAX ? (int)(c - n) + 1 : 0;
+    }
+    if (!cut) for (cut = NOTICE_MAX; cut > 0 && n[cut] != ' '; cut--) ;
+    if (cut == 0) cut = NOTICE_MAX;
+    notice_line(630, n, cut);
+    n += cut; while (*n == ' ') n++;
+    notice_line(665, n, (int)strlen(n));
+}
 /* Boot BIOS (path "bios:"): the BIOS's own menu, no disc; the memory card files
    (in saves/) the player chose for its slots, "" none */
 static char bios_card[2][128];
@@ -1125,12 +1150,12 @@ static void run_game(const char *path)
             if (!n && libretro_libcrypt_missing && notice_frames < 600)
                 n = "LibCrypt-protected game without its .sbi file: it will freeze later (see README)";
             if (n != shown_notice) {
-                video_overlay_clear_rows(660, 700);
-                if (n) { ovl_text(42, 667, n, 0xc0000000); ovl_text(40, 665, n, 0xffffd060); }
+                video_overlay_clear_rows(625, 700);
+                if (n) notice_draw(n);
                 shown_notice = n;
-                video_draw_overlay_rows(660, 700);
+                video_draw_overlay_rows(625, 700);
                 video_borders_dirty();      /* the notice also covered the borders */
-            } else if (n) video_draw_overlay_rows(660, 700);
+            } else if (n) video_draw_overlay_rows(625, 700);
             notice_frames++;
         }
         if (cfg.low_latency) {
