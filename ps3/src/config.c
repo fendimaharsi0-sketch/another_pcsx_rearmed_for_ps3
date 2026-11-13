@@ -121,8 +121,11 @@ static int read_file(const char *path, settings_t *s, int game)
         if (!strcmp(k, "turbo_cd")) legacy_turbo = atoi(eq);
         if (!game && !strcmp(k, "last_dir")) snprintf(s->last_dir, sizeof s->last_dir, "%s", eq);
         if (!game && !strcmp(k, "vmc_source")) snprintf(s->vmc_source, sizeof s->vmc_source, "%s", eq);
-        if (!game && !strcmp(k, "mc1_shared")) snprintf(s->mc1_shared, sizeof s->mc1_shared, "%s", eq);
-        if (!game && !strcmp(k, "mc2_shared")) snprintf(s->mc2_shared, sizeof s->mc2_shared, "%s", eq);
+        /* the shared card of a slot is per game, like "bios": the mode
+           (mc1_mode) already was, but the name was global-only, so a card
+           picked for one game silently became every game's card. */
+        if (!strcmp(k, "mc1_shared")) snprintf(s->mc1_shared, sizeof s->mc1_shared, "%s", eq);
+        if (!strcmp(k, "mc2_shared")) snprintf(s->mc2_shared, sizeof s->mc2_shared, "%s", eq);
         /* "bios": per game (no !game guard), like upstream: "" auto, "HLE"
            built-in, else a file in system/. */
         if (!strcmp(k, "bios")) snprintf(s->bios_file, sizeof s->bios_file, "%s", eq);
@@ -155,8 +158,8 @@ static int write_file(const char *path, const settings_t *s, int game)
         if (!game || ints[i].game) fprintf(f, "%s=%d\n", ints[i].key, IV(s, i));
     fprintf(f, "bios=%s\n", s->bios_file);   /* per game: written in both files */
     if (!game) fprintf(f, "vmc_source=%s\n", s->vmc_source);
-    if (!game) fprintf(f, "mc1_shared=%s\n", s->mc1_shared);
-    if (!game) fprintf(f, "mc2_shared=%s\n", s->mc2_shared);
+    fprintf(f, "mc1_shared=%s\n", s->mc1_shared);   /* per game, like bios */
+    fprintf(f, "mc2_shared=%s\n", s->mc2_shared);   /* per game, like bios */
     if (!game) fprintf(f, "last_dir=%s\n", s->last_dir);
     fclose(f);
     return 1;
@@ -228,12 +231,13 @@ void config_save(void)
     WHERE("saving settings");
     if (game_on) {
         /* the game's file gets the per-game keys; the keys for all games go to
-           settings.txt, with the other values as they were for all games */
+           settings.txt, with the other values as they were for all games.
+           Per-game strings are NOT mirrored to the global copy (like bios):
+           mirroring mc1_shared here would let one game's pick rewrite the
+           fallback every game without its own settings reads. */
         unsigned i;
         for (i = 0; i < NINTS; i++) if (!ints[i].game) IV(&global_cfg, i) = IV(&cfg, i);
         snprintf(global_cfg.last_dir, sizeof global_cfg.last_dir, "%s", cfg.last_dir);
-        snprintf(global_cfg.mc1_shared, sizeof global_cfg.mc1_shared, "%s", cfg.mc1_shared);
-        snprintf(global_cfg.mc2_shared, sizeof global_cfg.mc2_shared, "%s", cfg.mc2_shared);
         write_file(game_path, &cfg, 1);
         write_file(CFG_PATH, &global_cfg, 0);
     } else write_file(CFG_PATH, &cfg, 0);
@@ -293,8 +297,9 @@ int config_panel_apply_title(const char *key, const settings_t *now, settings_t 
     for (i = 0; i < NINTS; i++) if (!ints[i].game) IV(&merged, i) = IV(now, i);
     snprintf(merged.last_dir, sizeof merged.last_dir, "%s", now->last_dir);
     snprintf(merged.vmc_source, sizeof merged.vmc_source, "%s", now->vmc_source);
-    snprintf(merged.mc1_shared, sizeof merged.mc1_shared, "%s", now->mc1_shared);
-    snprintf(merged.mc2_shared, sizeof merged.mc2_shared, "%s", now->mc2_shared);
+    /* mc1_shared/mc2_shared are per-game now, like bios: they live in the
+       title's file (written above) and are NOT mirrored into settings.txt,
+       or one title's pick would rewrite the fallback for every other game. */
     if (!write_file(CFG_PATH, &merged, 0)) return 0;
     *baseline = merged;
     if (ingame) global_cfg = merged;
