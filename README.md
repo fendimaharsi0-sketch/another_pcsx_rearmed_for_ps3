@@ -24,15 +24,16 @@ The additions include quality-of-life features and renderer work:
 - **Disc swapping** — changing discs from the quick menu, for multi-disc titles and boot-disc scenarios. Discs swap both ways between images and the physical disc in the drive.
 - **Virtual memory card import** — importing standard PS1 virtual memory cards from the PS3's Memory Card Utility (savedata/vmc/*.VM1) into the imported library, for use via the per-slot memory card picker. One-way: saves made here never return to the XMB card. Memory cards from PSN PSOne Classics are currently not supported.
 - **Per-slot memory card picker** — choosing a memory card per slot (Auto first, then imported cards, then None, plus the legacy Default where present), with protection against two slots pointing to the same file. Slot 1 defaults to Auto, slot 2 to None.
-- **Boot BIOS entry** — booting into a real BIOS (a `scph5501.bin` file in the system folder) from the game list, for those who need the BIOS menu or memory card manager. Before booting, a memory card can be chosen for each slot (from the `.mcd` files in `USRDIR/saves/`). A real BIOS remains optional; the HLE BIOS is still the default when no BIOS file is present.
+- **Boot BIOS entry** — booting into a real BIOS from the game list, for those who need the BIOS menu or memory card manager. The BIOS picker (Auto / Built-in HLE / a file in the system folder / the PS3's own BIOS) is per game; Auto tries a genuine external BIOS first, then `ps1_rom.bin`, then HLE. Before booting, a memory card can be chosen for each slot (from the `.mcd` files in `USRDIR/saves/`). Boot BIOS is blocked when the booting BIOS has no menu (HLE or `ps1_rom.bin`); the game boot logo still shows.
 - **Digital pad / analog toggle** — switching between digital and analog pad modes from the quick menu.
 - **Widescreen rendering** — a GTE-based 16:9 widescreen hack.
 - **Texture filtering** — bilinear texture filtering, including a performance variant, and sprite texture filtering.
 - **PGXP culling correction** — a per-game setting (PGXP page, off by default) that recomputes NCLIP from the same precise positions the renderer draws from, keeping the whole-pixel result when no precise position is recorded. There is no CPU mode, so positions changed by the CPU after the GTE are not covered. It only changes the culling decision, not the drawing, and some gaps may remain.
 - **Auto resolution** — a target-height setting (Manual, 480, 600, 720, 960, 1080, 1200; ceiling 1200) with 0.5x renderer steps, so the renderer scales to the chosen height.
 - **Live memory card swap** — swapping memory cards mid-game from the quick menu (global gate, off by default); works in the BIOS screen too, and sticks to the next Boot BIOS in the same session.
+- **Per-game memory cards** — a card chosen for one game no longer applies to every game; each title keeps its own card, falling back to the global card for older saves.
 - **Theme UI** — a settings page to change the menu shape (Mixed/Round/Square), cover style (7 styles), and colour preset (10 presets). Defaults match the old look.
-- **Color Correct** — a settings page (Brightness, Contrast, Saturation, Temperature, Gamma; −10 to +10, 0 neutral, per-game) applied in the final pass when any slider is non-zero.
+- **Color Correct** — a settings page (Brightness, Contrast, Saturation, Temperature, Gamma; −10 to +10, 0 neutral, per-game; plus Sharpen, 0–10, 0 is off) applied in the final pass when any slider is non-zero.
 
 ## Limitations
 
