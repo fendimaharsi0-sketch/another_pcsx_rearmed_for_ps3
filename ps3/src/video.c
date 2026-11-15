@@ -78,7 +78,7 @@ static u32 fp_blit_off, fp_fxaa_off, fp_blitd_off, fp_fxaad_off, fp_color_off, f
    the picture is today's. */
 static void *color_buf, *colord_buf; static u32 *color_shadow, *colord_shadow;
 static u32 color_ucode_size, colord_ucode_size; static int color_ok;
-static int cc_applied[5], cc_have_applied;
+static int cc_applied[6], cc_have_applied;
 /* dithering of the RSX renderer's picture (video_set_dither): PS1 pixels per
    texture unit of the game texture; quick: menu redraws skip the smoothing */
 static int dith_on, quick; static float dith_nw, dith_nh;
@@ -597,7 +597,8 @@ static int color_patch_one(rsxFragmentProgram *fp, u32 *shadow, u32 size, const 
 static int color_active(void)
 {
     return color_ok && (cfg.color_brightness || cfg.color_contrast ||
-                        cfg.color_saturation || cfg.color_temperature || cfg.color_gamma);
+                        cfg.color_saturation || cfg.color_temperature || cfg.color_gamma ||
+                        cfg.color_sharpen);
 }
 
 /* Push cfg's slider values into the colour programs, but only when a slider
@@ -606,32 +607,38 @@ static int color_active(void)
 static void color_apply(void)
 {
     static int logged;
-    int v[5] = { cfg.color_brightness, cfg.color_contrast, cfg.color_saturation, cfg.color_temperature, cfg.color_gamma };
-    float f[4], g[4];
+    int v[6] = { cfg.color_brightness, cfg.color_contrast, cfg.color_saturation, cfg.color_temperature, cfg.color_gamma, cfg.color_sharpen };
+    float f[4], g[4], s[4];
     int changed = 0;
     if (!color_ok) return;
     if (cc_have_applied && v[0] == cc_applied[0] && v[1] == cc_applied[1] &&
-        v[2] == cc_applied[2] && v[3] == cc_applied[3] && v[4] == cc_applied[4]) return;
+        v[2] == cc_applied[2] && v[3] == cc_applied[3] && v[4] == cc_applied[4] &&
+        v[5] == cc_applied[5]) return;
     /* Gate the once-log on debug_log: logf_ drops lines when debug is off,
        so an ungated once-flag fires (and is lost) on the first colour frame
        of the app session — then no later game in the same launch ever logs. */
     if (!logged && cfg.debug_log) {
-        rsxProgramConst *c1, *c2, *g1, *g2;
+        rsxProgramConst *c1, *c2, *g1, *g2, *s1, *s2;
         logged = 1;
         logf_("video: color program num_const %u\n", rsxFragmentProgramGetNumConst(fp_color));
         c1 = rsxFragmentProgramGetConst(fp_color, "cc_params");
         c2 = rsxFragmentProgramGetConst(fp_colord, "cc_params");
         g1 = rsxFragmentProgramGetConst(fp_color, "cc_gamma");
         g2 = rsxFragmentProgramGetConst(fp_colord, "cc_gamma");
-        logf_("video: color const cc_params: %s / %s, cc_gamma: %s / %s\n",
-              c1 ? "found" : "NULL", c2 ? "found" : "NULL", g1 ? "found" : "NULL", g2 ? "found" : "NULL");
+        s1 = rsxFragmentProgramGetConst(fp_color, "cc_sharp");
+        s2 = rsxFragmentProgramGetConst(fp_colord, "cc_sharp");
+        logf_("video: color const cc_params: %s / %s, cc_gamma: %s / %s, cc_sharp: %s / %s\n",
+              c1 ? "found" : "NULL", c2 ? "found" : "NULL", g1 ? "found" : "NULL", g2 ? "found" : "NULL", s1 ? "found" : "NULL", s2 ? "found" : "NULL");
     }
     f[0] = (float)v[0]; f[1] = (float)v[1]; f[2] = (float)v[2]; f[3] = (float)v[3];
     g[0] = (float)v[4]; g[1] = 0.0f; g[2] = 0.0f; g[3] = 0.0f;
+    s[0] = (float)v[5] * 0.1f; s[1] = 0.0f; s[2] = 0.0f; s[3] = 0.0f;
     changed |= color_patch_one(fp_color, color_shadow, color_ucode_size, "cc_params", f);
     changed |= color_patch_one(fp_colord, colord_shadow, colord_ucode_size, "cc_params", f);
     changed |= color_patch_one(fp_color, color_shadow, color_ucode_size, "cc_gamma", g);
     changed |= color_patch_one(fp_colord, colord_shadow, colord_ucode_size, "cc_gamma", g);
+    changed |= color_patch_one(fp_color, color_shadow, color_ucode_size, "cc_sharp", s);
+    changed |= color_patch_one(fp_colord, colord_shadow, colord_ucode_size, "cc_sharp", s);
     if (changed) {
         /* The shadow changed: wait until the RSX finished the previous
            frame (CPU poll on the backend label, same pattern as wait_flip),
@@ -644,7 +651,7 @@ static void color_apply(void)
         memcpy(color_buf, color_shadow, color_ucode_size);
         memcpy(colord_buf, colord_shadow, colord_ucode_size);
     }
-    cc_applied[0] = v[0]; cc_applied[1] = v[1]; cc_applied[2] = v[2]; cc_applied[3] = v[3]; cc_applied[4] = v[4];
+    cc_applied[0] = v[0]; cc_applied[1] = v[1]; cc_applied[2] = v[2]; cc_applied[3] = v[3]; cc_applied[4] = v[4]; cc_applied[5] = v[5];
     cc_have_applied = 1;
 }
 

@@ -487,13 +487,14 @@ static const item_t settings_items[] = {
     { "PGXP seam fill", "Experimental. Solid polygons drawn slightly larger (1/2 or 1/4 pixel) so neighbouring parts overlap instead of leaving thin cracks. A supplement to culling: it covers the sub-pixel gaps left between parts the culling kept; it does not bring back a wrongly culled triangle. Off turns it off (some games glitch with it on)." },
     { "Low latency", "Less input lag: about a frame. Steps aside in scenes too heavy for it, so it costs no speed." },
     { "BIOS", "Which BIOS boots the game. Auto tries a real BIOS in USRDIR/system first, then the PS3's own, then the built-in HLE. The PS3's own has no BIOS menu. From the next game start." },
+    { "Sharpen", "Sharpens the picture (unsharp mask) in the final pass. 0 is off. Applies to all renderers." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 45 settings are grouped into 8 pages, flipped with L1/R1 (top row).
+   The 46 settings are grouped into 8 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -508,12 +509,12 @@ static const int set_page_items[NPAGES][10] = {
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
     { 19, 20, 22, 23, 24, 25, 26, 29, 37, 44 },  /* System & Saves: PAL 60 Hz, PS1 logo, VRAM check, Debug log, Memory card 1, Memory card 2, Import PS3 VMC, Enable cheats, Live memory card swap, BIOS */
-    { 30, 31, 32, 33, 34 },                  /* Color Correct: Brightness, Contrast, Saturation, Temperature, Gamma */
+    { 30, 31, 32, 33, 34, 45 },               /* Color Correct: Brightness, Contrast, Saturation, Temperature, Gamma, Sharpen */
     { 35, 41, 42 },                           /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
     { 38, 39, 40 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 7, 10, 3, 4, 10, 5, 3, 3 };
-typedef char set_pages_cover_all[(7 + 10 + 3 + 4 + 10 + 5 + 3 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 7, 10, 3, 4, 10, 6, 3, 3 };
+typedef char set_pages_cover_all[(7 + 10 + 3 + 4 + 10 + 6 + 3 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -546,6 +547,20 @@ static void color_slider(int v, char *b, size_t n)
     for (i = 0; i < 10 - v; i++) t[p++] = '-';
     t[p] = 0;
     snprintf(b, n, "%s %s%d", t, v > 0 ? "+" : "", v);
+}
+
+/* Sharpen slider (0..10): a fixed 12-char track, the || knob sliding on
+   it from the left, then the number. 0 is off, so the knob starts at the
+   left edge (unlike the colour sliders, whose 0 sits in the middle). */
+static void sharpen_slider(int v, char *b, size_t n)
+{
+    char t[14];
+    int i, p = 0;
+    for (i = 0; i < v; i++) t[p++] = '-';
+    t[p++] = '|'; t[p++] = '|';
+    for (i = 0; i < 10 - v; i++) t[p++] = '-';
+    t[p] = 0;
+    snprintf(b, n, "%s %d", t, v);
 }
 
 /* Settings > BIOS (defined below, after setting_value): the file list and
@@ -620,6 +635,7 @@ static void setting_value(int i, char *b, size_t n)
     case 32: color_slider(cfg.color_saturation, b, n); break;
     case 33: color_slider(cfg.color_temperature, b, n); break;
     case 34: color_slider(cfg.color_gamma, b, n); break;
+    case 45: sharpen_slider(cfg.color_sharpen, b, n); break;
     case 35: snprintf(b, n, "%s", cfg.pgxp == 2 ? "On + textures" : cfg.pgxp ? "On" : "Off"); break;
     case 36:
         if (cfg.gpu_res_target == 480 || cfg.gpu_res_target == 600 || cfg.gpu_res_target == 720 || cfg.gpu_res_target == 960 ||
@@ -711,6 +727,14 @@ static void color_step(int *p, int dir)
     if (*p < -10) *p = -10;
 }
 
+/* Sharpen step: one step per Left/Right press, clamped 0..10. */
+static void sharpen_step(int *p, int dir)
+{
+    *p += dir > 0 ? 1 : -1;
+    if (*p > 10) *p = 10;
+    if (*p < 0) *p = 0;
+}
+
 static void setting_change_(int i, int dir, int in_game)
 {
     switch (i) {
@@ -780,6 +804,7 @@ static void setting_change_(int i, int dir, int in_game)
     case 32: color_step(&cfg.color_saturation, dir); break;
     case 33: color_step(&cfg.color_temperature, dir); break;
     case 34: color_step(&cfg.color_gamma, dir); break;
+    case 45: sharpen_step(&cfg.color_sharpen, dir); break;
     case 35: cfg.pgxp = (cfg.pgxp + (dir > 0 ? 1 : 2)) % 3; break;
     case 36: {
         /* Manual -> 480 -> 600 -> 720 -> 960 -> 1080 -> 1200 */
