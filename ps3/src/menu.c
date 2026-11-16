@@ -1321,11 +1321,15 @@ static int confirm_save_target(const char *title)
         frame_begin(0);
         p = input_pressed();
         header("Settings", NULL);
-        ovl_text(MARGIN, 110, "Save these settings?", C_ACCENT);
+        /* Spread out down the 720 px screen (header 0-64, footer 668-720):
+           question block upper, option rows mid-screen, footer at the
+           bottom — the old y=110/170/210/250 bunched everything at the
+           top and read as cramped. */
+        ovl_text(MARGIN, 150, "Save these settings?", C_ACCENT);
         snprintf(q, sizeof q, "%s has no personal settings yet.", title);
-        text_fit(MARGIN, 170, q, C_TEXT);
-        ovl_text(MARGIN, 210, "Save to this title only, or for Global settings?", C_TEXT);
-        y = 250;
+        text_fit(MARGIN, 195, q, C_TEXT);
+        ovl_text(MARGIN, 235, "Save to this title only, or for Global settings?", C_TEXT);
+        y = 370;
         if (row == 0) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
         ovl_text(50, y, "Save to this title only", row == 0 ? C_ACCENT : C_TEXT);
         y += SET_ROW;
@@ -2009,9 +2013,11 @@ static int confirm_exit_to_xmb(void)
         frame_begin(0);
         p = input_pressed();
         header("Exit to XMB", NULL);
-        ovl_text(MARGIN, 110, "Exit to XMB?", C_ACCENT);
-        ovl_text(MARGIN, 170, "The game list will close.", C_TEXT);
-        y = 230;
+        /* Same spread-out layout as the save-target confirm (see there):
+           question upper, option rows mid-screen, footer at the bottom. */
+        ovl_text(MARGIN, 150, "Exit to XMB?", C_ACCENT);
+        ovl_text(MARGIN, 195, "The game list will close.", C_TEXT);
+        y = 370;
         if (row == 0) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
         ovl_text(50, y, "No, stay in the list", row == 0 ? C_ACCENT : C_TEXT);
         y += SET_ROW;
