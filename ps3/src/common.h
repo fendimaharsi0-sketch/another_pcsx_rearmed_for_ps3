@@ -113,6 +113,7 @@ int  config_panel_overlay(const char *key, settings_t *s);  /* overlay the title
 void config_panel_global(settings_t *out);  /* the settings for all games while one runs */
 int  config_panel_apply_title(const char *key, const settings_t *now, settings_t *baseline, int ingame);
 int  config_panel_apply_global(const settings_t *now, settings_t *baseline, int ingame);
+int  config_panel_title_differs(const settings_t *now, const settings_t *baseline);  /* any per-game value differs from global */
 #define SCREEN_MIN 80
 #define SCREEN_MAX 130
 

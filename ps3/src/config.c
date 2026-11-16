@@ -269,6 +269,25 @@ int config_panel_overlay(const char *key, settings_t *s)
 
 void config_panel_global(settings_t *out) { if (out) *out = global_cfg; }
 
+/* 1 if any per-game value in now differs from baseline (the ints with
+   game=1, plus the per-game strings bios/mc1_shared/mc2_shared). The
+   settings panel's back-save uses it: a title panel creates the title's
+   .ini when a per-game value actually differs, instead of saving the
+   change to the settings for all games. A panel that changed nothing
+   (or only keys for all games) still back-saves globally, so merely
+   opening a title's settings never creates a file. */
+int config_panel_title_differs(const settings_t *now, const settings_t *baseline)
+{
+    unsigned i;
+    if (!now || !baseline) return 0;
+    for (i = 0; i < NINTS; i++)
+        if (ints[i].game && IV(now, i) != IV(baseline, i)) return 1;
+    if (strcmp(now->bios_file, baseline->bios_file)) return 1;
+    if (strcmp(now->mc1_shared, baseline->mc1_shared)) return 1;
+    if (strcmp(now->mc2_shared, baseline->mc2_shared)) return 1;
+    return 0;
+}
+
 int config_panel_apply_title(const char *key, const settings_t *now, settings_t *baseline, int ingame)
 {
     char p[700];

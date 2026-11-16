@@ -1306,6 +1306,42 @@ static void draw_settings(int sel, int y0, int in_game, int highlight, const cha
 
 extern void game_settings_changed(void);   /* main.c: re-apply cfg to the running game */
 
+/* Full-screen save-target confirmation, shown when back is pressed in a
+   title panel whose game has no .ini yet and a per-game value differs
+   from the settings for all games. The whole screen is taken over, so
+   the user answers here and cannot wander off into another menu.
+   Returns 1 = save to this title only, 2 = save to global setting,
+   0 = cancel (stay in the panel, nothing saved). */
+static int confirm_save_target(const char *title)
+{
+    int row = 0;
+    char q[300];
+    while (!app_exit_requested) {
+        uint32_t p;
+        int y;
+        frame_begin(0);
+        p = input_pressed();
+        header("Settings", NULL);
+        ovl_text(MARGIN, 110, "Save these settings?", C_ACCENT);
+        snprintf(q, sizeof q, "%s has no personal settings yet.", title);
+        text_fit(MARGIN, 170, q, C_TEXT);
+        ovl_text(MARGIN, 210, "Save to this title only, or for Global settings?", C_TEXT);
+        y = 250;
+        if (row == 0) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
+        ovl_text(50, y, "Save to this title only", row == 0 ? C_ACCENT : C_TEXT);
+        y += SET_ROW;
+        if (row == 1) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
+        ovl_text(50, y, "Save to global setting", row == 1 ? C_ACCENT : C_TEXT);
+        footer("Up/Down choose    X save    Circle back");
+        frame_end();
+        if (p & PAD_CIRCLE) return 0;
+        if (p & PAD_UP) row = 0;
+        if (p & PAD_DOWN) row = 1;
+        if (p & PAD_CROSS) return row + 1;
+    }
+    return 0;
+}
+
 /* ---------------- shared settings panel ----------------
  * One panel for both entry points: Triangle on the home game list and
  * Settings in the pause quick menu. title_key is the ROM file name without
@@ -1317,8 +1353,9 @@ extern void game_settings_changed(void);   /* main.c: re-apply cfg to the runnin
  * Load rule: if the title has its own configs/<key>.ini, its per-game keys
  * overlay cfg on entry; otherwise cfg stays as the global values. The rows
  * and pages are identical either way. The header names the title when one
- * is selected ("Settings: <key>", display-truncated), else "Settings for
- * all games".
+ * is selected and it already has its .ini ("Settings for <key>",
+ * display-truncated); otherwise it reads plain "Settings" — a title
+ * with no .ini yet, or no title at all (the settings for all games).
  * Apply rows (panel-level, not per-page, fixed below the page rows):
  * "Apply to this title only" over "Apply to global setting". Down from a
  * page's last row reaches the first apply row, Down again the second; Up
@@ -1328,10 +1365,14 @@ extern void game_settings_changed(void);   /* main.c: re-apply cfg to the runnin
  * Back (Circle, and Triangle at home) AUTO-SAVES and closes, never
  * discards: the target is picked at back time from whether the title's
  * .ini exists then (title-apply split if it does, global-apply if not).
- * A back-save never creates a .ini that did not exist, and never deletes
- * one. After a home back-save cfg is the global baseline again and the
- * list's own-settings tags refresh; after an in-game back-save cfg stays
- * as the saved effective values (no revert: in-game edits were live).
+ * With no .ini yet and a per-game value differing from the settings for
+ * all games, back asks first, full-screen (this title only / all games /
+ * Circle to stay in the panel); with nothing per-game changed, back
+ * still saves globally and creates no file. A back-save never deletes
+ * a .ini. After a home back-save cfg is the global baseline again and
+ * the list's own-settings tags refresh; after an in-game back-save cfg
+ * stays as the saved effective values (no revert: in-game edits were
+ * live).
  * CPU switch (in game only): if cfg.dynarec at close differs from the
  * entry value, the live-switch-on-resume logic runs as before, with the
  * message returned through close_msg for the quick menu to show. */
@@ -1412,44 +1453,62 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
         if (p & (PAD_CIRCLE | PAD_TRIANGLE)) {
             /* Back auto-saves (never discards). Target by the file's
                existence NOW, not at entry: a title-apply during this panel
-               may have created the file since. */
-            int ok = (has_title && config_game_exists(panel_key))
-                   ? config_panel_apply_title(panel_key, &cfg, &baseline, in_game)
-                   : config_panel_apply_global(&cfg, &baseline, in_game);
-            if (!ok) logf_("menu: settings back-save failed\n");
-            if (!in_game) {
-                cfg = baseline;   /* the list operates on the settings for all games */
-                check_own_settings();   /* a newly created .ini shows its tag at once */
-                logf_("menu: back to game list\n");
-            } else if (cfg.dynarec != cpu_entry) {
-                /* Live engine switch on resume, as before: the next
-                   retro_run re-reads pcsx_rearmed_drc (option_value answers
-                   from cfg.dynarec) and upstream update_variables swaps the
-                   engine (Notify BEFORE_SAVE -> Shutdown -> Init -> Notify
-                   AFTER_LOAD). Only the Interpreter -> Dynarec direction
-                   syncs Lightrec's thread-mode global first: set_threaded
-                   only touches the global when not on Dynarec (no restart,
-                   no live state), so the fresh Lightrec starts in the picked
-                   thread mode. From Dynarec, do NOT call it: it would
-                   restart Lightrec without a register sync. Thread-mode-only
-                   changes stay next-launch. */
-                if (!cpu_entry && cfg.dynarec) {
-                    extern void lightrec_plugin_set_threaded(int on) __attribute__((weak));
-                    if (lightrec_plugin_set_threaded) lightrec_plugin_set_threaded(cfg.dynarec_thread);
-                }
-                if (close_msg && close_msg_n > 0) snprintf(close_msg, close_msg_n, "CPU switches live on resume");
-            } else if (close_msg && close_msg_n > 0) close_msg[0] = 0;
-            menu_name = old_name;
-            return;
+               may have created the file since. A title that already has
+               its .ini back-saves to the title, no questions asked. A
+               title with no file yet asks, full-screen, when a per-game
+               value differs from the settings for all games — the user
+               picks this title only, or all games, or Circle to stay in
+               the panel; with nothing per-game changed, back still saves
+               globally and creates no file. */
+            int ok, target = 0, closing = 1;
+            if (has_title && config_game_exists(panel_key)) target = 1;
+            else if (has_title && config_panel_title_differs(&cfg, &baseline)) {
+                int pick = confirm_save_target(panel_key);
+                if (pick == 0) closing = 0;   /* stay in the panel */
+                else target = (pick == 1);
+            }
+            if (closing) {
+                ok = target ? config_panel_apply_title(panel_key, &cfg, &baseline, in_game)
+                            : config_panel_apply_global(&cfg, &baseline, in_game);
+                if (!ok) logf_("menu: settings back-save failed\n");
+                if (!in_game) {
+                    cfg = baseline;   /* the list operates on the settings for all games */
+                    check_own_settings();   /* a newly created .ini shows its tag at once */
+                    logf_("menu: back to game list\n");
+                } else if (cfg.dynarec != cpu_entry) {
+                    /* Live engine switch on resume, as before: the next
+                       retro_run re-reads pcsx_rearmed_drc (option_value answers
+                       from cfg.dynarec) and upstream update_variables swaps the
+                       engine (Notify BEFORE_SAVE -> Shutdown -> Init -> Notify
+                       AFTER_LOAD). Only the Interpreter -> Dynarec direction
+                       syncs Lightrec's thread-mode global first: set_threaded
+                       only touches the global when not on Dynarec (no restart,
+                       no live state), so the fresh Lightrec starts in the picked
+                       thread mode. From Dynarec, do NOT call it: it would
+                       restart Lightrec without a register sync. Thread-mode-only
+                       changes stay next-launch. */
+                    if (!cpu_entry && cfg.dynarec) {
+                        extern void lightrec_plugin_set_threaded(int on) __attribute__((weak));
+                        if (lightrec_plugin_set_threaded) lightrec_plugin_set_threaded(cfg.dynarec_thread);
+                    }
+                    if (close_msg && close_msg_n > 0) snprintf(close_msg, close_msg_n, "CPU switches live on resume");
+                } else if (close_msg && close_msg_n > 0) close_msg[0] = 0;
+                menu_name = old_name;
+                return;
+            }
         }
         if (!applied && p) panel_msg = NULL;   /* a fresh input clears a stale confirmation */
         if (in_game) ovl_fill(0, 0, OVL_W, OVL_H, C_PANEL);   /* the old inline page filled the screen */
         snprintf(pg_ind, sizeof pg_ind, "%d / %d", set_page_of(sel) + 1, NPAGES);
         if (has_title) {
             char hdr[300];
-            snprintf(hdr, sizeof hdr, "Settings: %.50s", panel_key);
+            /* Two headers only: "Settings" while the values shown are the
+               shared ones (no title, or a title with no .ini yet), and
+               "Settings for <key>" once the title has its own .ini. */
+            if (has_personal) snprintf(hdr, sizeof hdr, "Settings for %.50s", panel_key);
+            else snprintf(hdr, sizeof hdr, "Settings");
             header(hdr, pg_ind);
-        } else header("Settings for all games", pg_ind);
+        } else header("Settings", pg_ind);
         {   /* The apply rows' explanations live on the help line, shown only
                while the cursor sits on them (like the page rows' help),
                not as permanent rows under the buttons. */
@@ -2006,6 +2065,38 @@ static int bios_cards_page(void)
     return ret;
 }
 
+/* Full-screen exit confirmation, shown when Circle is pressed in the
+   game list. The whole screen is taken over, so the user answers here
+   and cannot wander off into another menu. Returns 1 = exit to XMB,
+   0 = stay in the list. The default row is "stay", so a stray X keeps
+   the app open. */
+static int confirm_exit_to_xmb(void)
+{
+    int row = 0;
+    while (!app_exit_requested) {
+        uint32_t p;
+        int y;
+        frame_begin(0);
+        p = input_pressed();
+        header("Exit to XMB", NULL);
+        ovl_text(MARGIN, 110, "Exit to XMB?", C_ACCENT);
+        ovl_text(MARGIN, 170, "The game list will close.", C_TEXT);
+        y = 230;
+        if (row == 0) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
+        ovl_text(50, y, "No, stay in the list", row == 0 ? C_ACCENT : C_TEXT);
+        y += SET_ROW;
+        if (row == 1) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
+        ovl_text(50, y, "Yes, exit to XMB", row == 1 ? C_ACCENT : C_TEXT);
+        footer("Up/Down choose    X confirm    Circle back");
+        frame_end();
+        if (p & PAD_CIRCLE) return 0;
+        if (p & PAD_UP) row = 0;
+        if (p & PAD_DOWN) row = 1;
+        if (p & PAD_CROSS) return row;
+    }
+    return 0;
+}
+
 /* list entry 0 is the disc in the drive, entry 1 is Boot BIOS, entries 2.. the game files */
 const char *menu_run(void)
 {
@@ -2088,12 +2179,16 @@ const char *menu_run(void)
             cover_release();
             return games[sel - 2];
         }
-        if ((p & PAD_CIRCLE) && sel == 0) {   /* copy the disc to the HDD */
+        if ((p & PAD_SELECT) && sel == 0 && disc_identify_result(NULL, 0) == 1) {   /* copy the disc to the HDD (disc row only) */
             char t[128], cue[512];
             if (disc_identify_result(t, sizeof t) == 1 && copy_disc(t[0] ? t : "PS1 disc", cue, sizeof cue)) {
                 rescan(); check_own_settings();
                 for (i = 0; i < ngames; i++) if (!strcmp(games[i], cue)) sel = i + 2;
             }
+            continue;
+        }
+        if (p & PAD_CIRCLE) {   /* back at home exits to XMB, after a full-screen confirm */
+            if (confirm_exit_to_xmb()) { cover_release(); return NULL; }
             continue;
         }
         if (p & PAD_TRIANGLE) {
@@ -2227,7 +2322,7 @@ const char *menu_run(void)
             } else
                 snprintf(foot, sizeof foot, "X play    Triangle settings    Square rescan    L1 R1 letter");
             footer2(sel == 0 && disc_identify_result(NULL, 0) == 1
-                        ? "X play   Circle copy to HDD   Triangle settings   Square rescan"
+                        ? "X play   Select copy to HDD   Triangle settings   Circle exit"
                         : sel == 1
                         ? "X boot BIOS    Triangle settings    Square rescan    L1 R1 letter"
                         : foot,
