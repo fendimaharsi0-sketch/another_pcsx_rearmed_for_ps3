@@ -1269,10 +1269,9 @@ static void draw_settings(int sel, int y0, int in_game, int highlight, const cha
 {
     /* sel is a GLOBAL settings_items index; the page it sits on is derived,
        so the caller keeps passing the same sel it already tracks. highlight
-       is 0 while the selection sits on an apply row below the page (the
-       page row the user came from must not look selected as well). help
-       overrides the help line when non-NULL: the apply rows' explanations,
-       shown only while the cursor sits on them, like the other rows' help. */
+       is always 1 now (the apply rows below the page are gone, so the
+       selection is always a page row); help is always NULL (the selected
+       row's own help is shown). */
     int pg = set_page_of(sel), rows = set_page_counts[pg], i;
     {   /* page navigation row, above the items: L1/R1 flank the page title.
            Text only: the overlay font is ASCII 32-126, so no triangle glyphs
@@ -1356,12 +1355,9 @@ static int confirm_save_target(const char *title)
  * is selected and it already has its .ini ("Settings for <key>",
  * display-truncated); otherwise it reads plain "Settings" — a title
  * with no .ini yet, or no title at all (the settings for all games).
- * Apply rows (panel-level, not per-page, fixed below the page rows):
- * "Apply to this title only" over "Apply to global setting". Down from a
- * page's last row reaches the first apply row, Down again the second; Up
- * reverses; the column wraps (first page row <-> last apply row); L1/R1
- * flips return to the page's remembered row. X applies and the panel stays
- * open with a confirmation. With no title the title button is hidden.
+ * No apply rows: saving is back's job (auto-save, or the full-screen
+ * confirm when a title has no .ini yet and a per-game value differs).
+ * Up/Down wrap within the page; L1/R1 flips pages.
  * Back (Circle, and Triangle at home) AUTO-SAVES and closes, never
  * discards: the target is picked at back time from whether the title's
  * .ini exists then (title-apply split if it does, global-apply if not).
@@ -1380,10 +1376,9 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
 {
     char panel_key[256];
     const char *old_name = menu_name;
-    const char *panel_msg = NULL;
     settings_t baseline;
     int has_title = title_key && title_key[0];
-    int has_personal, sel = 0, apply = -1, i, cpu_entry;
+    int has_personal, sel = 0, i, cpu_entry;
     if (has_title) snprintf(panel_key, sizeof panel_key, "%s", title_key);
     else panel_key[0] = 0;
     logf_("menu: settings%s%s\n", has_title ? ": " : "", panel_key);
@@ -1399,61 +1394,25 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
     while (!app_exit_requested) {
         uint32_t p;
         char pg_ind[16];
-        int applied = 0, n_apply = has_title ? 2 : 1;
         frame_begin(0);
         p = input_pressed();
-        if (apply >= 0) {
-            /* On an apply row: sel still holds the page row we came from,
-               so L1/R1 flips from that page, and Up/Down walk the column.
-               Up from the first apply row goes to the LAST page row
-               explicitly (mirroring Down's wrap from the last apply row
-               to the first page row): returning to sel here would strand
-               Up on the first row after a Down wrap reset sel to it. */
-            if (p & PAD_UP) { if (apply == 0) { int pg = set_page_of(sel);
-                                  apply = -1; sel = set_page_items[pg][set_page_counts[pg] - 1]; set_page_row[pg] = set_page_counts[pg] - 1; }
-                              else apply--; }
-            if (p & PAD_DOWN) { if (apply == n_apply - 1) { int pg = set_page_of(sel);
-                                  apply = -1; sel = set_page_items[pg][0]; set_page_row[pg] = 0; }
-                                else apply++; }
-            if (p & (PAD_L1 | PAD_R1)) { int pg = set_page_of(sel);
-                                         apply = -1; set_page_row[pg] = set_row_of(sel);
-                                         pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
-                                         sel = set_page_items[pg][set_page_row[pg]]; }
-            if (p & PAD_CROSS) {
-                if (has_title && apply == 0) {
-                    if (config_panel_apply_title(panel_key, &cfg, &baseline, in_game)) {
-                        has_personal = 1;
-                        panel_msg = "Saved to this title only";
-                    } else panel_msg = "Save failed";
-                } else {
-                    panel_msg = config_panel_apply_global(&cfg, &baseline, in_game)
-                              ? "Saved to global settings" : "Save failed";
-                }
-                applied = 1;
-            }
-            /* Left/Right do nothing on apply rows. */
-        } else {
-            /* Up/Down move within the current page, except at the edges,
-               where the column continues onto the apply rows (and wraps). */
-            if (p & PAD_UP) { int pg = set_page_of(sel), rw = set_row_of(sel);
-                              if (rw == 0) apply = n_apply - 1;
-                              else { rw--; sel = set_page_items[pg][rw]; set_page_row[pg] = rw; } }
-            if (p & PAD_DOWN) { int pg = set_page_of(sel), rw = set_row_of(sel);
-                                if (rw == set_page_counts[pg] - 1) apply = 0;
-                                else { rw++; sel = set_page_items[pg][rw]; set_page_row[pg] = rw; } }
-            if (p & (PAD_L1 | PAD_R1)) { int pg = set_page_of(sel);
-                                         set_page_row[pg] = set_row_of(sel);
-                                         pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
-                                         sel = set_page_items[pg][set_page_row[pg]]; }
-            if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) {
-                setting_change(sel, p & PAD_LEFT ? -1 : 1, in_game);
-                if (in_game) game_settings_changed();
-            }
+        /* Up/Down move within the current page and wrap at the edges. */
+        if (p & PAD_UP) { int pg = set_page_of(sel), rw = set_row_of(sel);
+                          rw = rw == 0 ? set_page_counts[pg] - 1 : rw - 1;
+                          sel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
+        if (p & PAD_DOWN) { int pg = set_page_of(sel), rw = set_row_of(sel);
+                            rw = rw == set_page_counts[pg] - 1 ? 0 : rw + 1;
+                            sel = set_page_items[pg][rw]; set_page_row[pg] = rw; }
+        if (p & (PAD_L1 | PAD_R1)) { int pg = set_page_of(sel);
+                                     set_page_row[pg] = set_row_of(sel);
+                                     pg = (pg + (p & PAD_L1 ? NPAGES - 1 : 1)) % NPAGES;
+                                     sel = set_page_items[pg][set_page_row[pg]]; }
+        if (p & (PAD_LEFT | PAD_RIGHT | PAD_CROSS)) {
+            setting_change(sel, p & PAD_LEFT ? -1 : 1, in_game);
+            if (in_game) game_settings_changed();
         }
         if (p & (PAD_CIRCLE | PAD_TRIANGLE)) {
-            /* Back auto-saves (never discards). Target by the file's
-               existence NOW, not at entry: a title-apply during this panel
-               may have created the file since. A title that already has
+            /* Back auto-saves (never discards). A title that already has
                its .ini back-saves to the title, no questions asked. A
                title with no file yet asks, full-screen, when a per-game
                value differs from the settings for all games — the user
@@ -1497,7 +1456,6 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
                 return;
             }
         }
-        if (!applied && p) panel_msg = NULL;   /* a fresh input clears a stale confirmation */
         if (in_game) ovl_fill(0, 0, OVL_W, OVL_H, C_PANEL);   /* the old inline page filled the screen */
         snprintf(pg_ind, sizeof pg_ind, "%d / %d", set_page_of(sel) + 1, NPAGES);
         if (has_title) {
@@ -1509,41 +1467,13 @@ static void settings_panel(const char *title_key, int in_game, char *close_msg, 
             else snprintf(hdr, sizeof hdr, "Settings");
             header(hdr, pg_ind);
         } else header("Settings", pg_ind);
-        {   /* The apply rows' explanations live on the help line, shown only
-               while the cursor sits on them (like the page rows' help),
-               not as permanent rows under the buttons. */
-            const char *apply_help = NULL;
-            if (apply >= 0)
-                apply_help = (has_title && apply == 0) ? "Saves these values to this title only."
-                                                      : "Overwrites global settings. This title's own settings are kept.";
-            draw_settings(sel, 118, in_game, apply < 0, apply_help);
-        }
-        {
-            /* Apply section, one 27 px row pitch like the page rows: status
-               (title only) and stacked buttons. The buttons' explanations
-               are NOT permanent rows here: they show on the help line while
-               the cursor sits on the button (see draw_settings). All lines
-               fit the panel width (OVL_W - 2*MARGIN at FONT_W 16 = 72 chars). */
-            int y = 440, k = 0;
-            if (has_title) {
-                ovl_text(50, y, has_personal ? "This title has its own settings."
-                                             : "This title has no personal settings yet.", C_DIM);
-                y += SET_ROW;
-                if (apply == 0) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
-                ovl_text(50, y, "Apply to this title only", apply == 0 ? C_ACCENT : C_TEXT);
-                y += SET_ROW; k = 1;
-            }
-            if (apply == k) sel_fill(30, y - 1, OVL_W - 60, SET_ROW);
-            ovl_text(50, y, "Apply to global setting", apply == k ? C_ACCENT : C_TEXT);
-            y += SET_ROW;
-            if (panel_msg) ovl_text(50, y, panel_msg, C_ACCENT);
-        }
+        draw_settings(sel, 118, in_game, 1, NULL);
         if (!in_game) {
             char b[200];
             snprintf(b, sizeof b, "BIOS: %s", hooks_bios_status());
             ovl_text(50, OVL_H - 82, b, C_DIM);
         }
-        footer("Up/Down select    Left/Right change    X apply    Circle back");
+        footer("Up/Down select    Left/Right/X change    Circle back");
         frame_end();
     }
     menu_name = old_name;
