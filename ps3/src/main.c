@@ -18,6 +18,7 @@
 #include "core_hooks.h"
 #include "cheatdb.h"
 #include "gpu_hooks.h"
+#include "screenshot.h"   /* PNG writer for the hook-free pause-menu screenshot */
 
 /* lv2 gives the primary thread 64 KiB of stack whatever this asks for (see
    main() at the end: the emulator runs on its own thread with a large stack) */
@@ -688,6 +689,65 @@ void game_snapshot_take(void)
     thumb_w = 160; thumb_h = cfg.widescreen ? 90 : 120;
     if (!video_snapshot(thumb_now, thumb_w, thumb_h)) thumb_w = 0;
 }
+
+/* Hook-free PNG screenshot (pause menu "Save Screenshot"): the menu sets a
+   flag and resumes; the game loop captures after 2 presents. The first
+   present after the menu closes is a full overlay draw, the second is the
+   first clean game frame, so the picture has no menu. video.c is untouched:
+   the capture reads the displayed frame via video_snapshot (which waits for
+   the flip first), like the save-state thumb above. The buffer is malloc'd
+   per capture (no static 8 MB in the binary). */
+static int screenshot_pending, screenshot_frames;
+static char screenshot_name[128];
+void game_screenshot_request(const char *name)
+{
+    snprintf(screenshot_name, sizeof screenshot_name, "%s", name && name[0] ? name : "unknown");
+    screenshot_pending = 1;
+    screenshot_frames = 0;
+}
+/* Build the screenshot path: APP_DIR/screenshots/<name>_<YYYYMMDD-HHMMSS>_pgxp<M>_cull<C>.png,
+   with a _2/_3/... suffix when two captures land in the same second.
+   Mirrors hooks_dump_vram's first-free-number naming. Returns 0 or -1. */
+static int screenshot_make_path(char *out, size_t n, const char *name, int pgxp, int cull)
+{
+    char ts[32];
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    int k;
+    struct stat st;
+    if (!out || n < 64 || !tm) return -1;
+    if (!strftime(ts, sizeof ts, "%Y%m%d-%H%M%S", tm)) return -1;
+    mkdir(APP_DIR "/screenshots", 0777);
+    for (k = 0; k < 10000; k++) {
+        if (k == 0)
+            snprintf(out, n, APP_DIR "/screenshots/%s_%s_pgxp%d_cull%d.png", name, ts, pgxp, cull);
+        else
+            snprintf(out, n, APP_DIR "/screenshots/%s_%s_pgxp%d_cull%d_%d.png", name, ts, pgxp, cull, k + 1);
+        if (stat(out, &st) != 0) return 0;
+    }
+    return -1;
+}
+static void game_screenshot_capture(void)
+{
+    char path[512];
+    uint32_t *buf;
+    unsigned w = video_width(), h = video_height();
+    int ok = 0;
+    path[0] = 0;
+    buf = malloc((size_t)w * h * sizeof(uint32_t));
+    if (buf) {
+        if (video_snapshot(buf, w, h) &&
+            screenshot_make_path(path, sizeof path, screenshot_name, cfg.pgxp, cfg.pgxp_culling) == 0)
+            ok = screenshot_write_png(path, buf, w, h) == 0;
+        free(buf);
+    }
+    if (ok)
+        logf_("screenshot: saved %s (%ux%u, pgxp %d cull %d)\n", path, w, h, cfg.pgxp, cfg.pgxp_culling);
+    else
+        logf_("screenshot: failed to write %s\n", path[0] ? path : screenshot_name);
+    screenshot_pending = 0;
+    screenshot_frames = 0;
+}
 static void thumb_write(int slot)
 {
     char path[600];
@@ -1175,6 +1235,8 @@ static void run_game(const char *path)
             }
         }
         video_present();
+        if (screenshot_pending && ++screenshot_frames >= 2)
+            game_screenshot_capture();
 
         now = sysGetSystemTime();
         if (now > last_flip) {
@@ -1246,6 +1308,7 @@ static void run_game(const char *path)
     }
     app_in_game = 0;
     hooks_game_stopping();
+    screenshot_pending = 0; screenshot_frames = 0;   /* a request never fired must not fire on the next game */
     spu_mdec_enable(0);
     cheat_reset_all();   /* never let one game's fed codes write into the next game's RAM */
     retro_unload_game();

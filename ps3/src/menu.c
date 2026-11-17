@@ -2841,7 +2841,7 @@ static int states_page(int save, int *slot)
 int menu_ingame(void)
 {
     static const char *items[] = { "Resume", "Save state", "Load state", "Swap disc", "Reset", "Joystick mode", "Settings", "Cheats",
-                                   "Quit to game list", "Dump VRAM (debug)", "Swap memory card" };
+                                   "Quit to game list", "Dump VRAM (debug)", "Swap memory card", "Save Screenshot" };
     /* Action ids are the items[] indexes. Swap disc sits above Reset and
        is shown for any running disc (not the BIOS): it is NOT gated on
        the playlist size, so a GameShark-style boot disc (a single image)
@@ -2849,10 +2849,13 @@ int menu_ingame(void)
        when the mc_swap gate is on, in a game and in the BIOS (the BIOS
        memory card screen is where it is most useful). The Cheats row only
        exists when the global gate is on (and the running game has a
-       serial); the Dump row only when VRAM check is on. qitems maps
+       serial); the Dump row only when VRAM check is on. The Save Screenshot
+       row only when a disc is running (not the BIOS); it only sets a flag
+       and resumes, so the capture runs on the next clean presented frame.
+       qitems maps
        display rows to action ids, rebuilt every frame so a gate toggle in
        the shared settings panel takes effect when returning here. */
-    int qitems[11], N = 0;
+    int qitems[12], N = 0;
     static int slot;             /* kept while the app runs */
     int sel = 0;
     const char *msg = NULL;
@@ -2873,6 +2876,7 @@ int menu_ingame(void)
         if (cfg.cheat_enable && !app_game_is_bios() && hooks_game_serial()[0]) qitems[N++] = 7;
         qitems[N++] = 8;
         if (cfg.vram_check) qitems[N++] = 9;
+        if (!app_game_is_bios()) qitems[N++] = 11;
         if (sel >= N) sel = N - 1;
         frame_begin(1);          /* the quick menu always draws over the game */
         p = input_pressed();
@@ -2946,6 +2950,13 @@ int menu_ingame(void)
                 if (n) snprintf(dm, sizeof dm, "Dump %d written to USRDIR/dumps", n);
                 msg = n ? dm : "Dump failed (see the log)";
                 break;
+            }
+            case 11: {
+                /* only a flag + resume: the game loop captures after 2
+                   presents, so the picture has no menu (video.c untouched) */
+                const char *s = hooks_game_serial();
+                game_screenshot_request(s && s[0] ? s : app_game_name());
+                menu_name = "game list"; logf_("menu: screenshot requested\n"); return 0;
             }
             }
         }

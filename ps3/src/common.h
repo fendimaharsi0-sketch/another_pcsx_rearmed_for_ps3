@@ -150,6 +150,7 @@ void video_draw_overlay_rows(int y0, int y1);
 int  video_overlay_border(void);   /* black border left of the game picture, overlay pixels */
 void video_borders_dirty(void);    /* clear the borders again (something was drawn there) */
 void video_present(void);
+void game_screenshot_request(const char *name);   /* pause menu: capture the next clean presented frame as a PNG (hook-free: the game loop does it, video.c untouched) */
 void video_flush_cpu_writes(const void *p, size_t n);
 /* RSX state shared with the GPU renderer backend */
 struct _gcmCtxData;
