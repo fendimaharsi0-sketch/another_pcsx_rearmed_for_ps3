@@ -151,11 +151,11 @@ ppu-gcc -mcpu=cell -Wl,--gc-sections -L$PSL1GHT/ppu/lib $OBJS "$B/libcore.a" \
     -lrsx -lgcm_sys -lio -laudio -lsysutil -lsysmodule -lrt -llv2 -lm -o "$B/$NAME.elf"
 ppu-strip "$B/$NAME.elf" -o "$B/${NAME}_stripped.elf"
 sprxlinker "$B/${NAME}_stripped.elf"
-CID=UP0001-PCSR00002_00-0000000000000001
+CID=UP0001-PCSR00003_00-0000000000000001
 make_self_npdrm "$B/${NAME}_stripped.elf" "$B/pkg/USRDIR/EBOOT.BIN" $CID >/dev/null
 ls -la "$B/pkg/USRDIR/"   # staging state in the log, visible even if the next check trips
 test -s "$B/pkg/USRDIR/EBOOT.BIN" || { echo "ERROR: EBOOT.BIN missing after make_self_npdrm" >&2; exit 1; }
-sfo --title "Another PCSX-ReARMed for PS3" --appid PCSR00002 -f "$PS3DEV/bin/sfo.xml" "$B/pkg/PARAM.SFO" >/dev/null
+sfo --title "Another PCSX-ReARMed for PS3 (Research)" --appid PCSR00003 -f "$PS3DEV/bin/sfo.xml" "$B/pkg/PARAM.SFO" >/dev/null
 cp "$ROOT/data/ICON0.PNG" "$B/pkg/ICON0.PNG"   # the XMB icon (320x176, transparent background)
 cp "$ROOT/data/PIC1.PNG" "$B/pkg/PIC1.PNG"     # the XMB background (1920x1080)
 cp "$ROOT/data/ps1titles.txt" "$B/pkg/USRDIR/"   # disc titles (tools/make_titles.py, libretro-database, CC BY-SA 4.0)

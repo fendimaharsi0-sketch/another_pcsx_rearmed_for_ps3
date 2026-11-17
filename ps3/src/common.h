@@ -6,10 +6,10 @@
 #include <stddef.h>
 #include <ppu-types.h>
 
-#define APP_ID    "PCSR00002"
+#define APP_ID    "PCSR00003"
 /* the PS1 BIOS of the PS3's own PS1 emulator (512 KiB or 4 MiB; the core reads the first 512 KiB) */
 #define PS3_BIOS "/dev_flash/ps1emu/ps1_rom.bin"
-#define APP_TITLE "Another PCSX-ReARMed for PS3"
+#define APP_TITLE "Another PCSX-ReARMed for PS3 (Research)"
 #define APP_VERSION "0.1 (build 72)"   /* logs only; not shown in the game list (version lives on the release page) */
 #ifndef APP_DIR   /* overridable for the host UI tests */
 #define APP_DIR   "/dev_hdd0/game/" APP_ID "/USRDIR"
