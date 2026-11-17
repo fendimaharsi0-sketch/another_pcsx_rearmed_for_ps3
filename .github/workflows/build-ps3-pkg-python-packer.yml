@@ -1,5 +1,5 @@
 # Build PS3 PKG (prototype: bilinear texture filtering)
-# Repo: fendimaharsi0-sketch/another_pcsx_rearmed_for_ps3, branch ps3
+# Repo: fendimaharsi0-sketch/another_pcsx_rearmed_for_ps3, branch research
 # Paste this file as .github/workflows/build-ps3-pkg.yml in the web UI,
 # then: Actions -> Build PS3 PKG -> Run workflow -> download the artifact.
 #
@@ -74,10 +74,10 @@ jobs:
       NO_SAVANNAH: '1'
 
     steps:
-      - name: Checkout prototype (branch ps3)
+      - name: Checkout prototype (branch research)
         uses: actions/checkout@v4
         with:
-          ref: ps3
+          ref: research
 
       - name: Install host dependencies
         run: |
