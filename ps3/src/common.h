@@ -42,7 +42,7 @@ enum { ASPECT_4_3 = 0, ASPECT_FULL, ASPECT_14_9, ASPECT_ZOOM_14_9, ASPECT_ZOOM, 
 typedef struct {
     int dynarec;        /* 1 = Lightrec, 0 = interpreter */
     int dynarec_thread; /* Lightrec compiles new code on the PPU's second thread */
-    int gpu_scale;      /* half-steps: 0 = software renderer, 2 = RSX 1x, 3 = 1.5x, 4 = 2x, 5 = 2.5x, 6 = 3x, 7 = 3.5x, 8 = 4x, 9 = 4x wide, 4.5x tall, 10 = 4x wide, 5x tall */
+    int gpu_scale;      /* half-steps: 0 = software renderer, 1 = software renderer with the polygons on the SPUs, 2 = RSX 1x, 3 = 1.5x, 4 = 2x, 5 = 2.5x, 6 = 3x, 7 = 3.5x, 8 = 4x, 9 = 4x wide, 4.5x tall, 10 = 4x wide, 5x tall */
     int gpu_res_target; /* auto resolution target height: 0 = Manual (the Renderer scale rules), 1 = the TV's height, else 480/720/960/1080/1200 */
     int filter;         /* FILTER_* */
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
@@ -97,6 +97,7 @@ typedef struct {
 } settings_t;
 extern settings_t cfg;
 int cfg_auto_target_h(void);  /* resolved auto resolution target height, 0 = Manual/off */
+int cfg_spu_on(void);         /* the SPU polygon renderer should be on (gpu_scale 1) */
 int cfg_rsx_on(void);         /* the RSX renderer should be on: a manual scale, or a resolvable auto target */
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
 extern int cdr_speed_up;     /* core, libpcsxcore/cdrom.c: 2 = data reads and seeks twice as fast, mirrored from cfg.cd_speed */
@@ -244,6 +245,7 @@ int  spu_mdec_init(int nspu);              /* starts the SPU threads + self-test
 void spu_mdec_enable(int on);              /* installs / removes the core hooks */
 void spu_mdec_shutdown(void);
 int  spu_mdec_active(void);
+int  spu_mdec_nspu(void);                /* the worker count init asked for (0: none) */
 void spu_mdec_stats(unsigned *streams, unsigned *mbs, unsigned *misses, double *wait_ms);   /* and resets */
 int  spu_aa_available(void);               /* SPU anti-aliasing of the displayed picture */
 int  spu_aa_start(uint64_t in_ea, uint64_t out_ea, uint64_t label_ea, uint32_t label_value,

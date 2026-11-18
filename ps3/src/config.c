@@ -83,8 +83,12 @@ int cfg_auto_target_h(void)
     return 0;
 }
 
-/* the RSX renderer should be on: a manual scale, or a resolvable auto target */
-int cfg_rsx_on(void) { return cfg.gpu_scale != 0 || cfg_auto_target_h() != 0; }
+/* the SPU polygon renderer: gpu_scale 1 */
+int cfg_spu_on(void) { return cfg.gpu_scale == 1; }
+
+/* the RSX renderer should be on: a manual scale, or a resolvable auto target.
+   gpu_scale 1 belongs to the SPU renderer and wins over an auto target. */
+int cfg_rsx_on(void) { return !cfg_spu_on() && (cfg.gpu_scale != 0 || cfg_auto_target_h() != 0); }
 
 /* reads key=value lines into *s; game: only the per-game keys. Returns the file's
    version (0: no file, 1: before versions were written) */

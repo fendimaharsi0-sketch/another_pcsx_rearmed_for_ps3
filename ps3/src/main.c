@@ -442,6 +442,7 @@ static struct {
     unsigned v_runs, v_slow, v_mdec0, v_dry0; u64 v_us, v_max;
 } fmv;
 
+static void spu_budget(void);
 static void fmv_track(u64 us)        /* after each retro_run (us: its time, 0 = not timed) */
 {
     fmv.runs++;
@@ -482,6 +483,7 @@ static void fmv_track(u64 us)        /* after each retro_run (us: its time, 0 = 
             logf_("fmv: video started (emulated time %.1f s)\n", fmv.runs / 60.0);
         }
         fmv.active = 1;
+        spu_budget();              /* the FMV workers take their 2 SPUs */
     } else if (fmv.active) {
         double n = fmv.v_runs ? fmv.v_runs : 1;
         logf_("fmv: video ended: %u frames, MDEC reads %u, emulation avg %.2f ms, longest %.1f ms, "
@@ -490,6 +492,7 @@ static void fmv_track(u64 us)        /* after each retro_run (us: its time, 0 = 
         if (fmv.skipping) logf_("intro video: ended after %.1f s of video, %u button taps (emulated time %.1f s)\n",
                                 fmv.v_runs / 60.0, fmv.tap >= 48 ? 4 : (fmv.tap + 11) / 12, fmv.runs / 60.0);
         fmv.active = fmv.skipping = 0;
+        spu_budget();              /* no video: the renderer takes all 6 back */
     }
     if (!cfg.skip_intro) fmv.skipping = 0;
     if (!fmv.skipping) skip_buttons = 0;
@@ -545,7 +548,12 @@ void hooks_frame_from_gpu(unsigned w, unsigned h)
 static void draw_current_frame(void)
 {
     if (frame.gpu) hooks_draw_gpu_frame();
-    else if (frame.data) video_draw_frame(frame.data, frame.w, frame.h, frame.pitch);
+    else if (frame.data) {
+        /* the SPUs draw into the core's VRAM and video_draw_frame copies it: wait
+           for them first, so a frame is only ever shown finished */
+        if (spr_active()) spr_sync();
+        video_draw_frame(frame.data, frame.w, frame.h, frame.pitch);
+    }
     else video_clear(0xff000000);
 }
 
@@ -882,12 +890,38 @@ const char *game_state_info(int slot, char *out, size_t n)
 
 void game_reset(void) { retro_reset(); }
 int game_dump_vram(void) { return hooks_dump_vram(game_name[0] ? game_name : "unknown"); }
-/* the SPU workers serve FMV decoding and the SPU smoothing filter */
-static void apply_spu_mdec(void)
+/* The 6 SPUs are shared. The FMV decoder (and the SPU smoothing filter) need 2
+   of them; the polygon renderer takes everything that is left, so it runs with
+   6 while no video is playing and gives 2 back while one is. Called when the
+   FMV state changes, at game start, on a settings change and after a save/load:
+   it only rebuilds a group when the count really differs. */
+static void spu_budget(void)
 {
-    int up = (cfg.spu_mdec || cfg.filter == FILTER_FXAA_SPU) && spu_mdec_init(5);
-    spu_mdec_enable(up && cfg.spu_mdec);
+    int mdec_up = (cfg.filter == FILTER_FXAA_SPU) ||
+                  (cfg.spu_mdec && fmv.active && !fmv.skipping);
+    int want = spr_max_spu() - (mdec_up ? 2 : 0);
+    int before = spr_spu_count();
+
+    if (mdec_up) {
+        /* shrink the renderer first, so the FMV workers can be created */
+        if (spr_active() && spr_spu_count() > want) { spr_stop(); spr_set_workers(want); spr_start(); }
+        else if (!spr_active()) spr_set_workers(want);
+        if (!spu_mdec_active()) {
+            if (!spu_mdec_init(2)) logf_("spu mdec: the FMV workers did not start, the video decodes on the PPU\n");
+        }
+        spu_mdec_enable(cfg.spu_mdec);
+    } else {
+        spu_mdec_enable(0);
+        if (spu_mdec_active()) spu_mdec_shutdown();
+        if (spr_active() && spr_spu_count() != want) { spr_stop(); spr_set_workers(want); spr_start(); }
+        else if (!spr_active()) spr_set_workers(want);
+    }
+    if (spr_spu_count() != before)
+        logf_("spu: the polygon renderer has %d of %d SPUs (FMV decoding %s)\n",
+              spr_spu_count(), spr_max_spu(), mdec_up ? "on the other 2" : "off");
 }
+
+static void apply_spu_mdec(void) { spu_budget(); }
 
 /* DualShock if analog is on, else a digital pad; both ports together. */
 static void apply_controller_type(void)
@@ -1067,9 +1101,9 @@ static void run_game(const char *path)
     if (pgxp_lite_on) pgxp_lite_invalidate();   /* launch: also clear a previous title's entries (ON -> ON has no transition; the extra clear on OFF -> ON is one launch-time memset) */
     pgxp_cull_set(cfg.pgxp_culling);   /* sets the effective track */
     seam_apply();
+    apply_spu_mdec();       /* the SPU budget first: the renderer's worker count depends on it */
     hooks_game_started();
     cheat_apply_saved(0);   /* gate on: re-feed this game's enabled codes (manual codes do not fire) */
-    apply_spu_mdec();
     audio_set_stretch(cfg.audio_stretch);
     log_memory("game started");
     logf_("running at %.3f fps, audio %.0f Hz\n", core_fps, core_rate);
@@ -1267,7 +1301,7 @@ static void run_game(const char *path)
                     ll.misses = ll.resumes = 0;
                 }
                 prof0[0] = gpulib_prof_ticks[0]; prof0[1] = gpulib_prof_ticks[1];
-                if (frame.gpu) hooks_log_gpu_stats();
+                if (frame.gpu || spr_active()) hooks_log_gpu_stats();
                 if (cfg.debug_log && lightrec_debug_counts) {   /* dynarec totals so far */
                     u32 c[10]; u64 t[12];
                     lightrec_debug_counts(c, t);
@@ -1357,6 +1391,7 @@ static int app_main(void)
     }
     config_save();
     spu_mdec_shutdown();
+    spr_shutdown();
     retro_deinit();
     audio_shutdown();
     video_shutdown();

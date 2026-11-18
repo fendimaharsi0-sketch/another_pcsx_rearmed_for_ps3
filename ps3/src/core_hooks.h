@@ -23,4 +23,23 @@ int  hooks_dump_vram(const char *name);
 void hooks_sync_vram_for_state(void);       /* core VRAM up to date before a savestate */   /* VRAM pictures into USRDIR/dumps */     /* hwr/hwr_rsx.c, every 10 s */
 void hooks_redraw_last_frame(void);
 
+/* ---- SPU polygon renderer (spu_poly.c) ----
+   The software renderer records the primitives it is asked to draw and the
+   Cell's SPUs rasterize them into VRAM. hooks_* below pick between this and
+   the RSX renderer. */
+int  spr_init(int want);                  /* start the SPU workers (0 = not wanted yet) */
+void spr_shutdown(void);
+int  spr_ready(void);                     /* workers up */
+int  spr_active(void);                    /* the capture is on */
+int  spr_spu_count(void);                 /* workers running, for the stats log */
+int  spr_max_spu(void);                   /* the machine's SPU budget (6) */
+int  spr_set_workers(int want);           /* rebuild with another count (off only) */
+int  spr_start(void);
+void spr_stop(void);
+void spr_sync(void);                      /* draw everything recorded and wait */
+void spr_stats(unsigned *jobs, double *prims, double *wait_ms, unsigned *max_spu_ms,
+               unsigned *waits, unsigned *sprites, unsigned *tiles);
+void spr_cap_set(int on);                 /* in plugins/dfxvideo/soft.c */
+extern volatile int spr_busy;
+
 #endif
