@@ -57,6 +57,9 @@ extern int (*mdec_decode_hook)(const unsigned short **rl, unsigned char *image, 
 #define MAXJOB   (2 * MAXSPU)
 #define MAXMB    1536             /* macroblocks per stream (640x480 = 1200) */
 
+static int init_tried;                /* spu_mdec_init runs once until a shutdown */
+static int want_nspu;                 /* the worker count that init asked for */
+
 static struct {
     int nspu, on, dead;
     mdec_job *jobs;               /* MAXJOB descriptors */
@@ -289,6 +292,8 @@ void spu_mdec_stats(unsigned *streams, unsigned *mbs, unsigned *misses, double *
 }
 
 int spu_mdec_active(void) { return M.on && !M.dead; }
+/* the worker count the last spu_mdec_init asked for (0: never initialised) */
+int spu_mdec_nspu(void) { return want_nspu; }
 
 static int alloc_buffers(void)
 {
@@ -319,11 +324,11 @@ int spu_mdec_init(int want)
     sysSpuThreadArgument arg;
     static const char gname[] = "mdec", tname[] = "mdec_spu";
     int i, n, r;
-    static int tried;
-    if (tried) return M.on && !M.dead;            /* one attempt per run of the app */
-    tried = 1;
+    if (init_tried) return M.on && !M.dead;            /* one attempt per run of the app */
+    init_tried = 1;
     if (want > MAXSPU) want = MAXSPU;
     if (want < 1 || !alloc_buffers()) return 0;
+    want_nspu = want;
     r = sysSpuInitialize(6, 0);
     if (r) logf_("spu mdec: sysSpuInitialize returned %08x (continuing)\n", r);
     if ((r = sysSpuImageImport(&M.img, mdec_spu_elf, SPU_IMAGE_PROTECT))) {
@@ -370,6 +375,7 @@ void spu_mdec_shutdown(void)
     sysSpuThreadGroupDestroy(M.grp);
     sysSpuImageClose(&M.img);
     M.on = 0;
+    init_tried = 0;                /* the SPU budget may have changed: allow a new attempt */
 }
 #endif
 

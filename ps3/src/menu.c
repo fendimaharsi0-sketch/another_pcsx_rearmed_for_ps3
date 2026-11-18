@@ -443,7 +443,7 @@ static const int aspect_order[] = { ASPECT_4_3, ASPECT_14_9, ASPECT_ZOOM_14_9, A
 typedef struct { const char *label; const char *help; } item_t;
 static const item_t settings_items[] = {
     { "CPU", "Dynarec is much faster. 2 threads is experimental and can freeze some games." },
-    { "Renderer", "RSX draws 3D at higher resolution on the PS3 GPU (experimental)." },
+    { "Renderer", "Software (native): the core's own renderer. Software (SPU): polygons are drawn by the Cell's SPUs (sprites, tiles, lines and texture-window primitives stay on the PPU). RSX: draws 3D at higher resolution on the PS3 GPU (experimental)." },
     { "Texture filter", "Nearest / Bilinear (manual, all modes) / Bilinear (Performance: hardware 15-bit, manual CLUT). RSX only, upscaled pass only. Native VRAM stays nearest." },
     { "Sprite filter", "Texture filter for sprites (textured GP0 sprites and axis-aligned textured polygons). Nearest keeps small sprites, particles and HUD icons crisp. Same modes as Texture filter. RSX only, upscaled pass only." },
     { "Picture filter", "How the picture is scaled to your TV." },
@@ -549,16 +549,16 @@ static void color_slider(int v, char *b, size_t n)
     snprintf(b, n, "%s %s%d", t, v > 0 ? "+" : "", v);
 }
 
-/* Sharpen slider (0..10): a fixed 12-char track, the || knob sliding on
-   it from the left, then the number. 0 is off, so the knob starts at the
+/* Sharpen slider (0..10): a fixed 22-char track, the || knob sliding on
+   it two chars per step, then the number. 0 is off, so the knob starts at the
    left edge (unlike the colour sliders, whose 0 sits in the middle). */
 static void sharpen_slider(int v, char *b, size_t n)
 {
-    char t[14];
+    char t[24];
     int i, p = 0;
-    for (i = 0; i < v; i++) t[p++] = '-';
+    for (i = 0; i < 2 * v; i++) t[p++] = '-';
     t[p++] = '|'; t[p++] = '|';
-    for (i = 0; i < 10 - v; i++) t[p++] = '-';
+    for (i = 0; i < 2 * (10 - v); i++) t[p++] = '-';
     t[p] = 0;
     snprintf(b, n, "%s %d", t, v);
 }
@@ -575,7 +575,9 @@ static void setting_value(int i, char *b, size_t n)
     switch (i) {
     case 0: snprintf(b, n, "%s", !cfg.dynarec ? "Interpreter" : cfg.dynarec_thread ? "Dynarec, 2 threads" : "Dynarec, 1 thread"); break;
     case 1:
-        if (cfg_auto_target_h()) {
+        if (cfg_spu_on()) {
+            snprintf(b, n, "Software (SPU)");
+        } else if (cfg_auto_target_h()) {
             /* auto: the target, and the size it is drawn at now (the effective
                scale from the renderer); in the game list only the target */
             int w, h, sx = 0; float sy = 0.f;
@@ -747,11 +749,11 @@ static void setting_change_(int i, int dir, int in_game)
         }
         break;
     case 1: {
-        /* Software (native) -> RSX 1x -> 1.5x -> 2x -> 2.5x -> 3x -> 3.5x -> 4x -> 4.5x -> 5x (half-steps) */
-        static const int order[] = { 0, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
-        int k = 0;
-        while (k < 9 && order[k] != cfg.gpu_scale) k++;
-        k = (k + (dir > 0 ? 1 : 9)) % 10;
+        /* Software (native) -> Software (SPU) -> RSX 1x -> 1.5x -> 2x -> 2.5x -> 3x -> 3.5x -> 4x -> 4.5x -> 5x (half-steps) */
+        static const int order[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+        int k = 0, n = (int)(sizeof order / sizeof order[0]);
+        while (k < n - 1 && order[k] != cfg.gpu_scale) k++;
+        k = (k + (dir > 0 ? 1 : n - 1)) % n;
         cfg.gpu_scale = order[k];
         break;
     }

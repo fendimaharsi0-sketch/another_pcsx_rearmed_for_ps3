@@ -1369,6 +1369,7 @@ static int full_vram_copy(int sx, int sy, int dx, int dy, int w, int h, int msb)
    nothing left to read back) */
 void hooks_sync_vram_for_state(void)
 {
+    if (spr_active()) spr_sync();
     if (R.on && R.base.full && !R.dead && !R.check && !R.shadow) full_vram_read(0, 0, 1024, 512);
 }
 
@@ -1864,13 +1865,39 @@ static void log_stats(void)
 /* a notice for the screen when the full renderer could not be used, else NULL */
 const char *hooks_gpu_notice(void)
 {
+    if (spr_active() && !spr_ready()) return "SPU renderer stopped responding: using the software renderer (see the log)";
     if (R.on && !R.base.full) return "RSX full renderer failed its self-test: using the slower hybrid renderer (see the log)";
     if (R.dead) return "RSX renderer stopped responding: using the software renderer (see the log)";
     return NULL;
 }
 
 /* called every 10 s from the game loop */
-void hooks_log_gpu_stats(void) { log_stats(); }
+void hooks_log_gpu_stats(void)
+{
+    static int spu_off_said;
+    if (spr_active()) {
+        spu_off_said = 0;
+        unsigned jobs = 0, max_ms = 0, waits = 0, sprites = 0, tiles = 0;
+        double prims = 0, wait_ms = 0;
+        static unsigned last_jobs;
+        spr_stats(&jobs, &prims, &wait_ms, &max_ms, &waits, &sprites, &tiles);
+        if (jobs != last_jobs) {
+            last_jobs = jobs;
+            logf_("spu poly: %u jobs, %.0f prims, %u forced waits (%.1f prims per job), %.2f ms waiting, worst SPU run %u ms; sprites %.0f, tiles %.0f (PPU-drawn)\n",
+                  jobs, prims, waits, jobs ? prims / jobs : 0.0, wait_ms, max_ms,
+                  (double)sprites, (double)tiles);
+        }
+        return;
+    }
+    /* the setting asks for the SPU renderer but it is not running: say so, or the
+       only sign is the game running at software-renderer speed */
+    if (cfg_spu_on() && !spu_off_said) {
+        spu_off_said = 1;
+        logf_("spu poly: the renderer is off (%d workers), the software renderer draws\n",
+              spr_spu_count());
+    }
+    log_stats();
+}
 
 static void stop(void)
 {
@@ -1885,12 +1912,52 @@ static void stop(void)
     R.on = 0;
 }
 
-void hooks_init(void) {}
-void hooks_game_started(void) { start(); }
-void hooks_game_stopping(void) { stop(); }
+void hooks_init(void) { spr_init(0); }   /* the budget is settled per game, not here */
+
+/* the renderer's share of the 6 SPUs: everything the FMV/smoothing workers are
+   not holding. main.c's spu_budget keeps the two in step. */
+static int spu_render_want(void)
+{
+    int mdec = spu_mdec_active() ? spu_mdec_nspu() : 0;
+    int want = spr_max_spu() - mdec;
+    return want < 1 ? 1 : want;
+}
+
+void hooks_game_started(void)
+{
+    if (cfg_spu_on()) {
+        if (!spr_ready()) spr_init(spu_render_want());
+        spr_start();
+    } else start();
+}
+
+void hooks_game_stopping(void)
+{
+    /* a full teardown, not just spr_stop: the workers, the one-shot self-test and
+       the failure flag live for the whole session, so without this the next game
+       inherits whatever killed this one's renderer */
+    if (spr_active()) spr_stop();
+    else stop();
+    spr_shutdown();
+    spu_mdec_shutdown();          /* its workers hold 5 of the 6 SPUs otherwise */
+}
 
 void hooks_apply_gpu_settings(void)
 {
+    /* the two renderers are exclusive: the SPU one owns the SPUs and the capture */
+    if (spr_active() && !cfg_spu_on()) spr_stop();
+    if (!spr_active() && cfg_spu_on()) {
+        if (R.on) stop();
+        /* mdec keeps 2 while it runs; more than that has to be given up first
+           (spu_budget settles the exact split again right after this) */
+        if (spu_mdec_active() && spu_mdec_nspu() > 2) spu_mdec_shutdown();
+        /* not ready: clear the failure/one-shot state and rebuild, so a worker
+           that failed under the previous renderer does not block the new one */
+        if (!spr_ready()) { spr_shutdown(); spr_init(spu_render_want()); }
+        else spr_set_workers(spu_render_want());
+        spr_start();
+    }
+    if (cfg_spu_on()) { gpulib_set_thread_rendering(0); return; }
     /* auto: the manual scale is ignored while a target is set, so changing it
        must not restart the renderer (R.S is the computed scale code then) */
     if (R.on && ((!cfg_auto_target_h() && cfg.gpu_scale != R.S) || (R.base.full && R.check != cfg.vram_check))) stop();

@@ -134,6 +134,9 @@ spu-gcc -O3 -Wall -Wno-unused-function -I"$CORE/libpcsxcore" -Ispu -I"$PSL1GHT/s
     -L"$PSL1GHT/spu/lib" -lsputhread -o "$GEN/mdec_spu.elf"
 spu-strip "$GEN/mdec_spu.elf"
 c_array "$GEN/mdec_spu.elf" mdec_spu_elf >"$GEN/spu_bins.h"
+# polygon renderer: the software renderer's own rasterizer, built from
+# ps3/spu/poly_soft_gen.inc (generated from plugins/dfxvideo/soft.c by gen_soft.py)
+./spu/build_poly.sh "$GEN" || { echo "ERROR: the SPU polygon renderer did not build" >&2; exit 1; }
 
 echo "== front-end"
 CF="-O2 -Wall -Wno-unused-function -mcpu=cell -I$PSL1GHT/ppu/include -I$GEN -Isrc -Isrc/hwr \

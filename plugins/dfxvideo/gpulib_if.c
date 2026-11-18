@@ -258,6 +258,13 @@ long           lLowerpart;
 #pragma GCC diagnostic ignored "-Wmisleading-indentation"
 #endif
 
+unsigned short *psxDst;            // target of polygon span writes
+int             dshift = 10;       // log2(row stride of psxDst): 10 native
+
+extern int spr_render_on;
+extern void spr_cap_sync(void);
+extern void spr_flush(void);
+
 #include "soft.c"
 #include "prim.c"
 
@@ -268,11 +275,13 @@ static void set_vram(void *vram)
  psxVub=vram;
  psxVuw=(unsigned short *)psxVub;
  psxVuw_eom=psxVuw+1024*512;                           // pre-calc of end of vram
+ psxDst=psxVuw; dshift=10;
 }
 
 int renderer_init(void)
 {
  set_vram(gpu.vram);
+ psxDst=psxVuw; dshift=10;
 
  PSXDisplay.RGB24        = FALSE;                      // init some stuff
  PSXDisplay.Interlaced   = FALSE;
@@ -320,6 +329,13 @@ int renderer_do_cmd_list(uint32_t *list, int list_len, uint32_t *ex_regs,
       cmd = -1;
       break;
     }
+
+    /* the SPU polygon renderer draws into the core's VRAM, so the PPU must not
+       touch it (fills, image transfers, and the VRAM copy) while the SPUs
+       are still on it */
+    if (spr_render_on && (cmd == 0x02 || (cmd >= 0x40 && cmd < 0x60) ||
+                          (cmd >= 0x80 && cmd < 0xe0)))
+      spr_cap_sync();
 
 #ifndef TEST
     if (0x80 <= cmd && cmd < 0xe0)
@@ -440,6 +456,7 @@ breakloop:
   *cycles_sum_out += cpu_cycles_sum;
   *cycles_last = cpu_cycles;
   *last_cmd = cmd;
+  spr_flush();           /* hand over the tail of this command list */
   return list - list_start;
 }
 

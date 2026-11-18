@@ -28,6 +28,11 @@ int32_t        drawX;
 int32_t        drawY;
 int32_t        drawW;
 int32_t        drawH;
+
+/* draw the polygon: the SPU renderer captures it when it is on, the PPU
+   draws it otherwise. */
+#define HR_DRAW(NV,TEX,...) do { spr_cap=spr_render_on; __VA_ARGS__; spr_cap=0; } while(0)
+
 uint32_t       dwCfgFixes;
 uint32_t       dwActFixes=0;
 int            iUseFixes;
@@ -753,12 +758,12 @@ static void primSprt8(unsigned char * baseAddr)
 
  SetRenderMode(GETLE32(&gpuData[0]));
 
- if(bUsingTWin) DrawSoftwareSpriteTWin(baseAddr,8,8);
+ if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,8,8);}
  else
- if(usMirror)   DrawSoftwareSpriteMirror(baseAddr,8,8);
- else           DrawSoftwareSprite(baseAddr,8,8,
+ if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,8,8);}
+ else           {DrawSoftwareSprite(baseAddr,8,8,
                                    baseAddr[8],
-                                   baseAddr[9]);
+                                   baseAddr[9]);}
 
  bDoVSyncUpdate=TRUE;
 }
@@ -779,12 +784,12 @@ static void primSprt16(unsigned char * baseAddr)
 
  SetRenderMode(GETLE32(&gpuData[0]));
 
- if(bUsingTWin) DrawSoftwareSpriteTWin(baseAddr,16,16);
+ if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,16,16);}
  else
- if(usMirror)   DrawSoftwareSpriteMirror(baseAddr,16,16);
- else           DrawSoftwareSprite(baseAddr,16,16,
+ if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,16,16);}
+ else           {DrawSoftwareSprite(baseAddr,16,16,
                                    baseAddr[8],
-                                   baseAddr[9]);
+                                   baseAddr[9]);}
 
  bDoVSyncUpdate=TRUE;
 }
@@ -895,9 +900,9 @@ static void primSprtS(unsigned char * baseAddr)
 
  SetRenderMode(GETLE32(&gpuData[0]));
 
- if(bUsingTWin) DrawSoftwareSpriteTWin(baseAddr,sW,sH);
+ if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,sW,sH);}
  else
- if(usMirror)   DrawSoftwareSpriteMirror(baseAddr,sW,sH);
+ if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,sW,sH);}
  else          
   {
    unsigned short sTypeRest=0;
@@ -948,7 +953,7 @@ static void primPolyF4(unsigned char *baseAddr)
  offsetPSX4();
  DrawSemiTrans = (SEMITRANSBIT(GETLE32(&gpuData[0]))) ? TRUE : FALSE;
 
- drawPoly4F(GETLE32(&gpuData[0]));
+ HR_DRAW(4,0,drawPoly4F(GETLE32(&gpuData[0])));
 
  bDoVSyncUpdate=TRUE;
 }
@@ -980,8 +985,8 @@ static void primPolyG4(unsigned char * baseAddr)
  offsetPSX4();
  DrawSemiTrans = (SEMITRANSBIT(GETLE32(&gpuData[0]))) ? TRUE : FALSE;
 
- drawPoly4G(GETLE32(&gpuData[0]), GETLE32(&gpuData[2]), 
-            GETLE32(&gpuData[4]), GETLE32(&gpuData[6]));
+ HR_DRAW(4,0,drawPoly4G(GETLE32(&gpuData[0]), GETLE32(&gpuData[2]), 
+            GETLE32(&gpuData[4]), GETLE32(&gpuData[6])));
 
  bDoVSyncUpdate=TRUE;
 }
@@ -1014,7 +1019,7 @@ static void primPolyFT3(unsigned char * baseAddr)
  offsetPSX3();
  SetRenderMode(GETLE32(&gpuData[0]));
 
- drawPoly3FT(baseAddr);
+ HR_DRAW(3,1,drawPoly3FT(baseAddr));
 
  bDoVSyncUpdate=TRUE;
 }
@@ -1050,7 +1055,7 @@ static void primPolyFT4(unsigned char * baseAddr)
 
  SetRenderMode(GETLE32(&gpuData[0]));
 
- drawPoly4FT(baseAddr);
+ HR_DRAW(4,1,drawPoly4FT(baseAddr));
 
  bDoVSyncUpdate=TRUE;
 }
@@ -1090,7 +1095,7 @@ static void primPolyGT3(unsigned char *baseAddr)
    gpuData[6] = (gpuData[6]&HOST2LE32(0xff000000))|HOST2LE32(0x00808080);
   }
 
- drawPoly3GT(baseAddr);
+ HR_DRAW(3,1,drawPoly3GT(baseAddr));
 
  bDoVSyncUpdate=TRUE;
 }
@@ -1120,7 +1125,7 @@ static void primPolyG3(unsigned char *baseAddr)
  offsetPSX3();
  DrawSemiTrans = (SEMITRANSBIT(GETLE32(&gpuData[0]))) ? TRUE : FALSE;
 
- drawPoly3G(GETLE32(&gpuData[0]), GETLE32(&gpuData[2]), GETLE32(&gpuData[4]));
+ HR_DRAW(3,0,drawPoly3G(GETLE32(&gpuData[0]), GETLE32(&gpuData[2]), GETLE32(&gpuData[4])));
 
  bDoVSyncUpdate=TRUE;
 }
@@ -1163,7 +1168,7 @@ static void primPolyGT4(unsigned char *baseAddr)
    gpuData[9] = (gpuData[9]&HOST2LE32(0xff000000))|HOST2LE32(0x00808080);
   }
 
- drawPoly4GT(baseAddr);
+ HR_DRAW(4,1,drawPoly4GT(baseAddr));
 
  bDoVSyncUpdate=TRUE;
 }
@@ -1193,7 +1198,7 @@ static void primPolyF3(unsigned char *baseAddr)
  offsetPSX3();
  SetRenderMode(GETLE32(&gpuData[0]));
 
- drawPoly3F(GETLE32(&gpuData[0]));
+ HR_DRAW(3,0,drawPoly3F(GETLE32(&gpuData[0])));
 
  bDoVSyncUpdate=TRUE;
 }
