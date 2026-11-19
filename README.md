@@ -36,6 +36,12 @@ The additions include quality-of-life features and renderer work:
 - **Theme UI** — a settings page to change the menu shape (Mixed/Round/Square), cover style (7 styles), and colour preset (10 presets). Defaults match the old look.
 - **Color Correct** — a settings page (Brightness, Contrast, Saturation, Temperature, Gamma; −10 to +10, 0 neutral, per-game; plus Sharpen, 0–10, 0 is off) applied in the final pass when any slider is non-zero.
 
+## Theme UI
+
+![Theme UI](theme-showcase.jpg)
+
+Four home colour presets (Dark, Gray, Yellow/LCD, Green/LCD Green) and the Picture (Software (SPU)), Color Correct, PGXP and Theme UI settings pages, as of v1.06-beta.
+
 ## Limitations
 
 I must be forthright about my limitations. Due to my limited knowledge of emulation and programming, I am unable to provide:
