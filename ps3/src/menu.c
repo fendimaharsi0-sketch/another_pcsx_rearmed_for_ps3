@@ -443,7 +443,7 @@ static const int aspect_order[] = { ASPECT_4_3, ASPECT_14_9, ASPECT_ZOOM_14_9, A
 typedef struct { const char *label; const char *help; } item_t;
 static const item_t settings_items[] = {
     { "CPU", "Dynarec is much faster. 2 threads is experimental and can freeze some games." },
-    { "Renderer", "Software (native): the core's own renderer. Software (SPU): polygons are drawn by the Cell's SPUs (sprites, tiles, lines and texture-window primitives stay on the PPU). RSX: draws 3D at higher resolution on the PS3 GPU (experimental)." },
+    { "Renderer", "Software (native): the core's own renderer. Software (SPU): polygons, sprites and tiles are drawn by the Cell's SPUs (lines and texture-window primitives stay on the PPU). Software (SPU 1.5x) and Software (SPU 2x): the same, drawing at 1.5x or 2x the resolution into a shadow buffer, which is then downsampled. RSX: draws 3D at higher resolution on the PS3 GPU (experimental)." },
     { "Texture filter", "Nearest / Bilinear (manual, all modes) / Bilinear (Performance: hardware 15-bit, manual CLUT). RSX only, upscaled pass only. Native VRAM stays nearest." },
     { "Sprite filter", "Texture filter for sprites (textured GP0 sprites and axis-aligned textured polygons). Nearest keeps small sprites, particles and HUD icons crisp. Same modes as Texture filter. RSX only, upscaled pass only." },
     { "Picture filter", "How the picture is scaled to your TV." },
@@ -488,13 +488,14 @@ static const item_t settings_items[] = {
     { "Low latency", "Less input lag: about a frame. Steps aside in scenes too heavy for it, so it costs no speed." },
     { "BIOS", "Which BIOS boots the game. Auto tries a real BIOS in USRDIR/system first, then the PS3's own, then the built-in HLE. The PS3's own has no BIOS menu. From the next game start." },
     { "Sharpen", "Sharpens the picture (unsharp mask) in the final pass. 0 is off. Applies to all renderers." },
+    { "SPU priority", "The Cell SPU group the polygon renderer runs on: High (0) lets it win against the PPU threads, Normal (100) leaves them room. Applies immediately. High can starve the audio feeder, which also runs at 100." },
 };
 #define NSET (int)(sizeof settings_items / sizeof settings_items[0])
 #define SET_ROW 27   /* row height (30-pixel font) */
 #define SET_VISIBLE 17   /* rows shown above the help line; the list scrolls past them */
 
 /* ---------------- settings pages ----------------
-   The 46 settings are grouped into 8 pages, flipped with L1/R1 (top row).
+   The 47 settings are grouped into 8 pages, flipped with L1/R1 (top row).
    set_page_items[p] lists the GLOBAL settings_items indexes on page p, in
    display order; set_page_counts[p] is its length. Every item must appear
    exactly once: the typedef below fails the build if the counts stop adding
@@ -504,7 +505,7 @@ static const char *set_page_titles[NPAGES] = {
     "Performance", "Picture", "Media & Audio", "Controls", "System & Saves", "Color Correct", "PGXP", "Theme UI"
 };
 static const int set_page_items[NPAGES][10] = {
-    { 0, 16, 21, 8, 11, 28, 43 },                /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD, Low latency */
+    { 0, 16, 21, 8, 11, 28, 43, 46 },           /* Performance: CPU, PS1 CPU speed, Speed limit, Frame skip, GPU thread, Turbo CD, Low latency, SPU priority */
     { 1, 36, 2, 3, 4, 5, 6, 7, 9, 10 },      /* Picture: Renderer, Auto resolution, Texture filter, Sprite filter, Picture filter, Aspect, Widescreen, Screen size, Dithering, Show FPS */
     { 15, 18, 17 },                          /* Media & Audio: FMV decoding, Skip intro videos, Sound when slow */
     { 12, 13, 14, 27 },                      /* Controls: Left stick as D-pad, Right stick as buttons, Vibration, Analog joystick */
@@ -513,8 +514,8 @@ static const int set_page_items[NPAGES][10] = {
     { 35, 41, 42 },                           /* PGXP: PGXP (steadier 3D), PGXP culling correction, PGXP seam fill */
     { 38, 39, 40 },                          /* Theme UI: Menu shape, Cover, Color preset */
 };
-static const int set_page_counts[NPAGES] = { 7, 10, 3, 4, 10, 6, 3, 3 };
-typedef char set_pages_cover_all[(7 + 10 + 3 + 4 + 10 + 6 + 3 + 3 == NSET) ? 1 : -1];
+static const int set_page_counts[NPAGES] = { 8, 10, 3, 4, 10, 6, 3, 3 };
+typedef char set_pages_cover_all[(8 + 10 + 3 + 4 + 10 + 6 + 3 + 3 == NSET) ? 1 : -1];
 /* per-page cursor memory: the row each page was left on (reset on panel open) */
 static int set_page_row[NPAGES];
 static int set_page_of(int g)
@@ -575,7 +576,11 @@ static void setting_value(int i, char *b, size_t n)
     switch (i) {
     case 0: snprintf(b, n, "%s", !cfg.dynarec ? "Interpreter" : cfg.dynarec_thread ? "Dynarec, 2 threads" : "Dynarec, 1 thread"); break;
     case 1:
-        if (cfg_spu_on()) {
+        if (cfg_spu_hr() == 1) {
+            snprintf(b, n, "Software (SPU 2x)");
+        } else if (cfg_spu_hr() == 2) {
+            snprintf(b, n, "Software (SPU 1.5x)");
+        } else if (cfg_spu_on()) {
             snprintf(b, n, "Software (SPU)");
         } else if (cfg_auto_target_h()) {
             /* auto: the target, and the size it is drawn at now (the effective
@@ -652,6 +657,7 @@ static void setting_value(int i, char *b, size_t n)
     case 42: { static const char *const w[3] = { "1/2 pixel", "1/4 pixel", "Off" }; snprintf(b, n, "%s", w[cfg.pgxp_seam % 3]); } break;
     case 43: snprintf(b, n, "%s", cfg.low_latency ? "On" : "Off"); break;
     case 44: { int k = bios_index(); snprintf(b, n, "%.30s", k == 0 ? "Auto" : k == 1 ? "Built-in (HLE)" : bios_names[k - 2][0] == '/' ? "PS3's own (ps1_rom.bin)" : bios_names[k - 2]); } break;
+    case 46: snprintf(b, n, "%s", cfg.spu_prio ? "Normal (100)" : "High (0)"); break;
     }
 }
 
@@ -749,8 +755,8 @@ static void setting_change_(int i, int dir, int in_game)
         }
         break;
     case 1: {
-        /* Software (native) -> Software (SPU) -> RSX 1x -> 1.5x -> 2x -> 2.5x -> 3x -> 3.5x -> 4x -> 4.5x -> 5x (half-steps) */
-        static const int order[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+        /* Software (native) -> Software (SPU) -> Software (SPU 1.5x) -> Software (SPU 2x) -> RSX 1x -> 1.5x -> ... (half-steps) */
+        static const int order[] = { 0, 1, 12, 11, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
         int k = 0, n = (int)(sizeof order / sizeof order[0]);
         while (k < n - 1 && order[k] != cfg.gpu_scale) k++;
         k = (k + (dir > 0 ? 1 : n - 1)) % n;
@@ -830,6 +836,9 @@ static void setting_change_(int i, int dir, int in_game)
             k = (k + (dir > 0 ? 1 : m - 1)) % m;
             snprintf(cfg.bios_file, sizeof cfg.bios_file, "%s", k == 0 ? "" : k == 1 ? "HLE" : bios_names[k - 2]);
         }
+        break;
+    case 46:                                            /* High (0) / Normal (100), applied live */
+        spu_poly_set_priority(cfg.spu_prio ? 0 : 100);
         break;
     }
 }

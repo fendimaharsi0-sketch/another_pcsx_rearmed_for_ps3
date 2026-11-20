@@ -1877,15 +1877,50 @@ void hooks_log_gpu_stats(void)
     static int spu_off_said;
     if (spr_active()) {
         spu_off_said = 0;
-        unsigned jobs = 0, max_ms = 0, waits = 0, sprites = 0, tiles = 0;
-        double prims = 0, wait_ms = 0;
         static unsigned last_jobs;
-        spr_stats(&jobs, &prims, &wait_ms, &max_ms, &waits, &sprites, &tiles);
-        if (jobs != last_jobs) {
-            last_jobs = jobs;
-            logf_("spu poly: %u jobs, %.0f prims, %u forced waits (%.1f prims per job), %.2f ms waiting, worst SPU run %u ms; sprites %.0f, tiles %.0f (PPU-drawn)\n",
-                  jobs, prims, waits, jobs ? prims / jobs : 0.0, wait_ms, max_ms,
-                  (double)sprites, (double)tiles);
+        unsigned long long up_px = 0, down_px = 0;
+        unsigned up_n = 0, down_n = 0;
+        int en = 0, act = 0, has_buf = 0, hres = 0, vres = 0, src_y = 0, src_y_old = 0, nspu = 0;
+        spr_stats_t ss;
+        spr_stats(&ss);
+        nspu = spr_spu_count();
+        hr_stats(&up_px, &up_n, &down_px, &down_n);
+        gpulib_enhancement_state(&en, &act, &has_buf, &hres, &vres, &src_y, &src_y_old);
+        if (ss.jobs != last_jobs) {
+            last_jobs = ss.jobs;
+            logf_("spu poly: %u jobs, %.0f prims, %u forced waits (%.1f prims per job), %.2f ms waiting, worst SPU run %u ms, 2x %s; sprites %.0f, tiles %.0f (PPU-drawn)\n",
+                  ss.jobs, ss.prims, ss.waits, ss.jobs ? ss.prims / ss.jobs : 0.0, ss.wait_ms, ss.max_spu_ms,
+                  act ? "on" : "off", (double)ss.sprites, (double)ss.tiles);
+            logf_("spu poly work: %.2f ms rasterising (%.1f Mpx, %.1f ns per bbox px), %.2f ms band DMA, %.2f ms textures (%.0f lines), %.2f ms prim lists\n",
+                  ss.draw_ms, ss.px, ss.px > 0 ? ss.draw_ms / (ss.px * 6.0) : 0.0,
+                  ss.band_ms, ss.tex_ms, ss.tex_lines, ss.list_ms);
+            /* the SPU group is idle for the rest of the window, so this says
+               whether the renderer is throughput-bound or latency-bound; and
+               the worst job's make-up says what a 40 ms outlier really is */
+            logf_("spu poly worst: %u ms job, %u prims = %.2f ms textures, %.2f ms band, %.2f ms raster, %.2f ms list; SPU busy %.1f%% of %d\n",
+                  ss.max_spu_ms, ss.worst_prims, ss.worst_tex_ms, ss.worst_band_ms,
+                  ss.worst_draw_ms, ss.worst_list_ms,
+                  nspu ? ss.run_ms / (nspu * 10000.0) * 100.0 : 0.0, nspu);
+            {   /* which primitive kinds the time goes to, slowest first; the suffix
+                   is the blend flags: s = DrawSemiTrans, m = bCheckMask */
+                static const char *kn[12] = { "F","G","FT4","FT8","FT15","GT4","GT8","GT15","SPR4","SPR8","SPR15","TILE" };
+                int order[48], k, m;
+                char b[300]; size_t l = 0;
+                for (k = 0; k < 48; k++) order[k] = k;
+                for (k = 1; k < 48; k++) { int v = order[k], j = k - 1;
+                    while (j >= 0 && ss.kms[order[j]] < ss.kms[v]) { order[j+1] = order[j]; j--; }
+                    order[j+1] = v; }
+                l += (size_t)snprintf(b + l, sizeof b - l, "spu poly kinds: ");
+                for (m = 0; m < 48 && l < sizeof b - 28; m++) { k = order[m];
+                    if (ss.kms[k] < 0.05) continue;   /* nothing worth a column */
+                    l += (size_t)snprintf(b + l, sizeof b - l, "%s%s%s %.1fms/%.0fMpx/%.0f  ",
+                                          kn[k>>2], (k&2) ? "s" : "", (k&1) ? "m" : "",
+                                          ss.kms[k], ss.kpx[k], ss.kc[k]); }
+                if (l > 0) logf_("%s\n", b);
+            }
+            logf_("spu poly hr: mode=%d en=%d active=%d buf=%d hres=%d vres=%d src_y=%d src_y_old=%d; hr_up %u calls %.1f Mpx, hr_down %u calls %.1f Mpx\n",
+                  cfg_spu_hr(), en, act, has_buf, hres, vres, src_y, src_y_old,
+                  up_n, up_px / 1e6, down_n, down_px / 1e6);
         }
         return;
     }
@@ -1925,6 +1960,9 @@ static int spu_render_want(void)
 
 void hooks_game_started(void)
 {
+    /* must happen before the first capture: the recorded primitives carry which
+       buffer they belong to, and that comes from dshift while hiOn is set */
+    gpulib_set_enhancement(cfg_spu_hr());
     if (cfg_spu_on()) {
         if (!spr_ready()) spr_init(spu_render_want());
         spr_start();
@@ -1944,6 +1982,8 @@ void hooks_game_stopping(void)
 
 void hooks_apply_gpu_settings(void)
 {
+    /* the software renderer's 2x shadow buffer (its enhancement mode) */
+    gpulib_set_enhancement(cfg_spu_hr());
     /* the two renderers are exclusive: the SPU one owns the SPUs and the capture */
     if (spr_active() && !cfg_spu_on()) spr_stop();
     if (!spr_active() && cfg_spu_on()) {

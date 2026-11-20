@@ -14,7 +14,7 @@
 
 settings_t cfg = {
     .dynarec = 1, .dynarec_thread = 0, .gpu_scale = 4, .gpu_res_target = 0, .filter = FILTER_SMOOTH, .texfilter = 0, .sprite_texfilter = 0, .aspect = ASPECT_4_3, .widescreen = 0,
-    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .audio_stretch = 1, .cpu_clock = 0, .low_latency = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .mc_swap = 0, .theme_shape = 0, .theme_cover = 0, .theme_color = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .color_sharpen = 0, .pgxp = 0, .pgxp_culling = 0, .pgxp_seam = 1, .bios_file = "",
+    .frameskip = 0, .dithering = 0, .show_fps = 1, .gpu_thread = 1, .stick_dpad = 1, .stick_buttons = 0, .analog = 1, .vibration = 1, .spu_mdec = 1, .spu_prio = 100, .audio_stretch = 1, .cpu_clock = 0, .low_latency = 0, .skip_intro = 0, .pal60 = 0, .boot_logo = 0, .speed_limit = 0, .debug_log = 0, .screen_w = 100, .screen_h = 100, .mc1_mode = 0, .mc2_mode = 2, .vmc_source = "", .mc1_shared = "", .mc2_shared = "", .last_dir = "", .cd_speed = 0, .cheat_enable = 0, .mc_swap = 0, .theme_shape = 0, .theme_cover = 0, .theme_color = 0, .color_brightness = 0, .color_contrast = 0, .color_saturation = 0, .color_temperature = 0, .color_gamma = 0, .color_sharpen = 0, .pgxp = 0, .pgxp_culling = 0, .pgxp_seam = 1, .bios_file = "",
 };
 
 /* game: 1 = can differ per game; 0 = for all games only (the TV, the folder) */
@@ -22,7 +22,7 @@ settings_t cfg = {
 static const struct { const char *key; size_t off; int min, max, game; } ints[] = {
     { "dynarec", F(dynarec), 0, 1, 1 },
     { "dynarec_thread", F(dynarec_thread), 0, 1, 1 },
-    { "gpu_scale", F(gpu_scale), 0, 10, 1 },
+    { "gpu_scale", F(gpu_scale), 0, 12, 1 },
     { "gpu_res_target", F(gpu_res_target), 0, 1200, 1 },
     { "filter", F(filter), 0, FILTER_COUNT - 1, 1 },
     { "texfilter", F(texfilter), 0, 2, 1 },
@@ -37,6 +37,7 @@ static const struct { const char *key; size_t off; int min, max, game; } ints[] 
     { "stick_buttons", F(stick_buttons), 0, 1, 1 },
     { "vram_check", F(vram_check), 0, 1, 1 },
     { "spu_mdec", F(spu_mdec), 0, 1, 1 },
+    { "spu_prio", F(spu_prio), 0, 255, 0 },
     { "audio_stretch", F(audio_stretch), 0, 1, 1 },
     { "cpu_clock", F(cpu_clock), 0, 2, 1 },
     { "skip_intro", F(skip_intro), 0, 1, 1 },
@@ -83,8 +84,25 @@ int cfg_auto_target_h(void)
     return 0;
 }
 
-/* the SPU polygon renderer: gpu_scale 1 */
-int cfg_spu_on(void) { return cfg.gpu_scale == 1; }
+/* the SPU polygon renderer: gpu_scale 1, 11 (2x) and 12 (1.5x) -- slots the RSX
+   half-steps never used, so an older settings file cannot collide with them */
+int cfg_spu_on(void) { return cfg.gpu_scale == 1 || cfg.gpu_scale == 11 || cfg.gpu_scale == 12; }
+/* its enhanced-resolution mode: 0 = native 1x, 1 = 2x, 2 = 1.5x */
+int cfg_spu_hr(void) { return cfg.gpu_scale == 11 ? 1 : cfg.gpu_scale == 12 ? 2 : 0; }
+
+/* the Renderer setting as a name for the log: the SPU slots (1, 11, 12) are not
+   half-steps, so printing gpu_scale/2 would claim "5.5x" for the SPU's 2x */
+const char *cfg_renderer_name(void)
+{
+    static char b[16];
+    if (cfg_spu_hr() == 1) return "SPU 2x";
+    if (cfg_spu_hr() == 2) return "SPU 1.5x";
+    if (cfg_spu_on()) return "SPU";
+    if (cfg_auto_target_h()) return "auto";
+    if (!cfg.gpu_scale) return "native";
+    snprintf(b, sizeof b, "RSX %gx", cfg.gpu_scale / 2.0);
+    return b;
+}
 
 /* the RSX renderer should be on: a manual scale, or a resolvable auto target.
    gpu_scale 1 belongs to the SPU renderer and wins over an auto target. */
@@ -245,8 +263,8 @@ void config_save(void)
         write_file(game_path, &cfg, 1);
         write_file(CFG_PATH, &global_cfg, 0);
     } else write_file(CFG_PATH, &cfg, 0);
-    logf_("settings saved%s (cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d)\n",
-          game_on ? " for this game" : "", cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect,
+    logf_("settings saved%s (cpu %s, renderer %s, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d)\n",
+          game_on ? " for this game" : "", cfg.dynarec ? "dynarec" : "interp", cfg_renderer_name(), cfg.gpu_res_target, cfg.filter, cfg.aspect,
           cfg.frameskip, cfg.dithering, cfg.show_fps, cfg.gpu_thread);
 }
 

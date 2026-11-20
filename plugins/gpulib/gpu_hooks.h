@@ -38,6 +38,24 @@ const uint32_t *gpulib_get_ex_regs(void);
  * without USE_ASYNC_GPU. Off while front-end hooks are installed: they are
  * called from wherever the renderer runs. */
 void gpulib_set_thread_rendering(int on);
+/* ask for the software renderer's enhanced-resolution shadow buffer: 0 off,
+   1 = 2x (2048x1024), 2 = 1.5x (1536x768). check_mode_change() picks it up on
+   the next frame */
+void gpulib_set_enhancement(int mode);
+/* the mode the core is actually using for this frame (0 = off, or no buffer) */
+int gpulib_enhancement_active(void);
+/* the 2x decision's inputs, for the log (any argument may be NULL) */
+void gpulib_enhancement_state(int *en, int *act, int *has_buf,
+                              int *hres, int *vres, int *src_y, int *src_y_old);
+/* 2x shadow-buffer traffic since the last call: pixels and calls, up and down */
+void hr_stats(unsigned long long *up_px, unsigned *up_n,
+              unsigned long long *down_px, unsigned *down_n);
+/* downsample the texture rects the recorded polygons will read (2x fast mode).
+ * dfxvideo only; the SPU renderer calls it once per batch, before sending it. */
+void gpulib_hr_flush(void);
+/* the SPU polygon renderer: wait for the SPUs without submitting the recorded
+ * prims, so the flush above can write native VRAM first */
+void spr_wait_inflight(void);
 /* a CPU->VRAM transfer is in progress (it may span several frames): its rect
  * already holds newer data in the core's VRAM than a front-end copy has */
 int gpulib_pending_write(int *x, int *y, int *w, int *h);

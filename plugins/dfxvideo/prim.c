@@ -29,10 +29,86 @@ int32_t        drawY;
 int32_t        drawW;
 int32_t        drawH;
 
-/* draw the polygon: the SPU renderer captures it when it is on, the PPU
-   draws it otherwise. */
-#define HR_DRAW(NV,TEX,...) do { spr_cap=spr_render_on; __VA_ARGS__; spr_cap=0; } while(0)
+/////////////////////////////////////////////////////////////////////////////
+// 2x rendering support (see the shadow buffer in gpulib_if.c)
+/////////////////////////////////////////////////////////////////////////////
+static int32_t hr_dX,hr_dY,hr_dW,hr_dH;
 
+static inline void hr_enter(const short *s)
+{
+ int k;
+ hr_dX=drawX; hr_dY=drawY; hr_dW=drawW; hr_dH=drawH;
+ /* both modes draw into the 2048-pixel-stride shadow buffer, so dshift is 11
+    either way; only the scale differs (2x, or 3/2 for 1.5x) */
+ k=(hr_mode==2)?3:4;
+ drawX=drawX*k/2; drawY=drawY*k/2; drawW=drawW*k/2+1; drawH=drawH*k/2+1;
+ lx0=s[0]*k/2; ly0=s[1]*k/2; lx1=s[2]*k/2; ly1=s[3]*k/2;
+ lx2=s[4]*k/2; ly2=s[5]*k/2; lx3=s[6]*k/2; ly3=s[7]*k/2;
+ psxDst=hiVuw; dshift=11;
+}
+
+static inline void hr_leave(void)
+{
+ drawX=hr_dX; drawY=hr_dY; drawW=hr_dW; drawH=hr_dH;
+ psxDst=psxVuw; dshift=10;
+}
+
+// texture page / clut the next polygons will read. Recorded here and downsampled
+// once per SPU batch by gpulib_hr_flush (gpulib_if.c), not per polygon.
+static void hr_tex_sync(const unsigned char *baseAddr)
+{
+ const uint32_t *g=(const uint32_t *)baseAddr;
+ uint32_t clut=GETLE32(&g[2])>>16;
+ int tw=(GlobalTextTP==0)?64:(GlobalTextTP==1)?128:256;
+ hr_texq_push(GlobalTextAddrX,GlobalTextAddrY,tw,256);
+ hr_texq_push((clut&0x3f)*16,(clut>>6)&0x1ff,256,1);
+}
+
+static void hr_poly_dirty(const short *s,int nv)
+{
+ int i,x0=s[0],y0=s[1],x1=s[0],y1=s[1];
+ for(i=1;i<nv;i++)
+  {
+   if(s[i*2]<x0)x0=s[i*2]; if(s[i*2]>x1)x1=s[i*2];
+   if(s[i*2+1]<y0)y0=s[i*2+1]; if(s[i*2+1]>y1)y1=s[i*2+1];
+  }
+ hr_dirty_add(x0,y0,x1+1,y1+1);
+}
+
+/* draw the polygon once, at 2x, into the shadow buffer. The SPU renderer draws
+   it when it is on, the PPU otherwise; the native vram is left stale and only
+   the rect is recorded, so hr_sync* can bring it up to date when it is read. */
+#define HR_DRAW(NV,TEX,...) do { \
+ if(hiOn) { short hs_[8]={lx0,ly0,lx1,ly1,lx2,ly2,lx3,ly3}; \
+            if(TEX) hr_tex_sync(baseAddr); hr_poly_dirty(hs_,NV); \
+            hr_enter(hs_); spr_cap=(spr_render_on && spr_hires_ready()); __VA_ARGS__; spr_cap=0; hr_leave(); } \
+ else { if(hr_dirty) hr_sync_all(); spr_cap=spr_render_on; __VA_ARGS__; spr_cap=0; } } while(0)
+
+/* a sprite/tile drawn natively: copy its rect into the 2x buffer */
+#define SPR_UP(w,h) do { if(hiOn) hr_up_clip(lx0+PSXDisplay.DrawOffset.x, ly0+PSXDisplay.DrawOffset.y, (w), (h)); } while(0)
+
+/* lines are not captured: they are drawn natively and then upscaled */
+static void DrawSoftwareLineShade(int32_t rgb0, int32_t rgb1)
+{
+ short a=lx0,b=ly0,c=lx1,d=ly1;
+ DrawSoftwareLineShade_n(rgb0,rgb1);
+ if(hiOn)
+  {
+   int x0=a<c?a:c, y0=b<d?b:d, x1=a<c?c:a, y1=b<d?d:b;
+   hr_up_clip(x0,y0,x1-x0+1,y1-y0+1);
+  }
+}
+
+static void DrawSoftwareLineFlat(int32_t rgb)
+{
+ short a=lx0,b=ly0,c=lx1,d=ly1;
+ DrawSoftwareLineFlat_n(rgb);
+ if(hiOn)
+  {
+   int x0=a<c?a:c, y0=b<d?b:d, x1=a<c?c:a, y1=b<d?d:b;
+   hr_up_clip(x0,y0,x1-x0+1,y1-y0+1);
+  }
+}
 uint32_t       dwCfgFixes;
 uint32_t       dwActFixes=0;
 int            iUseFixes;
@@ -758,12 +834,12 @@ static void primSprt8(unsigned char * baseAddr)
 
  SetRenderMode(GETLE32(&gpuData[0]));
 
- if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,8,8);}
+ if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,8,8);SPR_UP(8,8);}
  else
- if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,8,8);}
+ if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,8,8);SPR_UP(8,8);}
  else           {DrawSoftwareSprite(baseAddr,8,8,
                                    baseAddr[8],
-                                   baseAddr[9]);}
+                                   baseAddr[9]);SPR_UP(8,8);}
 
  bDoVSyncUpdate=TRUE;
 }
@@ -784,12 +860,12 @@ static void primSprt16(unsigned char * baseAddr)
 
  SetRenderMode(GETLE32(&gpuData[0]));
 
- if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,16,16);}
+ if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,16,16);SPR_UP(16,16);}
  else
- if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,16,16);}
+ if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,16,16);SPR_UP(16,16);}
  else           {DrawSoftwareSprite(baseAddr,16,16,
                                    baseAddr[8],
-                                   baseAddr[9]);}
+                                   baseAddr[9]);SPR_UP(16,16);}
 
  bDoVSyncUpdate=TRUE;
 }
@@ -871,7 +947,7 @@ static void primSprtSRest(unsigned char * baseAddr,unsigned short type)
 
  if(!(dwActFixes&8)) AdjustCoord1();
 
- DrawSoftwareSprite(baseAddr,sW,sH,tX,tY);
+ DrawSoftwareSprite(baseAddr,sW,sH,tX,tY); SPR_UP(sW,sH);
 
  if(sTypeRest && type<4)  
   {
@@ -900,9 +976,9 @@ static void primSprtS(unsigned char * baseAddr)
 
  SetRenderMode(GETLE32(&gpuData[0]));
 
- if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,sW,sH);}
+ if(bUsingTWin) {DrawSoftwareSpriteTWin(baseAddr,sW,sH);SPR_UP(sW,sH);}
  else
- if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,sW,sH);}
+ if(usMirror)   {DrawSoftwareSpriteMirror(baseAddr,sW,sH);SPR_UP(sW,sH);}
  else          
   {
    unsigned short sTypeRest=0;
@@ -912,7 +988,7 @@ static void primSprtS(unsigned char * baseAddr)
    if(tX+sW>256) {sW=256-tX;sTypeRest+=1;}
    if(tY+sH>256) {sH=256-tY;sTypeRest+=2;}
 
-   DrawSoftwareSprite(baseAddr,sW,sH,tX,tY);
+   DrawSoftwareSprite(baseAddr,sW,sH,tX,tY); SPR_UP(sW,sH);
 
    if(sTypeRest) 
     {

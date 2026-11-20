@@ -260,7 +260,13 @@ static bool env_cb(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER: {
         struct retro_framebuffer *fb = data;
         size_t pitch;
-        if (fb->width > 1024 || fb->height > 512) return false;
+        unsigned fw, fh;
+        if (!fb) return false;
+        /* the slot is sized for the SPU renderer's enhanced frames (up to
+           2048x1024); a frame that does not fit is refused, and the core then
+           uses its own buffer, which video_draw_frame copies in */
+        video_frame_limits(&fw, &fh);
+        if (fb->width > fw || fb->height > fh) return false;
         fb->data = video_frame_buffer(&pitch);
         fb->pitch = pitch;
         fb->format = RETRO_PIXEL_FORMAT_XRGB8888;
@@ -890,6 +896,8 @@ const char *game_state_info(int slot, char *out, size_t n)
 
 void game_reset(void) { retro_reset(); }
 int game_dump_vram(void) { return hooks_dump_vram(game_name[0] ? game_name : "unknown"); }
+/* the SPU workers serve FMV decoding and the SPU smoothing filter. The SPU
+   polygon renderer needs 4 of the 6 SPUs while it runs, so this settles for 2. */
 /* The 6 SPUs are shared. The FMV decoder (and the SPU smoothing filter) need 2
    of them; the polygon renderer takes everything that is left, so it runs with
    6 while no video is playing and gives 2 back while one is. Called when the
@@ -1068,8 +1076,8 @@ static void run_game(const char *path)
         psx_debug_trace = cfg.debug_log;
     }
     logf_("%s " APP_VERSION " (" BUILD_BRANCH "@" BUILD_COMMIT "), built " __DATE__ " " __TIME__ "\n", APP_TITLE);
-    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
-          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
+    logf_("settings: cpu %s, renderer %s, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d, gpu thread %d\n",
+          cfg.dynarec ? "dynarec" : "interp", cfg_renderer_name(), cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering,
           cfg.show_fps, cfg.gpu_thread);
     logf_("loading %s (%s)\n", is_bios ? "BIOS menu" : path, !cfg.dynarec ? "interpreter" : cfg.dynarec_thread ? "dynarec, compiling on the second thread" : "dynarec");
     logf_("BIOS: %s%s\n", hooks_bios_status(), cfg.boot_logo ? (hooks_bios_present() ? ", PS1 logo on" : ", PS1 logo needs a BIOS") : "");
@@ -1362,8 +1370,8 @@ static int app_main(void)
     watchdog_start();
     config_load();
     log_ready();                        /* log files only with Debug log on */
-    logf_("settings: cpu %s, renderer %gx, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d\n",
-          cfg.dynarec ? "dynarec" : "interp", (double)cfg.gpu_scale / 2.0, cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps);
+    logf_("settings: cpu %s, renderer %s, auto %d, filter %d, aspect %d, frameskip %d, dither %d, fps %d\n",
+          cfg.dynarec ? "dynarec" : "interp", cfg_renderer_name(), cfg.gpu_res_target, cfg.filter, cfg.aspect, cfg.frameskip, cfg.dithering, cfg.show_fps);
     log_memory("start");
     {
         sys_ppu_thread_stack_t si;

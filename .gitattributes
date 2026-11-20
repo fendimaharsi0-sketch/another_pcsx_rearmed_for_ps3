@@ -1,0 +1,6 @@
+# Line endings: the PS3 build runs on Linux, where a CRLF shell script dies on
+# its shebang ("/usr/bin/env: 'bash\r': No such file or directory"). Force LF for
+# text files regardless of the checkout platform's core.autocrlf setting.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf

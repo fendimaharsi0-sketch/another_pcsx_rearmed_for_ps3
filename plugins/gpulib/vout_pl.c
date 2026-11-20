@@ -45,8 +45,14 @@ static void check_mode_change(struct psx_gpu *gpu, int force)
       gpu->screen.src_y < (512 - 256/2) && gpu->state.src_y_old < (512 - 256/2);
     gpu->state.src_y_old = gpu->screen.src_y;
     if (gpu->state.enhancement_active) {
-      w_out *= 2;
-      h_out *= 2;
+      /* 1.5x keeps the same 2048-pixel stride, so only the output size changes */
+      if (gpu->state.enhancement_mode == 2) {
+        w_out = w * 3 / 2;
+        h_out = h * 3 / 2;
+      } else {
+        w_out *= 2;
+        h_out *= 2;
+      }
     }
   }
   if (gpu->status & PSX_GPU_STATUS_RGB24) {
@@ -78,6 +84,7 @@ int vout_update(struct psx_gpu *gpu, int src_x, int src_y)
   int h = gpu->screen.h;
   int vram_h = 512;
   int src_x2 = 0;
+  int stride = 1024;      /* source row stride in pixels: 2048 in the 2x mode */
   int offset;
 
 #ifdef RAW_FB_DISPLAY
@@ -97,8 +104,15 @@ int vout_update(struct psx_gpu *gpu, int src_x, int src_y)
     vram = gpu->get_enhancement_bufer(&src_x, &src_y, &w, &h, &vram_h);
     if (vram == NULL)
       return 0;
-    x *= 2; y *= 2;
-    src_x2 *= 2;
+    /* both enhanced modes draw into the same 2048-pixel-stride buffer */
+    if (gpu->state.enhancement_mode == 2) {
+      x = x * 3 / 2; y = y * 3 / 2;
+      src_x2 = src_x2 * 3 / 2;
+    } else {
+      x *= 2; y *= 2;
+      src_x2 *= 2;
+    }
+    stride = 2048;
   }
 
   // gpu_unai skips drawing odd lines
@@ -111,7 +125,7 @@ int vout_update(struct psx_gpu *gpu, int src_x, int src_y)
     return 1;
   }
 
-  offset = (src_y * 1024 + src_x) * 2;
+  offset = (src_y * stride + src_x) * 2;
   offset += src_x2 * bpp / 8;
 
   cbs->pl_vout_flip(vram, offset, !!(gpu->status & PSX_GPU_STATUS_RGB24),

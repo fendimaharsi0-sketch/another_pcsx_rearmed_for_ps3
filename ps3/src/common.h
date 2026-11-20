@@ -42,7 +42,8 @@ enum { ASPECT_4_3 = 0, ASPECT_FULL, ASPECT_14_9, ASPECT_ZOOM_14_9, ASPECT_ZOOM, 
 typedef struct {
     int dynarec;        /* 1 = Lightrec, 0 = interpreter */
     int dynarec_thread; /* Lightrec compiles new code on the PPU's second thread */
-    int gpu_scale;      /* half-steps: 0 = software renderer, 1 = software renderer with the polygons on the SPUs, 2 = RSX 1x, 3 = 1.5x, 4 = 2x, 5 = 2.5x, 6 = 3x, 7 = 3.5x, 8 = 4x, 9 = 4x wide, 4.5x tall, 10 = 4x wide, 5x tall */
+    int gpu_scale;      /* half-steps: 0 = software renderer, 1 = software renderer with the polygons on the SPUs,
+                       11 = the same at 2x, 12 = the same at 1.5x, 2 = RSX 1x, 3 = 1.5x, 4 = 2x, 5 = 2.5x, 6 = 3x, 7 = 3.5x, 8 = 4x, 9 = 4x wide, 4.5x tall, 10 = 4x wide, 5x tall */
     int gpu_res_target; /* auto resolution target height: 0 = Manual (the Renderer scale rules), 1 = the TV's height, else 480/720/960/1080/1200 */
     int filter;         /* FILTER_* */
     int texfilter;      /* RSX texture filter: 0 = nearest (default), 1 = bilinear (upscaled pass only), 2 = bilinear (performance: hardware 15-bit, manual CLUT) */
@@ -58,6 +59,7 @@ typedef struct {
     int analog;         /* DualShock analog sticks on (else a digital pad) */
     int vram_check;     /* debug: software renderer draws too, for VRAM dumps */
     int spu_mdec;       /* FMV (MDEC) decoding on the SPUs */
+    int spu_prio;       /* SPU thread group priority, 0-255 (global only; LV2 takes 0 as the highest) */
     int audio_stretch;  /* sound slows down with the game instead of crackling */
     int cpu_clock;      /* PS1 CPU speed: 0 normal, 1 +50%, 2 +75% */
     int low_latency;    /* wait for the last frame to be shown before reading the pad (main loop) */
@@ -97,7 +99,9 @@ typedef struct {
 } settings_t;
 extern settings_t cfg;
 int cfg_auto_target_h(void);  /* resolved auto resolution target height, 0 = Manual/off */
-int cfg_spu_on(void);         /* the SPU polygon renderer should be on (gpu_scale 1) */
+int cfg_spu_on(void);         /* the SPU polygon renderer should be on (gpu_scale 1, 11 or 12) */
+int cfg_spu_hr(void);         /* its enhanced mode: 0 = 1x, 1 = 2x (11), 2 = 1.5x (12) */
+const char *cfg_renderer_name(void);   /* the Renderer setting as a name, for the log */
 int cfg_rsx_on(void);         /* the RSX renderer should be on: a manual scale, or a resolvable auto target */
 extern int gte_widescreen;   /* core, libpcsxcore/gte.c: 1 = GTE widescreen 16:9, mirrored from cfg.widescreen */
 extern int cdr_speed_up;     /* core, libpcsxcore/cdrom.c: 2 = data reads and seeks twice as fast, mirrored from cfg.cd_speed */
@@ -125,6 +129,7 @@ unsigned video_width(void);
 unsigned video_height(void);
 /* buffer the core may render the next frame into (mapped for the RSX) */
 void *video_frame_buffer(size_t *pitch);
+void video_frame_limits(unsigned *w, unsigned *h);   /* the slot's size, for the framebuffer query */
 int video_snapshot(uint32_t *out, int w, int h);   /* the game picture last shown, scaled down */
 /* begins a display frame: waits until the back buffer may be drawn again */
 void video_begin(void);

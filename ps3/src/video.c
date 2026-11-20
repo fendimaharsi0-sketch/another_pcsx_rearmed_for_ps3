@@ -25,13 +25,22 @@
 #define CB_SIZE     0x100000
 #define HOST_SIZE   (32 * 1024 * 1024)
 
-/* game frame: two 1024x512 XRGB8888 buffers in mapped main memory. The core
-   emulates the next frame while the RSX may still be showing the last one, so it
-   always renders into the buffer the last queued display frame did not use. */
-#define FRAME_W     1024
-#define FRAME_H     512
-#define FRAME_PITCH (FRAME_W * 4)
-#define FRAME_SIZE  (FRAME_PITCH * FRAME_H)
+/* game frame: two XRGB8888 buffers in mapped main memory. The core emulates the
+   next frame while the RSX may still be showing the last one, so it always
+   renders into the buffer the last queued display frame did not use.
+   A slot must hold the largest frame the core can hand over. The SPU renderer's
+   enhanced modes present twice the native screen, and the native screen is
+   1024x512 at most (that is what the hr_* code clamps to), so the worst case is
+   2048x1024 -- the old 1024x512 slot silently cropped the bottom of every game
+   drawn taller than 256 lines once enhanced: Bloody Roar 2 (512x480), Tekken 3
+   (384x480) and Ehrgeiz (640x480) all lost most of their picture at 1.5x and 2x.
+   video_init picks the largest slot that maps, so a machine short of memory
+   degrades to the old size instead of losing video. */
+#define FRAME_W_MAX 2048
+#define FRAME_H_MAX 1024
+static unsigned frame_w = 1024, frame_h = 512;
+#define FRAME_PITCH (frame_w * 4)
+#define FRAME_SIZE  (frame_w * 4 * frame_h)
 
 gcmContextData *rsx_ctx;
 static u32 scr_w, scr_h;
@@ -149,13 +158,29 @@ int video_init(void)
     if (!vbuf) return 0;
     rsxAddressToOffset(vbuf, &vbuf_off);
 
-    /* the two game frame buffers and the overlay share one mapped block */
-    frames = (u8 *)memalign(1024 * 1024, 4 * 1024 * 1024 + 4 * 1024 * 1024);
-    if (!frames) return 0;
-    memset(frames, 0, 8 * 1024 * 1024);
-    if (gcmMapMainMemory(frames, 8 * 1024 * 1024, &frames_off) != 0) return 0;
-    ovl = (u32 *)(frames + 2 * FRAME_SIZE);
-    ovl_off = frames_off + 2 * FRAME_SIZE;
+    /* the two game frame buffers and the overlay share one mapped block. The
+       slot is as large as the mapping allows; see the comment on frame_w. */
+    {
+        unsigned want_w = FRAME_W_MAX, want_h = FRAME_H_MAX, total;
+        for (;;) {
+            total = 2 * (want_w * 4 * want_h);
+            total = (total + 0xfffff) & ~0xfffffu;   /* mapping granularity: 1 MiB */
+            total += (OVL_W * OVL_H * 4 + 0xfffff) & ~0xfffffu;
+            frames = (u8 *)memalign(1024 * 1024, total);
+            if (!frames) return 0;
+            memset(frames, 0, total);
+            if (gcmMapMainMemory(frames, total, &frames_off) == 0) {
+                frame_w = want_w; frame_h = want_h;
+                logf_("video: frame slots %ux%u (%u KiB)\n", frame_w, frame_h, (unsigned)(total / 1024));
+                break;
+            }
+            free(frames); frames = NULL;
+            if (want_h == FRAME_H_MAX) { want_w = 1024; want_h = 512; continue; }
+            return 0;                        /* not even the old size maps */
+        }
+        ovl = (u32 *)(frames + 2 * FRAME_SIZE);
+        ovl_off = frames_off + 2 * FRAME_SIZE;
+    }
 
     vp = (rsxVertexProgram *)quad_vpo;
     rsxVertexProgramGetUCode(vp, &vp_ucode, &sz);
@@ -326,6 +351,14 @@ void *video_frame_buffer(size_t *pitch)
 {
     *pitch = FRAME_PITCH;
     return frames + (shown ^ 1) * FRAME_SIZE;
+}
+
+/* the slot the core may be handed, so the front end can refuse a frame that
+   would not fit (the core then uses its own buffer and video_draw_frame copies) */
+void video_frame_limits(unsigned *w, unsigned *h)
+{
+    if (w) *w = frame_w;
+    if (h) *h = frame_h;
 }
 
 /* the core only redraws the display rectangle: clear leftovers from another game */
@@ -896,8 +929,8 @@ void video_draw_frame(const void *pix, unsigned w, unsigned h, size_t pitch)
         /* the core used its own buffer: copy into the one the RSX is not reading */
         u8 *dst = frames + (shown ^ 1) * FRAME_SIZE;
         unsigned y;
-        if (w > FRAME_W) w = FRAME_W;
-        if (h > FRAME_H) h = FRAME_H;
+        if (w > frame_w) w = frame_w;
+        if (h > frame_h) h = frame_h;
         for (y = 0; y < h; y++) memcpy(dst + y * FRAME_PITCH, (const u8 *)pix + y * pitch, w * 4);
         pix = dst; pitch = FRAME_PITCH;
     }

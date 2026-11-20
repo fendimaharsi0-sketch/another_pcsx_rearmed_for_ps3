@@ -32,7 +32,7 @@ typedef struct {
     short          gm[3];       /* g_m1..3 */
     short          y0, y1;      /* covered rows, for band culling */
     int            col[4];      /* colour words in call-argument order */
-    unsigned char  hi;          /* 1 = drawn at 2x into the shadow buffer (rows 0..1023, stride 2048) */
+    unsigned char  hi;          /* 0 = native, 1 = 2x (rows 0..1023), 2 = 1.5x (rows 0..767); the two enhanced modes share the 2048 stride */
     unsigned char  pad2[3];
     int            pad1[2];
 } spu_prim_t;
@@ -52,12 +52,12 @@ typedef struct {
     u32w padx[2];
     u32w dbg[4];       /* SPU progress breadcrumbs (16-byte aligned: offset 80) */
     u32w pad[8];
-    u32w kt[12], kc[12];  /* per primitive kind: ticks, prim-band count */
+    u32w kt[48], kc[48];  /* per primitive kind and blend flags: ticks, primitives */
     u32w ph[8];
-    u32w kp[12], ks[12];  /* per kind: bbox pixels in the band, rows stepped above the band */
+    u32w kp[48], ks[48];  /* per kind: bbox pixels in the band, rows stepped above the band */
     u64w ea_c;            /* destination buffer of this job (VRAM, or the 2x shadow buffer when hi) */
-    u32w hi;              /* 1: draw into ea_c as a 2048x1024 buffer in 8-row bands; textures still come from ea_b */
-    u32w padc;
+    u32w hi;              /* 1: draw into ea_c as a 2048x1024 buffer in 8-row bands; 2: 2048x768 (1.5x); textures still come from ea_b */
+    u32w vram_gen;        /* VRAM writes so far: a job whose texture cache was built at this generation reuses it */
 } __attribute__((aligned(128))) spu_ctl_t;
 
 #endif

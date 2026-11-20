@@ -160,6 +160,8 @@ void *plugin_link(enum builtint_plugins_e id, const char *sym)
 	return NULL;
 }
 
+extern int cfg_spu_hr(void);      /* ps3/src/config.c: the software renderer's enhanced mode (0 off, 1 2x, 2 1.5x) */
+
 void plugin_call_rearmed_cbs(void)
 {
 	extern void *hGPUDriver;
@@ -172,6 +174,14 @@ void plugin_call_rearmed_cbs(void)
 	pl_rearmed_cbs.gpu_hacks = 0;
 	if (Config.hacks.needs_interlace)
 		pl_rearmed_cbs.gpu_hacks |= GPU_HACK_NEEDS_INTERLACE;
+	/* This port's software renderer owns the enhancement (2x) mode and the
+	   front end switches it with the Renderer setting. The cbs field it is
+	   carried in belongs to the NEON plugin, which this port does not use, so
+	   the generic value (off) must not be pushed: it used to turn 2x off again
+	   every time the menu synced the config, which is why switching renderers
+	   in game came back at native resolution. */
+	/* a 1-bit field: the mode must be reduced to a bool, or 1.5x (2) reads as off */
+	pl_rearmed_cbs.gpu_neon.enhancement_enable = cfg_spu_hr() != 0;
 
 	rearmed_set_cbs = SysLoadSym(hGPUDriver, "GPUrearmedCallbacks");
 	if (rearmed_set_cbs != NULL)

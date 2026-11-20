@@ -940,7 +940,7 @@ static void spr_cap_common(spu_prim_t *p)
  p->setmask=sSetMask; p->tpx=GlobalTextAddrX; p->tpy=GlobalTextAddrY;
  p->clip[0]=drawX; p->clip[1]=drawY; p->clip[2]=drawW; p->clip[3]=drawH;
  p->gm[0]=g_m1; p->gm[1]=g_m2; p->gm[2]=g_m3;
- p->hi=(dshift==11);
+ p->hi=(dshift==11)?hr_mode:0;   /* 1 = 2x, 2 = 1.5x: both draw into the shadow buffer */
 }
 static void spr_cap_poly(int nv,int pk,int tp,const short *x,const short *y,
                          const short *tx,const short *ty,short clx,short cly,const int *col)
@@ -1038,6 +1038,7 @@ static void FillSoftwareAreaTrans(short x0,short y0,short x1, // FILL AREA TRANS
       } 
     }
   }
+ if(hiOn) hr_up(x0,y0,x1-x0,y1-y0);
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -1091,6 +1092,7 @@ static void FillSoftwareArea(short x0,short y0,short x1,      // FILL AREA (BLK 
      DSTPtr += LineOffset;
     } 
   }
+ if(hiOn) hr_up(x0,y0,x1-x0,y1-y0);
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -7178,7 +7180,7 @@ static void HorzLineFlat(int y, int x0, int x1, unsigned short colour)
 ///////////////////////////////////////////////////////////////////////
 
 /* Bresenham Line drawing function */
-static void DrawSoftwareLineShade(int32_t rgb0, int32_t rgb1)
+static void DrawSoftwareLineShade_n(int32_t rgb0, int32_t rgb1)
 {
  if(spr_render_on) spr_cap_sync();
 	short x0, y0, x1, y1, xt, yt;
@@ -7250,7 +7252,7 @@ static void DrawSoftwareLineShade(int32_t rgb0, int32_t rgb1)
 
 ///////////////////////////////////////////////////////////////////////
 
-static void DrawSoftwareLineFlat(int32_t rgb)
+static void DrawSoftwareLineFlat_n(int32_t rgb)
 {
  if(spr_render_on) spr_cap_sync();
 	short x0, y0, x1, y1, xt, yt;

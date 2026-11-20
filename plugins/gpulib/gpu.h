@@ -89,6 +89,7 @@ struct psx_gpu {
     uint32_t use_alternative_flip:1;
     uint32_t enhancement_enable:1;
     uint32_t enhancement_active:1;
+    uint32_t enhancement_mode:2;          // 0 off, 1 = 2x (2048x1024), 2 = 1.5x (1536x768, same 2048 stride)
     uint32_t enhancement_was_active:1;
     uint32_t downscale_enable:1;
     uint32_t dims_changed:1;

@@ -953,6 +953,38 @@ void gpulib_set_thread_rendering(int on)
   (void)on;
 }
 
+/* the software renderer's enhanced-resolution shadow buffer: the front end turns
+   the mode on and off with the renderer setting. check_mode_change() re-evaluates
+   it per frame, so nothing has to be reloaded here. mode: 0 off, 1 = 2x, 2 = 1.5x. */
+void gpulib_set_enhancement(int mode)
+{
+  gpu.state.enhancement_enable = mode ? 1 : 0;
+  gpu.state.enhancement_mode = mode ? mode : 0;
+  gpu.state.enhancement_active = 0;
+  gpu.state.enhancement_was_active = 0;
+}
+
+/* what the core decided for this frame (it re-evaluates the screen geometry
+   every vout_update); 0 also covers "no enhancement buffer" */
+int gpulib_enhancement_active(void)
+{
+  return gpu.get_enhancement_bufer != NULL && gpu.state.enhancement_active;
+}
+
+/* what the 2x decision is made of, for the log: the front end's switch, what the
+   core decided for this frame, and the geometry that decision is based on */
+void gpulib_enhancement_state(int *en, int *act, int *has_buf,
+                              int *hres, int *vres, int *src_y, int *src_y_old)
+{
+  if (en) *en = gpu.state.enhancement_enable;
+  if (act) *act = gpu.state.enhancement_active;
+  if (has_buf) *has_buf = gpu.get_enhancement_bufer != NULL;
+  if (hres) *hres = gpu.screen.hres;
+  if (vres) *vres = gpu.screen.vres;
+  if (src_y) *src_y = gpu.screen.src_y;
+  if (src_y_old) *src_y_old = gpu.state.src_y_old;
+}
+
 static void GPUwriteDataMem_(uint32_t *mem, int count);
 void GPUwriteDataMem(uint32_t *mem, int count)
 {

@@ -14,6 +14,7 @@
 static unsigned char sr_band[SR_BUFBYTES + 128] __attribute__((aligned(128)));
 static unsigned char sr_tc[SR_CLINES * 128] __attribute__((aligned(128)));
 static unsigned sr_tag[SR_CLINES];        /* line+1, 0 = empty */
+static unsigned sr_vgen;                  /* VRAM generation the cache was built for */
 static spu_prim_t sr_list[SR_CHUNK] __attribute__((aligned(128)));
 static u64w sr_vram;
 #ifndef SR_TICK
@@ -22,7 +23,10 @@ static u64w sr_vram;
 static unsigned sr_ph[5], sr_phl;
 #define PH_RESET() (sr_phl = SR_TICK())
 #define PH(k) do { unsigned n_ = SR_TICK(); sr_ph[k] += sr_phl - n_; sr_phl = n_; } while (0)
-static unsigned sr_kt[12], sr_kc[12], sr_kp[12], sr_ks[12];
+static unsigned sr_kt[48], sr_kc[48], sr_kp[48], sr_ks[48];
+/* bucket = kind*4 + semi*2 + mask: an opaque primitive and a translucent one run
+   different loops (the FASTSOLID/g_modtab fast path needs both flags clear), so
+   averaging them together hides which of the two costs the time */
 static unsigned sr_p[8];   /* 0 miss ticks, 1 misses, 2 band dma ticks, 3 draws, 4 draw ticks, 5 list dma ticks */
 #ifdef HOST_TEST
 int sr_oob;
@@ -123,14 +127,20 @@ static void sr_put_big(void *ls, u64w ea, unsigned size)
 }
 
 /* draw `n` primitives (list at list_ea) into the bands assigned to `worker` of `nw` */
-static void sr_render(u64w list_ea, unsigned n, u64w vram_ea, u64w dest_ea, unsigned hi, unsigned worker, unsigned nw)
+static void sr_render(u64w list_ea, unsigned n, u64w vram_ea, u64w dest_ea, unsigned hi, unsigned worker, unsigned nw, unsigned vgen)
 {
     unsigned band, i, k;
-    const unsigned rowb = hi ? 4096 : 2048, bh = hi ? 8 : SPU_BAND_H, nrows = hi ? 1024 : 512, nbands = nrows / bh;
+    const unsigned rowb = hi ? 4096 : 2048, bh = hi ? 8 : SPU_BAND_H, nrows = hi==2 ? 768 : hi ? 1024 : 512, nbands = nrows / bh;
     sr_vram = vram_ea;
     dshift = hi ? 11 : 10;
     memset(sr_p, 0, sizeof sr_p); memset(sr_kt, 0, sizeof sr_kt); memset(sr_kc, 0, sizeof sr_kc); memset(sr_kp, 0, sizeof sr_kp); memset(sr_ph, 0, sizeof sr_ph); memset(sr_ks, 0, sizeof sr_ks);
-    memset(sr_tag, 0, sizeof sr_tag);
+    /* keeping the cache across jobs is the point: a job that saw the same VRAM
+       generation as the last one reuses the texture lines already in local store
+       instead of DMAing them again. The PPU bumps the generation on every write.
+       Only the 2x path qualifies: there the SPUs draw into their own shadow buffer,
+       so they never write VRAM themselves -- in 1x they draw into VRAM, and their
+       own writes would silently invalidate lines the PPU never heard about. */
+    if (vgen != sr_vgen || !hi) { memset(sr_tag, 0, sizeof sr_tag); sr_vgen = vgen; }
     sr_cbase = 0xffffffffu; sr_mvalid = 0;
     for (band = worker; band < nbands; band += nw) {
         int by0 = band * bh, by1 = by0 + bh, loaded = 0;
@@ -152,7 +162,7 @@ static void sr_render(u64w list_ea, unsigned n, u64w vram_ea, u64w dest_ea, unsi
                     loaded = 1; sr_p[2] += t2 - SR_TICK();
                 }
                 SR_DBG(band, i + k, p->pk * 16 + p->nv * 4 + p->tp);
-                { unsigned t3 = SR_TICK(), dt, kk = p->pk < 2 ? p->pk : p->pk < 4 ? 2 + (p->pk - 2) * 3 + (p->tp > 2 ? 2 : p->tp) : p->pk == 4 ? 8 + (p->tp > 2 ? 2 : p->tp) : 11; spu_draw_poly(p, by0, by1); dt = t3 - SR_TICK(); sr_p[4] += dt; sr_p[3]++; sr_kt[kk] += dt; sr_kc[kk]++;
+                { unsigned t3 = SR_TICK(), dt, kb = p->pk < 2 ? p->pk : p->pk < 4 ? 2 + (p->pk - 2) * 3 + (p->tp > 2 ? 2 : p->tp) : p->pk == 4 ? 8 + (p->tp > 2 ? 2 : p->tp) : 11, kk = kb * 4 + (p->semi ? 2 : 0) + (p->mask ? 1 : 0); spu_draw_poly(p, by0, by1); dt = t3 - SR_TICK(); sr_p[4] += dt; sr_p[3]++; sr_kt[kk] += dt; sr_kc[kk]++;
                   { int xa, xb, ya, yb, q, w, h, top;
                     if (p->pk == 4) { xa = p->x[0] + p->x[1]; xb = xa + p->tx[1]; top = p->y[0] + p->y[1]; yb = top + p->ty[1]; }
                     else if (p->pk == 5) { xa = p->x[0]; xb = p->x[1]; top = p->y[0]; yb = p->y[1]; }

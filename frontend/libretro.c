@@ -428,7 +428,8 @@ static void vout_flip(const void *vram_, int vram_ofs, int bgr24,
    u32 vram_mask = enhres ? ~0 : 0xfffff;
    int w_blit = min(w, vout_width);
    int port = 0, hwrapped;
-   int sstride = 2048;
+   /* the 2x shadow buffer is 2048 pixels wide, twice the native stride */
+   int sstride = enhres ? 4096 : 2048;
 
    if (vram == NULL || dims_changed || (in_enable_crosshair[0] + in_enable_crosshair[1]) > 0)
    {

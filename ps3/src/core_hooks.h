@@ -37,8 +37,20 @@ int  spr_set_workers(int want);           /* rebuild with another count (off onl
 int  spr_start(void);
 void spr_stop(void);
 void spr_sync(void);                      /* draw everything recorded and wait */
-void spr_stats(unsigned *jobs, double *prims, double *wait_ms, unsigned *max_spu_ms,
-               unsigned *waits, unsigned *sprites, unsigned *tiles);
+void spr_set_hivram(void *v);             /* the 2x shadow buffer, drawn when a prim is hi */
+int  spr_hires_ready(void);               /* the 2x buffer is there and usable */
+/* the SPU renderer's 10 s report. jobs/prims/sprites/tiles are cumulative, the
+   millisecond figures are for the window (they are reset as they are read) */
+typedef struct {
+    unsigned jobs, waits, sprites, tiles, max_spu_ms, worst_prims;
+    double prims, wait_ms, tex_ms, band_ms, draw_ms, list_ms, tex_lines, px;
+    double run_ms;                      /* the SPU group's total busy time */
+    double worst_tex_ms, worst_band_ms, worst_draw_ms, worst_list_ms;
+    double kms[48], kpx[48];           /* per kind and blend flags: ticks, pixels */
+    double kc[48];                     /* per kind and blend flags: how many */
+} spr_stats_t;
+void spr_stats(spr_stats_t *s);
+void spu_poly_set_priority(int p);          /* the menu's SPU priority switch, live */
 void spr_cap_set(int on);                 /* in plugins/dfxvideo/soft.c */
 extern volatile int spr_busy;
 
