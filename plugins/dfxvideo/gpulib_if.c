@@ -307,21 +307,23 @@ static void hr_up(int x,int y,int w,int h)
  if(hr_mode==2)
   {
    /* 1.5x: each source pixel covers one or two destination pixels (3:2), in
-      both directions -- a row skipped vertically shows up as a black line
-      through whatever was upscaled, because the shadow buffer is the picture */
-   int j;
+      both directions, and the step follows the ABSOLUTE pixel X=x+i. A
+      relative index is only right for even x: for odd x it smears one pixel
+      sideways and leaves the rect's last destination column unwritten. The
+      shadow buffer is the picture, so both show as lines. */
+   int xo=x*3/2;
    for(r=0;r<h;r++)
     {
      const unsigned short *sp=psxVuw+(y+r)*1024+x;
      int sy=(y+r)*3/2, nr=((y+r+1)*3/2)-sy, q;
-     unsigned short *d=hiVuw+sy*2048+x*3/2;
+     unsigned short *d=hiVuw+sy*2048+xo;
      for(q=0;q<nr;q++)
       {
        for(i=0;i<w;i++)
         {
-         j=i*3/2;
-         d[j]=sp[i];
-         if((i+1)*3/2>j+1) d[j+1]=sp[i];
+         int X=(x+i)*3/2-xo;
+         d[X]=sp[i];
+         if((x+i+1)*3/2-xo>X+1) d[X+1]=sp[i];
         }
        d+=2048;
       }
