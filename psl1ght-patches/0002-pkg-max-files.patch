@@ -1,0 +1,34 @@
+diff --git a/tools/sfo_pkg/pkg.c b/tools/sfo_pkg/pkg.c
+--- a/tools/sfo_pkg/pkg.c
++++ b/tools/sfo_pkg/pkg.c
+@@ -281,7 +281,7 @@ static void make_dirs(const char *path)
+ /* ------------------------------------------------------------------ */
+
+ /* Maximum number of entries in a PKG */
+-#define MAX_FILES 1024
++#define MAX_FILES 8192
+
+ static pkg_file_entry_t g_files[MAX_FILES];
+ static int              g_file_count = 0;
+@@ -299,8 +299,8 @@ static void get_files(const char *folder, const char *original)
+     if (h == INVALID_HANDLE_VALUE) return;
+
+     /* Collect entries: files first, then directories */
+-    char files_list[MAX_FILES][260];
+-    char dirs_list[MAX_FILES][260];
++    static char files_list[MAX_FILES][260];
++    static char dirs_list[MAX_FILES][260];
+     int  nfiles = 0, ndirs = 0;
+
+     do {
+@@ -373,8 +373,8 @@ static void collect_dir(const char *folder, const char *original)
+     if (!dp) { perror(folder); return; }
+
+     /* Collect names */
+-    char files_list[MAX_FILES][512];
+-    char dirs_list[MAX_FILES][512];
++    static char files_list[MAX_FILES][512];
++    static char dirs_list[MAX_FILES][512];
+     int  nfiles = 0, ndirs = 0;
+
+     size_t foldlen = strlen(folder);
