@@ -1,0 +1,150 @@
+# Build the ps3dev toolchain image and push it to GHCR, so the package can be
+# built on any machine with one pull instead of a local toolchain install:
+#
+#   docker pull ghcr.io/<owner>/<repo>:latest
+#   docker run --rm -v "$(pwd)":/build <owner>/<repo>:latest bash ps3/build.sh
+#
+# Why a separate workflow from "Build PS3 PKG":
+# - that one builds the toolchain from source on every run (cached, but the
+#   cache misses whenever upstream ps3toolchain moves). This one packages the
+#   same steps into an image, so later runs -- local or CI -- only need a pull;
+# - both are workflow_dispatch ONLY: a cold toolchain build is half an hour,
+#   never something to trigger by accident on a push.
+#
+# What goes in the image: see .github/workflows/ps3dev.Dockerfile. Base is
+# Ubuntu because Cg comes from nvidia-cg-toolkit; PSL1GHT carries the two
+# patches the PKG workflow also applies.
+#
+# STORAGE: free for a public repository, which this one is. If the repo ever
+# goes private, the free tier is small and an image this size will exceed it --
+# then keep only the latest tag (the delete-package-versions step below does
+# that) or set push=false to build without publishing.
+#
+# VISIBILITY: GHCR creates a package PRIVATE by default even in a public repo,
+# so a plain local "docker pull" gets a 403 until this is done ONCE:
+#   GitHub -> your profile -> Packages -> <repo> -> Package settings ->
+#   Change visibility -> Public
+# (or pull with a personal access token that has read:packages).
+#
+# BRANCH: this workflow lives on research, which is not the repository's
+# default branch (that is ps3, where the stable code goes). GitHub shows the
+# workflows of the branch being viewed, but manual dispatch of a workflow that
+# only exists off the default branch is not guaranteed across interface
+# changes -- if the "Run workflow" button does not appear while research is
+# selected, run it from the API instead (gh api /repos/<owner>/<repo>/actions/
+# workflows/build-image.yml/dispatches), or carry the two files into ps3 once
+# the toolchain is settled.
+#
+# The Dockerfile is validated before it is pushed: the first RUN only installs
+# apt packages, and the workflow fails there if the base image or a package
+# name has drifted, rather than halfway through a 30-minute toolchain build.
+
+name: Build ps3dev image
+
+on:
+  workflow_dispatch:
+    inputs:
+      push:
+        description: 'Push the image to GHCR'
+        type: boolean
+        default: true
+      keep_versions:
+        description: 'Image tags to keep (0 = keep all)'
+        required: false
+        default: '2'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: inputs.push
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags
+        id: meta
+        run: |
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      # Fail fast on a broken Dockerfile: this stage stops at the first RUN
+      # (apt), so a syntax or package error costs seconds, not half an hour.
+      - name: Lint Dockerfile
+        run: docker buildx build --check \
+          -f .github/workflows/ps3dev.Dockerfile .
+
+      - name: Build image (no push)
+        if: ${{ !inputs.push }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/workflows/ps3dev.Dockerfile
+          push: false
+          tags: ps3dev:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push image
+        if: inputs.push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/workflows/ps3dev.Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Local usage
+        if: inputs.push
+        run: |
+          cat <<EOF
+          pulled image:  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            cd <repo>
+            docker run --rm -v "\$(pwd)":/build \\
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \\
+              bash ps3/build.sh
+
+          the package lands in ps3/build/.
+
+          first pull says 403?  make the package public once:
+            GitHub -> profile -> Packages -> ${{ github.event.repository.name }}
+            -> Package settings -> Change visibility -> Public
+          EOF
+
+      # Keep the registry from filling with every run's image. latest stays
+      # untouched; only dated/SHA tags are pruned.
+      - name: Delete old image versions
+        if: inputs.push && inputs.keep_versions != '0'
+        continue-on-error: true
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}
+          package-type: container
+          min-versions-to-keep: ${{ inputs.keep_versions }}
+          ignore-tags: 'latest'
+          token: ${{ secrets.GITHUB_TOKEN }}
