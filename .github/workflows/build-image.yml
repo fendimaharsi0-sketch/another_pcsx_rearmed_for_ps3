@@ -89,8 +89,7 @@ jobs:
       # Fail fast on a broken Dockerfile: this stage stops at the first RUN
       # (apt), so a syntax or package error costs seconds, not half an hour.
       - name: Lint Dockerfile
-        run: docker buildx build --check \
-          -f .github/workflows/ps3dev.Dockerfile .
+        run: docker buildx build --check -f .github/workflows/ps3dev.Dockerfile .
 
       - name: Build image (no push)
         if: ${{ !inputs.push }}
